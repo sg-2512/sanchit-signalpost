@@ -136,7 +136,7 @@ def aggregate_footprint(
     for item in accepted:
         by_platform[item["platform"]].append(item)
 
-    review_items = [item for item in accepted if item["signal_type"] in {"review", "review_summary"}]
+    review_items = [item for item in accepted if item["signal_type"] in {"review", "review_summary", "place_summary"}]
     job_items = [item for item in accepted if item["signal_type"] == "job_posting"]
     public_items = [item for item in accepted if item["signal_type"] in {"public_post", "public_mention", "buzz_metrics"}]
     sentiment_items = [item for item in accepted if item.get("sentiment_label")]

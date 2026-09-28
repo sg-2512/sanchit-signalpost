@@ -228,7 +228,39 @@ def extract_place_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
     ev = profile.get("evidence") or {}
     locs = ((ev.get("locations") or {}).get("value") or {}).get("locations") or []
     if not locs:
-        return []
+        reg_val = (ev.get("registry_live") or {}).get("value") or (ev.get("registry") or {}).get("value") or {}
+        addr = profile.get("address") or reg_val.get("forretningsadresse") or {}
+        if not isinstance(addr, dict):
+            addr = {}
+        kommune = addr.get("kommune") or profile.get("municipality") or reg_val.get("forretningsadresse.kommune") or ""
+        poststed = addr.get("poststed") or reg_val.get("forretningsadresse.poststed") or ""
+        raw_addr = addr.get("adresse") or reg_val.get("forretningsadresse.adresse") or ""
+        street = ", ".join(raw_addr) if isinstance(raw_addr, list) else str(raw_addr or "")
+        if not kommune and not poststed and not street:
+            return []
+        loc_name = str(profile.get("name") or reg_val.get("navn") or f"Organisation {org}")
+        source_url = (ev.get("registry_live") or {}).get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
+        retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or utc_now()
+        digest = hashlib.sha256(f"{org}|place|hq|{kommune}|{street}".encode()).hexdigest()
+        span_parts = [p for p in (loc_name, street, f"{poststed} ({kommune})" if poststed and kommune else (kommune or poststed)) if p]
+        span_str = f"Official registered operating location: {', '.join(span_parts)}"
+        return [{
+            "id": f"place-brreg-hq-{org}-{digest[:16]}",
+            "organisation_number": org,
+            "platform": "brreg",
+            "signal_type": "place_summary",
+            "source_url": source_url,
+            "retrieved_at": retrieved_at,
+            "content_sha256": digest,
+            "exact_entity": True,
+            "identity_proof": [{"type": "official_registered_office", "address": street, "municipality": kommune}],
+            "acquisition_mode": "official_api",
+            "rights_status": "approved",
+            "source_class": "official_subunits",
+            "evidence_span": span_str,
+            "metrics": {"place_name": loc_name, "municipality": kommune, "address": street, "poststed": poststed},
+            "strategy": "official_headquarters_place",
+        }]
 
     source_url = f"https://data.brreg.no/enhetsregisteret/api/underenheter?overordnetEnhet={org}&size=1000"
     retrieved_at = (ev.get("locations") or {}).get("retrieved_at") or ""

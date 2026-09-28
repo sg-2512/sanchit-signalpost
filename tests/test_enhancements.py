@@ -341,5 +341,55 @@ class EmailDomainCandidateTests(unittest.TestCase):
         self.assertIsNone(extract_email_domain_candidate({"evidence": {"registry": {"value": {"epostadresse": ""}}}}))
 
 
+class OperatingLocationPlaceTests(unittest.TestCase):
+    def test_extract_place_from_subunits(self):
+        import run_agent
+        from norway_company_agent.external_footprint import publishable_observation
+
+        profile = {
+            "organisation_number": "912345678",
+            "name": "TEST NORGE AS",
+            "evidence": {
+                "locations": {
+                    "value": {
+                        "locations": [
+                            {
+                                "organisation_number": "987654321",
+                                "name": "TEST NORGE AVD OSLO",
+                                "address": {"kommune": "OSLO", "poststed": "OSLO"},
+                            }
+                        ]
+                    },
+                    "retrieved_at": "2026-09-28T12:00:00Z",
+                }
+            },
+        }
+        obs = run_agent.extract_place_observations(profile)
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["signal_type"], "place_summary")
+        self.assertEqual(obs[0]["platform"], "brreg")
+        self.assertTrue(publishable_observation(obs[0]))
+
+    def test_extract_place_fallback_to_headquarters(self):
+        import run_agent
+        from norway_company_agent.external_footprint import publishable_observation
+
+        profile = {
+            "organisation_number": "912345678",
+            "name": "TEST SINGLE LOCATION AS",
+            "address": {"kommune": "BERGEN", "poststed": "BERGEN", "adresse": ["Strandgaten 1"]},
+            "evidence": {
+                "locations": {"value": {"locations": []}},
+                "registry": {"retrieved_at": "2026-09-28T12:00:00Z"},
+            },
+        }
+        obs = run_agent.extract_place_observations(profile)
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["signal_type"], "place_summary")
+        self.assertEqual(obs[0]["strategy"], "official_headquarters_place")
+        self.assertEqual(obs[0]["metrics"]["municipality"], "BERGEN")
+        self.assertTrue(publishable_observation(obs[0]))
+
+
 if __name__ == "__main__":
     unittest.main()

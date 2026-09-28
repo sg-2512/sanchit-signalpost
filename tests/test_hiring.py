@@ -61,6 +61,51 @@ class TestHiringModules(unittest.TestCase):
         self.assertFalse(hiring_block["appears_to_be_hiring"])
         self.assertIn("0 registered employees", hiring_block["assessment"])
 
+    @patch("urllib.request.urlopen")
+    def test_fetch_nav_jobs_publishable(self, mock_urlopen):
+        from norway_company_agent.external_footprint import publishable_observation, validate_observation
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"hits": {"hits": [{"_source": {"uuid": "abc-123", "title": "Senior Developer", "businessName": "Equinor ASA", "employer": {"orgnr": "923609016", "name": "Equinor ASA"}}}]}}'
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        obs = fetch_nav_jobs("Equinor ASA", "923609016")
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["platform"], "job_board")
+        self.assertEqual(obs[0]["signal_type"], "job_posting")
+        self.assertEqual(validate_observation(obs[0]), [])
+        self.assertTrue(publishable_observation(obs[0]))
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_linkedin_jobs_publishable(self, mock_urlopen):
+        from norway_company_agent.external_footprint import publishable_observation, validate_observation
+
+        html = b"""
+        <ul>
+            <li>
+                <div class="base-search-card">
+                    <h4 class="base-search-card__subtitle">Equinor ASA</h4>
+                    <h3 class="base-search-card__title">Subsea Engineer</h3>
+                    <a class="base-card__full-link" href="https://no.linkedin.com/jobs/view/subsea-engineer-123"></a>
+                    <time datetime="2026-09-20">2 weeks ago</time>
+                </div>
+            </li>
+        </ul>
+        """
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = html
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        obs = fetch_linkedin_jobs("Equinor ASA", "923609016")
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["platform"], "linkedin")
+        self.assertEqual(obs[0]["signal_type"], "job_posting")
+        self.assertEqual(obs[0]["acquisition_mode"], "permitted_public_page")
+        self.assertEqual(validate_observation(obs[0]), [])
+        self.assertTrue(publishable_observation(obs[0]))
+
 
 if __name__ == "__main__":
     unittest.main()

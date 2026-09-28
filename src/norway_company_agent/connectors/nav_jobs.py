@@ -77,6 +77,7 @@ def fetch_nav_jobs(
         if budget:
             budget.record_request(bytes_received=bytes_received, elapsed_ms=elapsed_ms, cost_usd=0.0)
 
+        content_digest = hashlib.sha256(raw).hexdigest()
         hits = data.get("hits", {}).get("hits", [])
         retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         observations: list[dict[str, Any]] = []
@@ -89,8 +90,10 @@ def fetch_nav_jobs(
 
             # Strict company identity match
             matched = False
+            match_type = "nav_company_core_match"
             if employer_org and employer_org == str(org_number):
                 matched = True
+                match_type = "nav_employer_orgnr_match"
             elif employer_core == legal_core:
                 matched = True
 
@@ -107,19 +110,29 @@ def fetch_nav_jobs(
             observations.append({
                 "id": obs_id,
                 "organisation_number": str(org_number),
-                "platform": "nav_arbeidsplassen",
+                "platform": "job_board",
                 "signal_type": "job_posting",
                 "source_url": job_url,
                 "retrieved_at": retrieved_at,
                 "published_at": published,
                 "expires_at": expires,
                 "exact_entity": True,
+                "content_sha256": content_digest,
+                "identity_proof": [
+                    {
+                        "type": match_type,
+                        "employer_name": employer_name,
+                        "employer_org": employer_org,
+                        "query": company_name,
+                    }
+                ],
                 "job_title": title,
                 "employer_name": employer_name,
                 "evidence_span": f"Active job posting '{title}' published by {employer_name} on NAV Arbeidsplassen",
                 "source_class": "official_public_employment_registry",
                 "rights_status": "approved",
                 "acquisition_mode": "official_api",
+                "strategy": "nav_arbeidsplassen_search",
             })
             if len(observations) >= max_results:
                 break

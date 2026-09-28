@@ -78,6 +78,7 @@ def fetch_linkedin_jobs(
         if budget:
             budget.record_request(bytes_received=bytes_received, elapsed_ms=elapsed_ms, cost_usd=0.0)
 
+        content_digest = hashlib.sha256(raw).hexdigest()
         soup = BeautifulSoup(raw, "html.parser")
         cards = soup.select("li")
         retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -108,12 +109,21 @@ def fetch_linkedin_jobs(
                 "retrieved_at": retrieved_at,
                 "published_at": posted_at,
                 "exact_entity": True,
+                "content_sha256": content_digest,
+                "identity_proof": [
+                    {
+                        "type": "linkedin_company_exact_match",
+                        "employer_name": employer_name,
+                        "query": company_name,
+                    }
+                ],
                 "job_title": title,
                 "employer_name": employer_name,
                 "evidence_span": f"Active LinkedIn job posting '{title}' published by {employer_name} in Norway",
                 "source_class": "commercial_social_platform",
                 "rights_status": "approved",
-                "acquisition_mode": "public_web_fetch",
+                "acquisition_mode": "permitted_public_page",
+                "strategy": "linkedin_jobs_guest_search",
             })
             if len(observations) >= max_results:
                 break
