@@ -609,8 +609,8 @@ def main() -> int:
         "two_platforms": len([org for org in set(o["organisation_number"] for o in publishable)
                             if len({ob["platform"] for ob in publishable if ob["organisation_number"] == org}) >= 2]) / max(len(orgs), 1),
         "workforce_jobs": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"workforce_snapshot", "job_posting"}}) / max(len(orgs), 1),
-        "ratings_reviews": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"review", "review_summary"}}) / max(len(orgs), 1),
-        "buzz_engagement": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"public_post", "public_mention", "buzz_metrics"}}) / max(len(orgs), 1),
+        "ratings_reviews": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"review", "review_summary", "place_summary"}}) / max(len(orgs), 1),
+        "buzz_engagement": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"public_post", "public_mention", "profile_metrics", "buzz_metrics"}}) / max(len(orgs), 1),
         "sentiment": len({o["organisation_number"] for o in publishable if o.get("sentiment_label")}) / max(len(orgs), 1),
     }
 

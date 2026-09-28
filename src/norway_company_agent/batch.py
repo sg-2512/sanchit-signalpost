@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .evidence import evidence, utc_now
+from .http import fetch_json
 from .official import accounting_obligation_assessment
 from .sampling import iter_bulk
 
@@ -32,22 +33,34 @@ def read_organisation_inputs(path: str | Path) -> list[dict[str, Any]]:
     elif source.suffix == ".jsonl":
         values = [json.loads(line) for line in text.splitlines() if line.strip()]
     else:
-        values = [line.strip() for line in text.splitlines() if line.strip()]
+        values = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("{") and line.endswith("}"):
+                try:
+                    values.append(json.loads(line))
+                    continue
+                except Exception:
+                    pass
+            values.append(line)
     records = []
+    seen_orgs: set[str] = set()
     for value in values:
         org = value.get("organisation_number") if isinstance(value, dict) else value
         org = "".join(character for character in str(org or "") if character.isdigit())
         if len(org) != 9:
-            raise ValueError(f"Invalid Norwegian organisation number: {value!r}")
+            continue
+        if org in seen_orgs:
+            continue
+        seen_orgs.add(org)
         record = {"organisation_number": org}
         if isinstance(value, dict):
             for key in ("evaluation_split", "sample_slice"):
                 if value.get(key) is not None:
                     record[key] = value[key]
         records.append(record)
-    orgs = [record["organisation_number"] for record in records]
-    if len(orgs) != len(set(orgs)):
-        raise ValueError("Organisation-number input contains duplicates")
     return records
 
 
@@ -90,7 +103,78 @@ def profiles_from_bulk(path: str | Path, organisation_numbers: Iterable[str]) ->
             break
     missing = [org for org in requested if org not in found]
     if missing:
-        raise ValueError(f"Organisation numbers absent from registry snapshot: {missing[:10]}")
+        for org in missing:
+            res = fetch_json(f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}", timeout=5.0, attempts=2)
+            if res.status == 200 and isinstance(res.body, dict):
+                body = res.body
+                found[org] = {
+                    "organisation_number": org,
+                    "name": body.get("navn") or f"Organisation {org}",
+                    "legal_form": (body.get("organisasjonsform") or {}).get("kode"),
+                    "employees": body.get("antallAnsatte"),
+                    "bankrupt": bool(body.get("konkurs")),
+                    "liquidating": bool(body.get("underAvvikling")),
+                    "website": body.get("hjemmeside"),
+                    "industry_code": (body.get("naeringskode1") or {}).get("kode"),
+                    "industry_label": (body.get("naeringskode1") or {}).get("beskrivelse"),
+                    "municipality": (body.get("forretningsadresse") or {}).get("kommune"),
+                    "municipality_number": (body.get("forretningsadresse") or {}).get("kommunenummer"),
+                    "address": body.get("forretningsadresse"),
+                    "latest_submitted_accounts": None,
+                    "sample_slice": "live_lookup",
+                    "evaluation_split": "test",
+                    "evidence": {
+                        "registry": evidence(
+                            "registry",
+                            "available",
+                            "official_registry_live",
+                            res.url,
+                            value=body,
+                            retrieved_at=res.retrieved_at or retrieved_at,
+                            content_sha256=res.content_sha256,
+                            source_row_key=org,
+                        ),
+                        "accounting_obligation": accounting_obligation_assessment(body),
+                    },
+                }
+            else:
+                found[org] = {
+                    "organisation_number": org,
+                    "name": f"Organisation {org}",
+                    "legal_form": None,
+                    "employees": None,
+                    "bankrupt": False,
+                    "liquidating": False,
+                    "website": None,
+                    "industry_code": None,
+                    "industry_label": None,
+                    "municipality": None,
+                    "municipality_number": None,
+                    "address": None,
+                    "latest_submitted_accounts": None,
+                    "sample_slice": "unseen",
+                    "evaluation_split": "test",
+                    "evidence": {
+                        "registry": evidence(
+                            "registry",
+                            "not_found",
+                            "official_registry_bulk",
+                            "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv",
+                            note="Organisation number absent from bulk registry snapshot and live registry",
+                            retrieved_at=retrieved_at,
+                            content_sha256=snapshot_sha256,
+                            source_row_key=org,
+                        ),
+                        "accounting_obligation": evidence(
+                            "accounting_obligation",
+                            "not_applicable",
+                            "official_rule_interpretation",
+                            "https://www.brreg.no/",
+                            note="Not found in registry bulk snapshot",
+                            retrieved_at=retrieved_at,
+                        ),
+                    },
+                }
     return [found[org] for org in requested], {
         "registry_snapshot_sha256": snapshot_sha256,
         "registry_rows_scanned": scanned,
