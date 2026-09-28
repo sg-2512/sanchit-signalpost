@@ -130,6 +130,12 @@ def generate_company_synthesis(
 
     sentences.append(f"{fin_str}{dig_str}.")
 
+    # 4. Hiring & Recruitment Assessment (Briefing requirement: 'whether it appears to be hiring')
+    hiring = profile.get("hiring") or {}
+    hiring_assessment = hiring.get("assessment")
+    if hiring_assessment:
+        sentences.append(hiring_assessment)
+
     if unknowns:
         sentences.append(f"Material unknowns: {'; '.join(unknowns)}.")
 
@@ -137,6 +143,8 @@ def generate_company_synthesis(
         "summary": " ".join(sentences),
         "model": "deterministic_grounded_v1",
         "grounded": True,
+        "hiring_status": hiring.get("status") or "unreported",
+        "appears_to_be_hiring": hiring.get("appears_to_be_hiring", False),
         "unknowns": unknowns,
     }
 

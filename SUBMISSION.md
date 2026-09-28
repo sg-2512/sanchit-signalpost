@@ -115,3 +115,12 @@ The agent integrates a multi-layer API intelligence suite to achieve maximum pre
    - Fulfills the 10-point competition rubric for grounded summary without unsupported claims.
    - Captures legal identity, active executive leadership, registered workplaces, and latest annual accounts while explicitly itemizing material unknowns.
    - Operates with deterministic zero-cost template by default ($0.00 spend), or invokes evaluator-injected LLM keys (`OPENAI_API_KEY`) for fluid synthesis under budget.
+11. **Multi-Source Hiring & Recruitment Intelligence (`hiring.py`)**:
+   - Directly fulfills the competition briefing requirement: *"whether it appears to be hiring"*.
+   - Synthesizes 4 distinct, permitted evidence layers:
+     1. **NAV Arbeidsplassen**: Live search against Norway's official public employment service (`arbeidsplassen.nav.no`) with exact legal core matching.
+     2. **LinkedIn Guest Jobs Search**: Real-time Norwegian corporate job vacancy detection.
+     3. **Company Website Career Crawling**: Automatic detection of career portals (`/karriere`, `/jobb`, `/careers`) and Norwegian recruitment notices (`"vi søker"`, `"ledige stillinger"`, `"bli med på laget"`).
+     4. **Brønnøysund Registry Workforce Data**: Official registered employee count from live registry.
+   - Emits a structured `"hiring"` assessment block in every profile and an explicit hiring statement in executive synthesis prose.
+

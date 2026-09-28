@@ -90,6 +90,7 @@ from norway_company_agent.connectors.linkedin import (
     discover_linkedin_company,
     is_available as linkedin_available,
 )
+from norway_company_agent.hiring import evaluate_company_hiring
 from norway_company_agent.synthesis import generate_company_synthesis
 
 
@@ -459,7 +460,12 @@ def enrich_single_company(
             if li_obs:
                 observations.append(li_obs)
 
-    # 8. Decision-useful factual synthesis (10-point scoring rubric)
+    # 8. Multi-Source Hiring & Recruitment Intelligence (NAV, LinkedIn, Website, Brreg)
+    hiring_block, hiring_obs = evaluate_company_hiring(profile, observations, budget=budget)
+    profile["hiring"] = hiring_block
+    observations.extend(hiring_obs)
+
+    # 9. Decision-useful factual synthesis (10-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
 
     return profile, observations
