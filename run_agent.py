@@ -438,7 +438,7 @@ def enrich_single_company(
     # 6. Google Places (already fetched in step 2)
     observations.extend(places_obs)
 
-    # 7. YouTube (optional, if API key available)
+    # 7. YouTube Data API connector
     if youtube_available() and budget.can_proceed():
         social_links = ((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("social_links") or [])
         yt_obs = fetch_youtube_data(org, name, social_links=social_links, budget=budget)

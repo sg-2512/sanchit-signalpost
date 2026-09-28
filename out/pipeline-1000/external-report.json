@@ -3,13 +3,13 @@
   "audit_size_gate": true,
   "wrong_entity_publications": 0,
   "unsupported_publications": 0,
-  "published_audited": 4038,
+  "published_audited": 3894,
   "connector_policy_passed": true,
-  "fresh_coverage": 4.038,
+  "fresh_coverage": 3.83,
   "coverage": {
     "two_platforms": 1.0,
     "workforce_jobs": 1.0,
-    "ratings_reviews": 0.053,
+    "ratings_reviews": 0.0,
     "buzz_engagement": 1.0,
     "sentiment": 1.0
   },
@@ -20,9 +20,10 @@
     "instagram",
     "linkedin",
     "news",
+    "tiktok",
     "youtube"
   ],
-  "total_observations": 4038,
-  "publishable_observations": 4038,
+  "total_observations": 3894,
+  "publishable_observations": 3830,
   "companies_with_external_data": 1000
 }

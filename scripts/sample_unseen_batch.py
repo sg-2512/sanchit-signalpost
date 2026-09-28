@@ -90,7 +90,7 @@ def main() -> None:
         for item in selected:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-    print(f"✅ Successfully wrote {len(selected)} unseen companies to '{args.output}' (seed={args.seed})")
+    print(f"[SUCCESS] Successfully wrote {len(selected)} unseen companies to '{args.output}' (seed={args.seed})")
 
 
 if __name__ == "__main__":

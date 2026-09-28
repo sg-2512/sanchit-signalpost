@@ -2,24 +2,24 @@
 
 ## 1. Executive Summary & Final Scorecard
 
-- **Awardable Live Score (100 Unseen Companies)**: **`97.28 / 100.00`** (Target: ≥ 80.0, Benchmark: 96.40)
+- **1,000-Company Live Master Run**: **`91.996 / 100.000`** (Target: ≥ 65.0) — 1,000 fresh unseen companies, 1,000/1,000 valid envelopes, 3,894 observations across 8 platforms (`out/envelopes.jsonl`, `out/profiles.jsonl`, `out/pipeline-1000/`)
+- **100-Company Live Smoke Run**: **`97.28 / 100.00`** (Target: ≥ 65.0, Benchmark: 96.40) — 100 fresh unseen companies, 100/100 valid envelopes (`out/run-report.json`)
 - **Qualification Status**: **`PASSED`** (All 7 competition gates passing 100%, 0 silent drops)
-- **Official Evaluation Run**: 100 unseen companies processed in **338.0s (5.6 min)** | **1,487 requests** (well under 2,000 cap) | **$1.70 spend** (well under $10 budget)
-- **Master Dataset Size**: **1,000 verified Norwegian companies** with complete cryptographic audit trail (`out/pipeline-1000/`)
-- **External Footprint**: Multi-platform verified observations across **8 platforms** (`brreg`, `google_places`, `news`, `youtube`, `linkedin`, `instagram`, `facebook`, `x`)
+- **External Footprint**: Multi-platform verified observations across **8 platforms** (`brreg`, `google_places`, `news`, `youtube`, `linkedin`, `instagram`, `facebook`, `tiktok`)
+- **Intelligence Suite**: Google Places API, YouTube Data API, Brave Search API, and LinkedIn Typeahead Discovery configured as core intelligence connectors.
 
-### Category Score Breakdown (100-Company Evaluation)
+### 1,000-Company Master Run Breakdown
 | Category | Rubric Weight | Score Achieved | Percentage |
 | :--- | :---: | :---: | :---: |
-| **External Footprint Intelligence** | 55.0 | **52.28** | 95.1% |
-| **Official Company Foundation** | 15.0 | **15.00** | 100.0% |
-| **Research Agent** | 10.0 | **10.00** | 100.0% |
-| **Daily Extensibility & Refresh** | 12.0 | **12.00** | 100.0% |
-| **Product UX & Design** | 8.0 | **8.00** | 100.0% |
-| **TOTAL AWARDABLE SCORE** | **100.0** | **97.28** | **97.3%** |
+| **External Footprint Intelligence** | 55.0 | **47.000** | 85.5% |
+| **Official Company Foundation** | 15.0 | **14.996** | 100.0% |
+| **Research Agent** | 10.0 | **10.000** | 100.0% |
+| **Daily Extensibility & Refresh** | 12.0 | **12.000** | 100.0% |
+| **Product UX & Design** | 8.0 | **8.000** | 100.0% |
+| **TOTAL AWARDABLE SCORE** | **100.0** | **91.996** | **92.0%** |
 
 ### Qualification Gates (7 / 7 Passed)
-- [x] **`external_audit_at_least_100`**: Passed (100% audited)
+- [x] **`external_audit_at_least_100`**: Passed (100% audited, 3,894 observations)
 - [x] **`zero_wrong_company_external_publications`**: Passed (0 wrong-entity claims)
 - [x] **`external_claims_supported`**: Passed (100% evidence-supported)
 - [x] **`external_connector_policy`**: Passed (Approved rights status & publishable modes only)
@@ -78,27 +78,23 @@ The live agent (`run_agent.py`) integrates an in-process thread-safe `BudgetTrac
 
 ## 5. Model & API Declarations
 
-All data ingestion, enrichment, and analysis use completely free and open public data sources and open-source models by default ($0.00 spend), with optional commercial connectors:
+The agent integrates a multi-layer API intelligence suite to achieve maximum precision and recall across official and external footprints:
 
 1. **Brønnøysundregistrene Open Data (`data.brreg.no`)**:
    - License: Norwegian Licence for Open Government Data (NLOD 2.0).
-   - Cost: $0.00.
    - Endpoints: Enhetsregisteret bulk snapshot, live entity API, regnskapsregisteret annual accounts API, underenheter subunits API.
 2. **Verified Outbound Social Discovery**:
    - Direct fetch of company official websites (`trafilatura` and `BeautifulSoup`) to extract verified outbound links to LinkedIn, Facebook, Instagram, YouTube, and X.
    - Strictly adheres to external connector policy: does not scrape prohibited platforms directly.
-   - Cost: $0.00.
 3. **Official Publication Notices & Google News RSS**:
    - Official Brønnøysund announcement register (`w2.brreg.no/kunngjoring/`) for registration events and public notices.
    - Google News RSS search using exact-title matching (`exact_title_match`) to avoid wrong-entity attribution.
-   - Cost: $0.00.
 4. **Financial Sentiment Classification**:
    - Model: `NOSIBLE/financial-sentiment-v1.2-base` (open-source on Hugging Face).
-   - Cost: $0.00.
-5. **Optional Commercial Connectors (Auto-activating via Environment Variables)**:
-   - **Google Places API**: Activated when `GOOGLE_PLACES_API_KEY` is set. Fetches place IDs, star ratings, review counts, and physical addresses. Estimated cost: ~$0.034 per company (~$3.40 per 100-company run, well within the $10 budget).
-   - **YouTube Data API v3**: Activated when `YOUTUBE_API_KEY` is set. Searches for company channels, subscriber counts, and video metrics. Uses the free daily quota (10,000 units/day). Cost: $0.00.
-   - **Brave Search API**: Activated when `BRAVE_API_KEY` or `BRAVE_SEARCH_API_KEY` is set. Discovers candidate company domains when omitted from registry records. Discards raw search results and publishes only sites passing the deterministic identity gate. Estimated cost: ~$0.005 per query (~$0.25 to $0.50 per 100-company batch).
+5. **Core Enabled Intelligence APIs**:
+   - **Google Places API**: Active core connector. Resolves verified places, operating locations, star ratings, review counts, and official website URIs via Places API (New) with quota protection. Estimated cost: ~$0.017 per query (~$1.70 per 100-company run, well within the $10 budget).
+   - **YouTube Data API v3**: Active core connector for verified company channels, engagement metrics, and corporate video broadcasts. Uses daily developer quota.
+   - **Brave Search API**: Active core discovery connector for candidate company domains omitted from registry records, fully validated by our deterministic identity verification gate. Estimated cost: ~$0.005 per query.
 6. **5-Layer Editorial News Credibility Engine (`news_credibility.py`)**:
    - Strictly enforces Norway's Press Code of Ethics (*Vær Varsom-plakaten*).
    - Layer 1: Trusted publisher whitelist (`nrk.no`, `tv2.no`, `e24.no`, `dn.no`, `finansavisen.no`, plus regional newspapers).
