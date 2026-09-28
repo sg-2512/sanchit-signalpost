@@ -1,0 +1,17 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+cache/
+brreg-enheter.csv
+signalpost-universe.jsonl.gz
+~$*.docx
+.env
+out/agent-*/
+out/test-*/
+out/evaluation-*/
+out/new-100-run/
+dev-5-*.jsonl
+*.egg-info/
+.coverage
+htmlcov/

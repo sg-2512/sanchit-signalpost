@@ -1,0 +1,11 @@
+{
+  "connector": "exact_social_workforce_place_metrics_notice_extractor_v1",
+  "profiles": 100,
+  "total_observations": 376,
+  "social_observations": 0,
+  "workforce_observations": 100,
+  "place_observations": 76,
+  "metrics_observations": 100,
+  "notice_observations": 100,
+  "companies_with_observations": 100
+}

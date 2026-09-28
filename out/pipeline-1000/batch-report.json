@@ -1,0 +1,60 @@
+{
+  "run_id": "entry-1000-enriched",
+  "started_at": "2026-09-21T19:16:01.143719Z",
+  "completed_at": "2026-09-21T19:32:08.440958Z",
+  "wall_clock_seconds": 967.3,
+  "expected_count": 1000,
+  "emitted_envelopes": 1000,
+  "profiles_fetched_this_run": 1000,
+  "resumed_profiles": 0,
+  "modules": [
+    "registry",
+    "accounting_obligation",
+    "registry_live",
+    "financials",
+    "roles",
+    "group",
+    "locations",
+    "website"
+  ],
+  "registry": {
+    "registry_snapshot_sha256": "90d394deca1e12a3808e4f87fee4ab01a31c23c849f4b44271cad7208d751e12",
+    "registry_rows_scanned": 1173255,
+    "requested": 1000,
+    "selected": 1000
+  },
+  "operations": {
+    "requests": 3668,
+    "bytes": 31186942,
+    "p50_ms": 1535,
+    "p95_ms": 3670,
+    "third_party_cost_usd": 7.14
+  },
+  "budget": {
+    "total_requests": 3668,
+    "max_requests": 6000,
+    "remaining_requests": 2332,
+    "total_cost_usd": 7.14,
+    "max_cost_usd": 25.0,
+    "total_bytes": 31186942,
+    "elapsed_seconds": 967.9,
+    "p50_ms": 1535,
+    "p95_ms": 3670
+  },
+  "external_connectors": {
+    "google_news_rss": true,
+    "google_places_api": true,
+    "youtube_data_api": true
+  },
+  "validation": {
+    "passed": true,
+    "checks": {
+      "exact_expected_count": true,
+      "unique_organisation_numbers": true,
+      "all_entity_states_terminal": true,
+      "all_module_states_terminal": true,
+      "zero_silent_drops": true
+    },
+    "invalid_states": []
+  }
+}

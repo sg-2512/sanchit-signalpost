@@ -1,0 +1,511 @@
+{
+  "connector": "google_news_rss_exact_title_experiment_v1",
+  "companies": 100,
+  "companies_with_mentions": 1,
+  "observations": 1,
+  "lookback_years": 2,
+  "errors": 0,
+  "claim_boundary": "Discovery-only experimental titles from Google News RSS. Publisher article bodies and storage rights are not independently verified, so these cannot be published or earn strict points.",
+  "company_results": [
+    {
+      "organisation_number": "985589003",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935095190",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997830792",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916340257",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998487099",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925800023",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "888567232",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926320459",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982942942",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982669251",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936056210",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "995354314",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924725834",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926311735",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917364907",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930132764",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989202723",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "822532152",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "977171962",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988814415",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932799650",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988263486",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926790137",
+      "items": 63,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "816559472",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "960711033",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919455144",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930355496",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935107989",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916544472",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934438450",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936514545",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920213561",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935013623",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933460371",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931654004",
+      "items": 1,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "834120852",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914561302",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "977539366",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990446539",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922155399",
+      "items": 4,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "999288448",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988415677",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "993515159",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935354293",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914968283",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "890546242",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "899322932",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921704593",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925606235",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "891742622",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "896331922",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913951867",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928238407",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916361750",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "946686166",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924920963",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922199477",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928309371",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927210657",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "980263681",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929647785",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931467425",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935780462",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992458062",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991918019",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935845432",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "827340162",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "941305989",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988573949",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "999111173",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928357007",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "983885748",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "817206662",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933787141",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991429999",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928996239",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929634691",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930847097",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989264087",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934549392",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933989208",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916804261",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930856916",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927356783",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916663242",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923094377",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "815699912",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "887325022",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "987602945",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "958589174",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929346769",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924585463",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991972889",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912825124",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932072602",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923106308",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936245064",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986308970",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914810795",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928940837",
+      "items": 0,
+      "accepted": 0
+    }
+  ]
+}

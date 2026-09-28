@@ -1,0 +1,43 @@
+{
+  "run_id": "pipeline-run-001-resume",
+  "started_at": "2026-09-21T15:30:56.376936Z",
+  "completed_at": "2026-09-21T15:31:32.151611Z",
+  "expected_count": 100,
+  "emitted_envelopes": 100,
+  "resumed_profiles": 100,
+  "profiles_fetched_this_run": 0,
+  "modules": [
+    "registry",
+    "accounting_obligation",
+    "registry_live",
+    "financials",
+    "financial_history",
+    "roles",
+    "group",
+    "locations",
+    "website"
+  ],
+  "registry": {
+    "registry_snapshot_sha256": "90d394deca1e12a3808e4f87fee4ab01a31c23c849f4b44271cad7208d751e12",
+    "registry_rows_scanned": 1170184,
+    "requested": 100,
+    "selected": 100
+  },
+  "operations": {
+    "requests": 0,
+    "bytes": 0,
+    "p50_ms": null,
+    "p95_ms": null
+  },
+  "validation": {
+    "passed": true,
+    "checks": {
+      "exact_expected_count": true,
+      "unique_organisation_numbers": true,
+      "all_entity_states_terminal": true,
+      "all_module_states_terminal": true,
+      "zero_silent_drops": true
+    },
+    "invalid_states": []
+  }
+}

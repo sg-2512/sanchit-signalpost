@@ -1,0 +1,5340 @@
+{
+  "connector": "google_news_rss_exact_title_experiment_v1",
+  "companies": 1000,
+  "companies_with_mentions": 11,
+  "observations": 15,
+  "lookback_years": 2,
+  "errors": 329,
+  "claim_boundary": "Discovery-only experimental titles from Google News RSS. Publisher article bodies and storage rights are not independently verified, so these cannot be published or earn strict points.",
+  "company_results": [
+    {
+      "organisation_number": "985589003",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935095190",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997830792",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916340257",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998487099",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925800023",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "888567232",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926320459",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982942942",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982669251",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936056210",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "995354314",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924725834",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926311735",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917364907",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930132764",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989202723",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "822532152",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "977171962",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988814415",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932799650",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988263486",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926790137",
+      "items": 63,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "816559472",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "960711033",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919455144",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930355496",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935107989",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916544472",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934438450",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936514545",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920213561",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935013623",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933460371",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931654004",
+      "items": 1,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "834120852",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914561302",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "977539366",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990446539",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922155399",
+      "items": 4,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "999288448",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988415677",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "993515159",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935354293",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914968283",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "890546242",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "899322932",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921704593",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925606235",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "891742622",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "896331922",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913951867",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928238407",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916361750",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "946686166",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924920963",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922199477",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928309371",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927210657",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "980263681",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929647785",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931467425",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935780462",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992458062",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991918019",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935845432",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "827340162",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "941305989",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988573949",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "999111173",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928357007",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "983885748",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "817206662",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933787141",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991429999",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928996239",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929634691",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930847097",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989264087",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934549392",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933989208",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916804261",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930856916",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927356783",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916663242",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923094377",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "815699912",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "887325022",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "987602945",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "958589174",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929346769",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924585463",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991972889",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912825124",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932072602",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923106308",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936245064",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986308970",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914810795",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928940837",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "983876943",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990625204",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924507527",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998805112",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933900843",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919287535",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927238357",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931018361",
+      "items": 3,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "938044775",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917722897",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929418247",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921835876",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922605963",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971310502",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920798446",
+      "items": 3,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "813270862",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932827646",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932862689",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934531930",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912070875",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919578378",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929515293",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920616887",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916862261",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926801473",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988974188",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936645410",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924695013",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912276600",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918158936",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935727634",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932056046",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919976659",
+      "items": 4,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920203930",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934010639",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "980165493",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919820101",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920281486",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922564183",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991303626",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991949666",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917065101",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927101327",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "999238602",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936299989",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913656636",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934157761",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927415119",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "835292002",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935263956",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "967041610",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "993550116",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989155911",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936857744",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925283339",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935833175",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928994058",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922142955",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "825148442",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989896091",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936648800",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "943294712",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934949706",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936662528",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "976898850",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935582423",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929603672",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "970201157",
+      "items": 10,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "984529295",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989004670",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "987743468",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "826714352",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920313361",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990598835",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935174856",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921373554",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986947116",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930076309",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917469032",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931032445",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935834325",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935112303",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982983908",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "833074822",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "980623149",
+      "items": 4,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934282973",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917840822",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922662193",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918570799",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933823369",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911921340",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "948516810",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930675431",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925615765",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "948955628",
+      "items": 3,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927967855",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921320817",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934860926",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929259114",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935160936",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918589600",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935828872",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990821178",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933593843",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916811136",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927631881",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934047575",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992957077",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "882010872",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "980997146",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991528008",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "831676752",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925437158",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991704523",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "967934895",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920502490",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911723344",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929988396",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989082388",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912344126",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "996973166",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934304454",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921835647",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926735799",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922847894",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924719788",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934481070",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998713501",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911815575",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931615815",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935120004",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922547165",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "832681172",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935597447",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "976466748",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922613095",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "816668352",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989183869",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923766545",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927044668",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "983928234",
+      "items": 5,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "998602181",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "984548745",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919496401",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931493841",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "832840572",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "817705642",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927343037",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930154962",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930601594",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912450287",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936534112",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "994870920",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912653277",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914569389",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924367555",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "999413706",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932089343",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926861735",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "823344112",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936009883",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "963970935",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982215617",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982790409",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915024165",
+      "items": 6,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "930081779",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971089989",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "970916636",
+      "items": 20,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "931044419",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913492986",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936740901",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "827929182",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "879128552",
+      "items": 5,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927297809",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928348695",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932496089",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988970042",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915734448",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916557159",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912878716",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917427046",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "981463862",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998315417",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913002458",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "894075562",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930521302",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "966478071",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936629830",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992577126",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935028000",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "984885520",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927237539",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914170125",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922157235",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933157253",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988522651",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911617706",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989142585",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935847591",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920660673",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "987788224",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998600421",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971170344",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991108971",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928675998",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919612096",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990515433",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914740762",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915077773",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992137851",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913521080",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988879479",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912015076",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926413848",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927969106",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "995677164",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920642675",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "830188932",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "994754602",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986981659",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "812702432",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "937885377",
+      "items": 17,
+      "accepted": 3
+    },
+    {
+      "organisation_number": "917331936",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918847464",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929001745",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925621919",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "833169602",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971376368",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932342596",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "889210362",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932394685",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922404550",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "993460095",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919916354",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989361430",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "816028612",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917148627",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920226299",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926757253",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927927500",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "994911422",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924613351",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934931084",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915719007",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "983201725",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "994490478",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926008439",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922575452",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932567318",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989823264",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922212813",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931624563",
+      "items": 3,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912251888",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929589637",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921259654",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989389173",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "985090629",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918772693",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924879602",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914882036",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989311514",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997808029",
+      "items": 8,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "952049070",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931008161",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "889232552",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "825238662",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "823706782",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "818842422",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933182258",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "866955492",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971128399",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934843800",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930052531",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924579889",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991435220",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935114462",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933794083",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923547592",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924957670",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998388759",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990293988",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "977126231",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "970395822",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988242144",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "976252128",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "987856440",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986417729",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998548012",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930501263",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931475622",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931743058",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990534748",
+      "items": 3,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989067028",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988445177",
+      "items": 14,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929474759",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933198332",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992072415",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915592163",
+      "items": 3,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "975809153",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936722709",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924825669",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911004925",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933725464",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925615579",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932369214",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "960461827",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933037274",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918385053",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932241242",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982170931",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990869189",
+      "items": 36,
+      "accepted": 3
+    },
+    {
+      "organisation_number": "921633785",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935095476",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998562406",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923847049",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998407257",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919863609",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933659429",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913054911",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "828152602",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912437604",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926838601",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920338313",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917286817",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930349585",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "835428362",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926993429",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934501535",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933098257",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992512075",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "892088802",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "950011904",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928081346",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "824367922",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930905631",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921647107",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989134914",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "830771832",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918630058",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "891785542",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934746716",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928733068",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "983618596",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "888896902",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "889240172",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925297526",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916503393",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931667750",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "965126945",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933539431",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930831522",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932750627",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997766431",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "817214142",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "830019952",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "979346050",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928987361",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936785913",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "812840622",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919895705",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922899924",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992815337",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "980365271",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "995464438",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "947751824",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "892053642",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925150266",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988879428",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "839384262",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924436808",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935650097",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920759297",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921117809",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918813136",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "985442096",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919994770",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986401598",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928000036",
+      "items": 10,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "996687708",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914586054",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924981253",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913779452",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918123741",
+      "items": 2,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "936010466",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912174050",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924389257",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930060658",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "886076622",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917812489",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929570618",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "932689758",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922393265",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931635794",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935728118",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927073242",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925448249",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928580121",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931166107",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925566713",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928488985",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "821199832",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933482081",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "819895252",
+      "items": 1,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "925878979",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934305396",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926370774",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "829139642",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935863058",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931031333",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915729010",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "992569077",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917033714",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919096241",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "867188592",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928932176",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931650289",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "977047587",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "985203288",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912509613",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971078758",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920853439",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "822324282",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "999321399",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929529227",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913395379",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917095493",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926876082",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "987028408",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911738414",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998373034",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930476269",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931675982",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998139392",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997133951",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "934385888",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921163274",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919283386",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "941759610",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915610285",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "983977979",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921765118",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929382315",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925938041",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998285194",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "998412986",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921130155",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "987693029",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914221072",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971081325",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "821026792",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931787985",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986617582",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933887588",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "836296222",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "833112112",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925037621",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919916729",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923732365",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924926732",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915454917",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "832827592",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "952228609",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929235606",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916166397",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933182142",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927117118",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990526095",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929767144",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997405714",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911377012",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "928272133",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "982170559",
+      "items": 8,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935809207",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "975363090",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912597814",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "924053003",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923813772",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "952265334",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917474583",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933812707",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "950385529",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "984953267",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923559957",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925361461",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "930822442",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "826980052",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931790994",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "912030938",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918677216",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "893434682",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989052012",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923691731",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "935022770",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "827971332",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927477327",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "919588470",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "970951423",
+      "items": 3,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997758501",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922711992",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918195394",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "979843445",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916020805",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989794418",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986905685",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926626280",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "971184523",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989156780",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "834327082",
+      "items": 9,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988820989",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916544219",
+      "items": 3,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925106674",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922937117",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997355377",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989307436",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918267166",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916482426",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "824825432",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917111065",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927267543",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915761585",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "888112812",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913180984",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989079999",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "933251691",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916350228",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "980440451",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "926317571",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936227503",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "911967863",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931064665",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923479422",
+      "items": 1,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "934998898",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989227734",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925198730",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "991160981",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921143230",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "993151343",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927667592",
+      "items": 1,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921808518",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927120844",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "936427537",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "916701632",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "997245237",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "913598814",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "920719554",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988506532",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929029984",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "979162634",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922707596",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917295344",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927110326",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "990638160",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "922754365",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "961194725",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913668634",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "996533751",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "944815325",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "986274693",
+      "items": 7,
+      "accepted": 1
+    },
+    {
+      "organisation_number": "935228204",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "917592691",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "829028832",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "931319825",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "927810255",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "925345334",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "988914908",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "918486844",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "915308775",
+      "items": 2,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "923830979",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "929005147",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "912785874",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "998320569",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "989256467",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "914509556",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927212064",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "817630812",
+      "items": 0,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "921117817",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "998096405",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "884647762",
+      "items": 5,
+      "accepted": 0
+    },
+    {
+      "organisation_number": "967616818",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "991704558",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "912750132",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989249703",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925154695",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "926826166",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936937993",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "929701577",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "918112189",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930715832",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "932574241",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917968101",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "988715069",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "999276423",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "995097346",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "993903752",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "926875493",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "912869210",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "816377102",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "984550316",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933774155",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917102988",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931480936",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930739324",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921251068",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "979608861",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "914757363",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "991429573",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935942403",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "980952827",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930549959",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "947678809",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "957175708",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930808040",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "997121341",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920319033",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933203441",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "816981522",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "918851682",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "915311806",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "985061750",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917178860",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "997711750",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "991363823",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928552462",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "932398222",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "990825971",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "993803308",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917860122",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "926609416",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934922824",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919323000",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989057995",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933987574",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "832761672",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "832915432",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "932984822",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921412517",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "993225754",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "825782702",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "918488588",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920891438",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931840444",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930702579",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989121596",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "923361189",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931143859",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "974811871",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930456632",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917927502",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "926768026",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "830955712",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "983766528",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "997524306",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "983176135",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925776041",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "923420282",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "988440914",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916885946",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930386995",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "918560971",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "988752967",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "981620550",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930916803",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "923887873",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "924701196",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920125980",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989067192",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "932986868",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "937418906",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925747971",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921871813",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930548537",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "923054162",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "885893872",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "914772826",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935234298",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "979448759",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934330145",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "975328503",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "992230436",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "995643200",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "991330259",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "830387102",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "976244273",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "861401812",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920444040",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "980961729",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925668508",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "995695111",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "825298142",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928560562",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927882817",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989166999",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920324258",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920246516",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930579459",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989586432",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933054438",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989206893",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "827484202",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925219754",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935837286",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "944229264",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "915713769",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919200057",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936075207",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "932194198",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "950016418",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "997468422",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928978680",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "821666422",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931004328",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919400404",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928825566",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989762737",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "922202443",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "987705493",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917397341",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "918852662",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "979804385",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935431689",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "855019892",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989222899",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "992843292",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935227976",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "830610782",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "976700457",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913173333",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927358298",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "889253002",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919881151",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934577485",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934656830",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "826034122",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "982701570",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933409333",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "976693132",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917493480",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927097206",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930016322",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "821655552",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927801760",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "922750688",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "998718120",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "987099011",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "922739587",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920396046",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916708912",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931699113",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928761959",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "992329432",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "982349362",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928231356",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "997176472",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "833480332",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925148385",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "823115512",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "932398621",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920707661",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "917554579",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "986455213",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930801968",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928339319",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920860605",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936057985",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "987903953",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921751486",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "980403963",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919077034",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916070276",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919224088",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935856175",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "992102292",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "912087999",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916554133",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "961783356",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "912410943",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "929592719",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921645198",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "995899728",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "833224972",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920576338",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "889556692",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "950704381",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934539729",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989048694",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919438665",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913187318",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "987570067",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920951295",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "995358980",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927434067",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "922297738",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936863590",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "948543303",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "991443320",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916774915",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "818751362",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916991452",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "984500475",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920510132",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913419936",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "948189879",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "967447501",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920440401",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "836071042",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "915537758",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "926578286",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935012031",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "980527476",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933991164",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927892359",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927629771",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "919284609",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "981213653",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "999594166",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930641618",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "890530982",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921790090",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "943088136",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "960685075",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "833309382",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916835078",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "920741835",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "980649369",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934474856",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "926627422",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "953264560",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930016098",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "915746950",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "941561071",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925341606",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "852881372",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "939250271",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930463043",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "830375562",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "821697522",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916497083",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "971163348",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989930575",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "929430778",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934810740",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913547454",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "997813375",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "918508430",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928892581",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "987687673",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931883852",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "993400033",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913917871",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "993156590",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931319671",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "929093046",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "916050852",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "944862927",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "928032280",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "995929392",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "991303715",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "924716568",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "922646694",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "927619040",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921829841",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "922698864",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "935554144",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931641204",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913698827",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "988797065",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930519456",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936655688",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936213871",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "915314430",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "921464177",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936200028",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "929383818",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "815548442",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "889028092",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "936285589",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "915870996",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "923716831",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "977140013",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930130680",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913256832",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "948653028",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "934052315",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "923194614",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933932540",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "925342564",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989186892",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "991724044",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "988526894",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "930688592",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "971248890",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931009850",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "913476581",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "976073169",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "931147579",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "922836906",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "933790304",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "989544314",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "810034882",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    },
+    {
+      "organisation_number": "810059672",
+      "items": 0,
+      "accepted": 0,
+      "error": "HTTPError: HTTP Error 503: Service Unavailable"
+    }
+  ]
+}
