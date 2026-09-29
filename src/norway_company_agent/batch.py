@@ -48,7 +48,16 @@ def read_organisation_inputs(path: str | Path) -> list[dict[str, Any]]:
     records = []
     seen_orgs: set[str] = set()
     for value in values:
-        org = value.get("organisation_number") if isinstance(value, dict) else value
+        if isinstance(value, dict):
+            org = (
+                value.get("organisation_number")
+                or value.get("organisasjonsnummer")
+                or value.get("orgnr")
+                or value.get("org_nr")
+                or value.get("orgNumber")
+            )
+        else:
+            org = value
         org = "".join(character for character in str(org or "") if character.isdigit())
         if len(org) != 9:
             continue
@@ -196,7 +205,12 @@ def evidence_terminal_state(record: dict[str, Any] | None) -> str:
     if status == "blocked":
         note = str(record.get("note") or "").casefold()
         return "blocked_robots" if "robot" in note else "blocked_policy"
+    if status == "budget_exhausted":
+        return "budget_exhausted"
     if status == "source_error":
+        note = str(record.get("note") or "").casefold()
+        if "budget" in note:
+            return "budget_exhausted"
         return "source_error"
     return "submission_error"
 

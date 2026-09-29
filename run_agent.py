@@ -50,7 +50,10 @@ socket.setdefaulttimeout(15.0)
 _orig_getaddrinfo = socket.getaddrinfo
 def _ipv4_first_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     if family == 0 or family == socket.AF_UNSPEC:
-        family = socket.AF_INET
+        try:
+            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+        except socket.gaierror:
+            pass
     return _orig_getaddrinfo(host, port, family, type, proto, flags)
 socket.getaddrinfo = _ipv4_first_getaddrinfo
 
@@ -345,6 +348,19 @@ def enrich_single_company(
     else:
         metrics = []
 
+    # Ensure all requested official modules have a terminal evidence record even if budget exhausted
+    for mod in fetch_modules:
+        if mod not in profile.get("evidence", {}):
+            from norway_company_agent.evidence import evidence as make_ev
+            profile.setdefault("evidence", {})[mod] = make_ev(
+                mod,
+                "budget_exhausted",
+                "official_api",
+                f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+                note="Request or time budget exhausted prior to fetch",
+                retrieved_at=utc_now(),
+            )
+
     # 2. Google Places (if API key available)
     places_obs: list[dict[str, Any]] = []
     if places_available() and budget.can_proceed():
@@ -608,6 +624,21 @@ def main() -> int:
                     print(f"[PROGRESS] {completed}/{len(profiles)} companies | {budget.requests} requests used | {elapsed:.0f}s elapsed")
             except Exception as exc:
                 print(f"[ERROR] Company {org}: {type(exc).__name__}: {str(exc)[:200]}")
+                fallback_p = next((p for p in profiles if p.get("organisation_number") == org), None)
+                if fallback_p:
+                    from norway_company_agent.evidence import evidence as make_ev
+                    for mod in requested_modules:
+                        if mod not in fallback_p.get("evidence", {}):
+                            fallback_p.setdefault("evidence", {})[mod] = make_ev(
+                                mod,
+                                "source_error",
+                                "official_api",
+                                f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+                                note=f"Worker exception: {type(exc).__name__}",
+                                retrieved_at=utc_now(),
+                            )
+                    state[org] = fallback_p
+                completed += 1
 
     # Merge completed state back into profiles order
     profiles = [state.get(org, p) for org, p in zip(orgs, profiles)]

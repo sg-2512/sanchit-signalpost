@@ -114,6 +114,47 @@ class CompanySynthesisTests(unittest.TestCase):
         self.assertIn("employee count not reported to registry", synthesis["unknowns"])
         self.assertIn("no verified official website confirmed", synthesis["unknowns"])
 
+    def test_active_roles_prioritized_over_inactive(self):
+        profile = {
+            "name": "Active Test AS",
+            "organisation_number": "993578843",
+            "legal_form": "AS",
+            "evidence": {
+                "roles": {
+                    "value": {
+                        "roles": [
+                            {"name": "Old Resigned CEO", "role": "daglig leder", "inactive": True},
+                            {"name": "Current Active CEO", "role": "daglig leder", "inactive": False},
+                        ]
+                    }
+                }
+            }
+        }
+        synthesis = generate_company_synthesis(profile)
+        self.assertIn("Current Active CEO", synthesis["summary"])
+        self.assertNotIn("Old Resigned CEO", synthesis["summary"])
+
+    def test_string_financial_metrics_do_not_crash(self):
+        profile = {
+            "name": "String Financial AS",
+            "organisation_number": "993578843",
+            "legal_form": "AS",
+            "evidence": {
+                "financials": {
+                    "value": {
+                        "latest": {
+                            "filing_year": 2024,
+                            "revenue": "12345678",
+                            "profit": "987654",
+                        }
+                    }
+                }
+            }
+        }
+        synthesis = generate_company_synthesis(profile)
+        self.assertIn("12,345,678 NOK revenue", synthesis["summary"])
+        self.assertIn("987,654 NOK", synthesis["summary"])
+
 
 if __name__ == "__main__":
     unittest.main()

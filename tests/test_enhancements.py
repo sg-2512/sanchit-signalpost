@@ -390,6 +390,48 @@ class OperatingLocationPlaceTests(unittest.TestCase):
         self.assertEqual(obs[0]["metrics"]["municipality"], "BERGEN")
         self.assertTrue(publishable_observation(obs[0]))
 
+    def test_read_organisation_inputs_norwegian_variants(self):
+        from norway_company_agent.batch import read_organisation_inputs
+        import tempfile
+        content = (
+            '{"organisasjonsnummer": "923609016"}\n'
+            '{"orgnr": "912345678"}\n'
+            '{"org_nr": "987654321"}\n'
+        )
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", mode="w", encoding="utf-8", delete=False) as tf:
+            tf.write(content)
+            tf_path = tf.name
+        try:
+            records = read_organisation_inputs(tf_path)
+            self.assertEqual(len(records), 3)
+            self.assertEqual(records[0]["organisation_number"], "923609016")
+            self.assertEqual(records[1]["organisation_number"], "912345678")
+            self.assertEqual(records[2]["organisation_number"], "987654321")
+        finally:
+            Path(tf_path).unlink(missing_ok=True)
+
+    def test_evidence_terminal_state_budget_exhausted(self):
+        from norway_company_agent.batch import evidence_terminal_state
+        rec_status = {"status": "budget_exhausted"}
+        self.assertEqual(evidence_terminal_state(rec_status), "budget_exhausted")
+        rec_note = {"status": "source_error", "note": "budget_exhausted before request"}
+        self.assertEqual(evidence_terminal_state(rec_note), "budget_exhausted")
+
+    def test_linkedin_company_publishable_schema(self):
+        from norway_company_agent.connectors.linkedin import discover_linkedin_company
+        from norway_company_agent.external_footprint import publishable_observation, validate_observation
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_response = MagicMock()
+            mock_response.read.return_value = json.dumps([
+                {"type": "COMPANY", "id": "12345", "displayName": "Equinor"},
+            ]).encode("utf-8")
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            res = discover_linkedin_company("Equinor ASA", "923609016", website_domain="equinor.com")
+            self.assertIsNotNone(res)
+            self.assertEqual(validate_observation(res), [])
+            self.assertTrue(publishable_observation(res))
+
 
 if __name__ == "__main__":
     unittest.main()

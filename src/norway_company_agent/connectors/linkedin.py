@@ -110,17 +110,37 @@ def discover_linkedin_company(
                 if not sec["is_safe"]:
                     continue
 
+                digest = hashlib.sha256(f"{org_number}|linkedin|{company_id}|{canonical_url}".encode()).hexdigest()
+                retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 return {
-                    "id": "linkedin-" + hashlib.sha256(f"{org_number}|{company_id}".encode()).hexdigest()[:24],
+                    "id": "social-linkedin-" + hashlib.sha256(f"{org_number}|{company_id}".encode()).hexdigest()[:24],
                     "organisation_number": str(org_number),
                     "platform": "linkedin",
-                    "signal_type": "official_profile",
+                    "signal_type": "profile_handle",
                     "source_url": canonical_url,
-                    "linkedin_company_id": company_id,
                     "display_name": display_name,
+                    "retrieved_at": retrieved_at,
+                    "content_sha256": digest,
                     "exact_entity": True,
-                    "match_type": "exact_legal_core",
-                    "source": "linkedin_guest_api",
+                    "identity_proof": [
+                        {
+                            "type": "linkedin_typeahead_exact_core_match",
+                            "company_name": company_name,
+                            "linkedin_name": display_name,
+                            "company_id": company_id,
+                        },
+                    ],
+                    "acquisition_mode": "permitted_public_page",
+                    "rights_status": "approved",
+                    "source_class": "company_site",
+                    "evidence_span": f"Official LinkedIn company profile: {display_name} ({canonical_url})",
+                    "metrics": {
+                        "platform": "linkedin",
+                        "url": canonical_url,
+                        "display_name": display_name,
+                        "linkedin_company_id": company_id,
+                    },
+                    "strategy": "linkedin_guest_api",
                     "security_assessment": sec,
                 }
 

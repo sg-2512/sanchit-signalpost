@@ -40,8 +40,16 @@ def generate_company_synthesis(
     latest_rec = recs[0] if recs else {}
 
     filing_year = latest_fin.get("filing_year") or str(latest_rec.get("period", {}).get("tilDato", ""))[:4] or profile.get("latest_submitted_accounts")
-    revenue = latest_fin.get("revenue") if latest_fin.get("revenue") is not None else latest_rec.get("revenue")
-    profit = latest_fin.get("profit") if latest_fin.get("profit") is not None else (latest_rec.get("annual_result") if latest_rec.get("annual_result") is not None else latest_rec.get("operating_result"))
+    raw_rev = latest_fin.get("revenue") if latest_fin.get("revenue") is not None else latest_rec.get("revenue")
+    raw_profit = latest_fin.get("profit") if latest_fin.get("profit") is not None else (latest_rec.get("annual_result") if latest_rec.get("annual_result") is not None else latest_rec.get("operating_result"))
+    try:
+        revenue = float(raw_rev) if raw_rev is not None else None
+    except (ValueError, TypeError):
+        revenue = None
+    try:
+        profit = float(raw_profit) if raw_profit is not None else None
+    except (ValueError, TypeError):
+        profit = None
 
     roles = (evidence.get("roles") or {}).get("value") or {}
     roles_list = roles.get("roles") or []
@@ -53,8 +61,10 @@ def generate_company_synthesis(
         n = r.get("name")
         return ", ".join(n) if isinstance(n, list) else str(n or "")
 
-    chair = next((_person_name(r) for r in roles_list if any(t in _role_text(r) for t in ("styrets leder", "styreleder", "leder", "chair"))), None)
-    ceo = next((_person_name(r) for r in roles_list if any(t in _role_text(r) for t in ("daglig leder", "adm.dir", "dagl", "ceo", "managing director"))), None)
+    active_roles = [r for r in roles_list if not r.get("inactive")]
+    candidate_roles = active_roles if active_roles else roles_list
+    chair = next((_person_name(r) for r in candidate_roles if any(t in _role_text(r) for t in ("styrets leder", "styreleder", "leder", "chair"))), None)
+    ceo = next((_person_name(r) for r in candidate_roles if any(t in _role_text(r) for t in ("daglig leder", "adm.dir", "dagl", "ceo", "managing director"))), None)
 
     locations = (evidence.get("locations") or {}).get("value") or {}
     loc_list = locations.get("locations") or []
