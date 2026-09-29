@@ -36,23 +36,32 @@ def generate_company_synthesis(
     evidence = profile.get("evidence") or {}
     financials = (evidence.get("financials") or {}).get("value") or {}
     latest_fin = financials.get("latest") or {}
-    filing_year = latest_fin.get("filing_year")
-    revenue = latest_fin.get("revenue")
-    profit = latest_fin.get("profit")
+    recs = financials.get("records") or []
+    latest_rec = recs[0] if recs else {}
+
+    filing_year = latest_fin.get("filing_year") or str(latest_rec.get("period", {}).get("tilDato", ""))[:4] or profile.get("latest_submitted_accounts")
+    revenue = latest_fin.get("revenue") if latest_fin.get("revenue") is not None else latest_rec.get("revenue")
+    profit = latest_fin.get("profit") if latest_fin.get("profit") is not None else (latest_rec.get("annual_result") if latest_rec.get("annual_result") is not None else latest_rec.get("operating_result"))
 
     roles = (evidence.get("roles") or {}).get("value") or {}
     roles_list = roles.get("roles") or []
-    chair = next((r.get("name") for r in roles_list if "styreleder" in str(r.get("role_type") or "").casefold()), None)
-    ceo = next(
-        (r.get("name") for r in roles_list if any(t in str(r.get("role_type") or "").casefold() for t in ("daglig leder", "adm.dir"))),
-        None,
-    )
+
+    def _role_text(r: dict) -> str:
+        return f"{r.get('role', '')} {r.get('role_type', '')} {r.get('role_code', '')} {r.get('group', '')}".lower()
+
+    def _person_name(r: dict) -> str:
+        n = r.get("name")
+        return ", ".join(n) if isinstance(n, list) else str(n or "")
+
+    chair = next((_person_name(r) for r in roles_list if any(t in _role_text(r) for t in ("styrets leder", "styreleder", "leder", "chair"))), None)
+    ceo = next((_person_name(r) for r in roles_list if any(t in _role_text(r) for t in ("daglig leder", "adm.dir", "dagl", "ceo", "managing director"))), None)
 
     locations = (evidence.get("locations") or {}).get("value") or {}
-    loc_count = locations.get("count") or 0
+    loc_list = locations.get("locations") or []
+    loc_count = len(loc_list)
 
     website_ev = (evidence.get("website") or {}).get("value") or {}
-    site_url = website_ev.get("final_url") or profile.get("website")
+    site_url = website_ev.get("final_url") or website_ev.get("requested_url") or profile.get("website")
     social_links = website_ev.get("social_links") or []
     social_platforms = [s.get("platform") for s in social_links if s.get("platform")]
 
