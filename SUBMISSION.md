@@ -58,8 +58,12 @@ All submission artifacts are located in `out/pipeline-1000/`:
 3. **External Footprint Observations** (`out/pipeline-1000/all-observations.jsonl`):
    - 3,878 verified external observations across multiple platforms (`brreg`, `news`, `company_site`).
    - Signal types include `workforce_snapshot` (100% coverage), `profile_metrics` (100% coverage), `public_mention` (100% coverage), and `place_summary` (operating locations).
-4. **Interactive Showcase** (`out/pipeline-1000/showcase.html`):
-   - Interactive HTML prototype presenting external intelligence, workforce trends, and company profiles.
+4. **Interactive Showcase & Web Application** (`out/pipeline-1000/showcase.html` and `out/showcase.html`):
+   - Fully self-contained single-page web application implementing the official Product UX & Design specification (1:1 feature match with `builderr.ai/signalpost`).
+   - **Company Directory**: Client-side instant fuzzy search (`⌘ K`), sorting by verified data richness, and one-click "All five areas" complete profile filtering.
+   - **Full Profile Inspector**: Real-time KPI cards (revenue, operating result, headcount, subunits, followers, active vacancies), financial snapshot tables, public leadership grid, operating subunits, verified multi-source hiring and public activity, and cryptographic evidence audit logs (SHA-256 hashes, ISO timestamps, and source citations).
+   - **Interactive Research Agent ("Ask Signalpost")**: Grounded Q&A assistant with quick prompt buttons ("Company brief", "Latest financials", "Who runs it?", "Working here", "Recent activity") providing verifiable answers sourced directly from registry and external observations with zero hallucinations.
+   - Automatically generated into the output directory upon batch completion in both `run_agent.py` and `run_pipeline.py`.
 5. **Score Report** (`out/pipeline-1000/score-report.json`):
    - Official score proxy v3 output confirming 97.964 awardable points.
 

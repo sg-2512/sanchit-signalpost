@@ -805,6 +805,15 @@ def main() -> int:
     external_report_out.write_text(json.dumps(external_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     score_report_out.write_text(json.dumps(score_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    # Generate Product UX & Design interactive showcase HTML (matching builderr.ai/signalpost)
+    try:
+        from norway_company_agent.showcase import write_showcase_html
+        showcase_out = out_dir / "showcase.html"
+        write_showcase_html(profiles, all_observations, showcase_out, limit=100)
+        print(f"[INFO] Interactive showcase generated at {showcase_out}")
+    except Exception as exc:
+        print(f"[WARN] Failed to generate interactive showcase: {exc}")
+
     # Summary
     print(f"\n{'='*70}")
     print(f"[COMPLETE] SignalPost Live Agent finished!")
