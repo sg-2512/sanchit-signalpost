@@ -6,9 +6,16 @@ import urllib.parse
 from collections import Counter
 from pathlib import Path
 
-import scrapy
-from bs4 import BeautifulSoup
-from scrapy.exceptions import IgnoreRequest
+try:
+    import scrapy
+    from scrapy.exceptions import IgnoreRequest
+    _SpiderBase = scrapy.Spider
+except ImportError:
+    scrapy = None
+    class IgnoreRequest(Exception):
+        pass
+    class _SpiderBase:
+        pass
 
 from .crawl_events import error_page_event, extract_page_event
 from .website import USER_AGENT, _priority_links, assert_public_url, normalize_homepage
@@ -68,8 +75,10 @@ class OperationalTelemetryMiddleware:
             self.crawler.signalpost_failure_attempt_latency_ms.append((time.monotonic() - started) * 1000)
         self.crawler.signalpost_error_buckets[type(exception).__name__] += 1
 
+from bs4 import BeautifulSoup
 
-class SignalpostWebsiteSpider(scrapy.Spider):
+
+class SignalpostWebsiteSpider(_SpiderBase):
     name = "signalpost_websites"
     custom_settings = {
         "USER_AGENT": USER_AGENT,
