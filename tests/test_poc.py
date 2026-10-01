@@ -736,6 +736,14 @@ class OperationsTests(unittest.TestCase):
         envelope = terminal_envelope(profile, run_id="day-1", modules=["registry", "website"], started_at="2026-01-01T00:00:00Z", completed_at="2026-01-01T00:01:00Z")
         self.assertEqual(envelope["modules"]["registry"]["state"], "complete")
         self.assertEqual(envelope["modules"]["website"]["state"], "blocked_robots")
+        self.assertIn("claims", envelope)
+        self.assertIn("evidence", envelope)
+        self.assertIn("run", envelope)
+        self.assertEqual(envelope["run"]["terminal_status"], "completed")
+        self.assertIn("operations", envelope)
+        self.assertIn("legal_identity", envelope)
+        valid_availabilities = {"available", "not_available", "blocked", "not_applicable", "ambiguous", "failed"}
+        self.assertTrue(all(c["availability"] in valid_availabilities for c in envelope["claims"]))
         self.assertTrue(validate_envelopes([envelope], 1)["passed"])
         self.assertFalse(validate_envelopes([envelope], 2)["passed"])
 

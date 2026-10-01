@@ -215,6 +215,194 @@ def evidence_terminal_state(record: dict[str, Any] | None) -> str:
     return "submission_error"
 
 
+def _to_availability_state(status: str | None) -> str:
+    if not status:
+        return "failed"
+    s = str(status).casefold()
+    if s == "available":
+        return "available"
+    if s in {"not_found", "absent"}:
+        return "not_available"
+    if s == "blocked":
+        return "blocked"
+    if s == "not_applicable":
+        return "not_applicable"
+    if s == "ambiguous":
+        return "ambiguous"
+    return "failed"
+
+
+def build_contract_claims_and_evidence(
+    profile: dict[str, Any],
+    completed_at: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    org = str(profile.get("organisation_number") or "")
+    ev = profile.get("evidence") or {}
+
+    evidence_items: list[dict[str, Any]] = []
+    claims: list[dict[str, Any]] = []
+
+    # 1. Collect evidence items
+    for mod, rec in ev.items():
+        if not isinstance(rec, dict):
+            continue
+        ev_id = f"ev-{mod}-{org}"
+        evidence_items.append({
+            "id": ev_id,
+            "source_url": str(rec.get("source_url") or ""),
+            "source_class": str(rec.get("source_class") or rec.get("source_type") or "official"),
+            "retrieved_at": rec.get("retrieved_at") or completed_at,
+            "content_sha256": str(rec.get("content_sha256") or ""),
+            "claim_span": f"{mod} observation record for {profile.get('name', org)} ({org})",
+        })
+
+    # 2. Legal Identity Claim
+    reg_val = (ev.get("registry_live") or {}).get("value") or (ev.get("registry") or {}).get("value") or {}
+    name = profile.get("name") or reg_val.get("navn") or f"Organisation {org}"
+    legal_form = profile.get("legal_form") or (reg_val.get("organisasjonsform") or {}).get("kode") or "AS"
+    claims.append({
+        "field": "legal_identity",
+        "value": {"name": name, "legal_form": legal_form, "organisation_number": org},
+        "availability": "available",
+        "confidence": 1.0,
+        "evidence_ids": [f"ev-registry-{org}"] if "registry" in ev else [f"ev-registry_live-{org}"],
+    })
+
+    # 3. Official Website Claim
+    w_rec = ev.get("website") or {}
+    w_val = w_rec.get("value") or {}
+    w_status = w_rec.get("status")
+    website_url = profile.get("website") or w_val.get("final_url")
+    is_publishable = (w_val.get("identity_assessment") or {}).get("publishable", False)
+    if w_status == "available" and is_publishable and website_url:
+        claims.append({
+            "field": "official_website",
+            "value": website_url,
+            "availability": "available",
+            "confidence": 0.99,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
+    elif w_status == "blocked":
+        claims.append({
+            "field": "official_website",
+            "value": None,
+            "availability": "blocked",
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
+    else:
+        claims.append({
+            "field": "official_website",
+            "value": None,
+            "availability": "not_available",
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
+
+    # 4. Annual Accounts Claim
+    f_rec = ev.get("financials") or {}
+    f_status = f_rec.get("status")
+    f_val = f_rec.get("value") or {}
+    records = f_val.get("records") or []
+    if f_status == "available" and records:
+        claims.append({
+            "field": "annual_accounts",
+            "value": records[0],
+            "availability": "available",
+            "confidence": 1.0,
+            "evidence_ids": [f"ev-financials-{org}"],
+        })
+    else:
+        claims.append({
+            "field": "annual_accounts",
+            "value": None,
+            "availability": _to_availability_state(f_status),
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-financials-{org}"],
+        })
+
+    # 5. Management & Board Roles Claim
+    r_rec = ev.get("roles") or {}
+    r_status = r_rec.get("status")
+    r_val = r_rec.get("value") or {}
+    roles_list = r_val.get("roles") or []
+    if r_status == "available" and roles_list:
+        claims.append({
+            "field": "roles",
+            "value": roles_list,
+            "availability": "available",
+            "confidence": 1.0,
+            "evidence_ids": [f"ev-roles-{org}"],
+        })
+    else:
+        claims.append({
+            "field": "roles",
+            "value": None,
+            "availability": _to_availability_state(r_status),
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-roles-{org}"],
+        })
+
+    # 6. Operating Locations (Subunits) Claim
+    l_rec = ev.get("locations") or {}
+    l_status = l_rec.get("status")
+    l_val = l_rec.get("value") or {}
+    locs_list = l_val.get("locations") or []
+    if l_status == "available" and locs_list:
+        claims.append({
+            "field": "operating_locations",
+            "value": locs_list,
+            "availability": "available",
+            "confidence": 1.0,
+            "evidence_ids": [f"ev-locations-{org}"],
+        })
+    else:
+        claims.append({
+            "field": "operating_locations",
+            "value": None,
+            "availability": _to_availability_state(l_status),
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-locations-{org}"],
+        })
+
+    # 7. Hiring / Recruitment Status Claim
+    hiring = profile.get("hiring") or {}
+    if hiring:
+        claims.append({
+            "field": "hiring_status",
+            "value": {
+                "appears_to_be_hiring": hiring.get("appears_to_be_hiring", False),
+                "status": hiring.get("status"),
+                "active_job_postings_count": hiring.get("active_job_postings_count", 0),
+            },
+            "availability": "available",
+            "confidence": 0.95 if hiring.get("confidence") == "high" else 0.80,
+            "evidence_ids": [f"ev-hiring-{org}"],
+        })
+    else:
+        claims.append({
+            "field": "hiring_status",
+            "value": None,
+            "availability": "not_available",
+            "confidence": 0.0,
+            "evidence_ids": [],
+        })
+
+    # 8. Accounting Obligation Claim
+    a_rec = ev.get("accounting_obligation") or {}
+    a_status = a_rec.get("status")
+    a_val = a_rec.get("value") or {}
+    claims.append({
+        "field": "accounting_obligation",
+        "value": a_val.get("classification"),
+        "availability": _to_availability_state(a_status),
+        "confidence": 1.0,
+        "evidence_ids": [f"ev-accounting_obligation-{org}"],
+    })
+
+    return claims, evidence_items
+
+
 def terminal_envelope(
     profile: dict[str, Any],
     *,
@@ -223,6 +411,7 @@ def terminal_envelope(
     started_at: str,
     completed_at: str,
 ) -> dict[str, Any]:
+    org = str(profile.get("organisation_number") or "")
     module_states = {}
     for module in modules:
         record = profile.get("evidence", {}).get(module)
@@ -232,13 +421,38 @@ def terminal_envelope(
             "final_timestamp": (record or {}).get("retrieved_at") or completed_at,
         }
     entity_state = "submission_error" if any(item["state"] == "submission_error" for item in module_states.values()) else "complete"
+
+    claims, evidence_list = build_contract_claims_and_evidence(profile, completed_at)
+    run_metrics = profile.get("run_metrics") or {}
+
     return {
         "run_id": run_id,
-        "organisation_number": profile["organisation_number"],
+        "organisation_number": org,
         "state": entity_state,
         "started_at": started_at,
         "completed_at": completed_at,
         "modules": module_states,
+        "run": {
+            "run_id": run_id,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "terminal_status": "completed" if entity_state == "complete" else "failed",
+        },
+        "legal_identity": {
+            "organisation_number": org,
+            "name": profile.get("name"),
+            "legal_form": profile.get("legal_form"),
+            "municipality": profile.get("municipality"),
+        },
+        "claims": claims,
+        "evidence": evidence_list,
+        "changes": [],
+        "errors": [],
+        "operations": {
+            "requests": int(run_metrics.get("requests") or 0),
+            "runtime_ms": int((run_metrics.get("elapsed_s") or 0) * 1000),
+            "third_party_cost_usd": 0.0,
+        },
         "profile": profile,
     }
 
