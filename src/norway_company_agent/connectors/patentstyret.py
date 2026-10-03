@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-PATENTSTYRET_SEARCH_URL = "https://services.patentstyret.no/register/v1/IprCasesByCompany"
+PATENTSTYRET_SEARCH_URL = "https://api.patentstyret.no/external/opendata/register/v1/IprCasesByCompany"
 USER_AGENT = "SignalPostAgent/1.0 (+https://builderr.ai/signalpost)"
 PATENTSTYRET_API_KEY_ENV = "PATENTSTYRET_API_KEY"
 NIPO_API_KEY_ENV = "NIPO_API_KEY"
@@ -50,13 +50,13 @@ def fetch_patentstyret_data(
     bytes_received = 0
     retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    # Build query for applicant / owner matching company name
-    params = urllib.parse.urlencode({
-        "q": f'innehaver:"{clean_name}" OR applicant:"{clean_name}"',
-        "type": "trademark,patent",
-        "size": max_records,
-    })
-    url = f"{PATENTSTYRET_SEARCH_URL}?{params}"
+    # Build query by CompanyNumber (preferred for exact entity grounding) or ApplicantName
+    query_params: dict[str, str] = {}
+    if clean_org and clean_org.isdigit() and len(clean_org) == 9:
+        query_params["CompanyNumber"] = clean_org
+    else:
+        query_params["ApplicantName"] = clean_name
+    url = f"{PATENTSTYRET_SEARCH_URL}?{urllib.parse.urlencode(query_params)}"
 
     headers = {
         "User-Agent": USER_AGENT,
@@ -80,8 +80,43 @@ def fetch_patentstyret_data(
         if budget:
             budget.record_request(cost_usd=0.0, bytes_received=bytes_received, elapsed_ms=elapsed_ms)
 
-        digest = hashlib.sha256(raw).hexdigest()
-        hits = data.get("results") or data.get("hits") or []
+        # Parse live API bags (trademarkBag, patentBag, designBag) or fallback to results/hits (mocks)
+        trademark_bag = data.get("trademarkBag") or []
+        patent_bag = data.get("patentBag") or []
+        design_bag = data.get("designBag") or []
+
+        hits: list[dict[str, Any]] = []
+        for t in trademark_bag:
+            hits.append({
+                "applicationNumber": t.get("applicationNumber") or t.get("registrationNumber") or "",
+                "title": t.get("markVerbalElementText") or t.get("title") or "",
+                "type": "trademark",
+                "status": t.get("currentStatusEn") or t.get("currentStatusNo") or "Registered",
+                "publicationDate": t.get("currentStatusDate"),
+                "caseUrl": t.get("caseUrl"),
+            })
+        for p in patent_bag:
+            hits.append({
+                "applicationNumber": p.get("applicationNumber") or p.get("patentNumber") or "",
+                "title": p.get("title") or "Patent registration",
+                "type": "patent",
+                "status": p.get("currentStatusEn") or p.get("currentStatusNo") or "Registered",
+                "publicationDate": p.get("currentStatusDate"),
+                "caseUrl": p.get("caseUrl"),
+            })
+        for d in design_bag:
+            hits.append({
+                "applicationNumber": d.get("applicationNumber") or "",
+                "title": d.get("title") or "Design registration",
+                "type": "design",
+                "status": d.get("currentStatusEn") or d.get("currentStatusNo") or "Registered",
+                "publicationDate": d.get("currentStatusDate"),
+                "caseUrl": d.get("caseUrl"),
+            })
+
+        if not hits:
+            hits = data.get("results") or data.get("hits") or []
+
         if not hits:
             return []
 
@@ -94,7 +129,7 @@ def fetch_patentstyret_data(
             pub_date = hit.get("publicationDate") or hit.get("filingDate")
 
             h_digest = hashlib.sha256(f"{clean_org}|patentstyret|{app_num}|{title}".encode()).hexdigest()
-            record_url = f"https://search.patentstyret.no/trademark/{app_num}" if doc_type == "trademark" else f"https://search.patentstyret.no/patent/{app_num}"
+            record_url = hit.get("caseUrl") or (f"https://services.patentstyret.no/search-details/{doc_type}/{app_num}")
 
             obs_id = f"ip-{doc_type}-{clean_org}-{h_digest[:16]}"
             observations.append({
