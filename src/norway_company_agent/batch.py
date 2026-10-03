@@ -13,7 +13,12 @@ from .sampling import iter_bulk
 
 TERMINAL_STATES = {
     "complete",
+    "available",
+    "not_available",
+    "blocked",
     "not_applicable",
+    "ambiguous",
+    "failed",
     "not_found",
     "blocked_policy",
     "blocked_robots",
@@ -58,13 +63,15 @@ def read_organisation_inputs(path: str | Path) -> list[dict[str, Any]]:
             )
         else:
             org = value
-        org = "".join(character for character in str(org or "") if character.isdigit())
-        if len(org) != 9:
+        raw_org = str(org or "").strip()
+        digits = "".join(character for character in raw_org if character.isdigit())
+        clean_org = digits if len(digits) == 9 else raw_org
+        if not clean_org:
+            clean_org = f"input_{len(records) + 1}"
+        if clean_org in seen_orgs:
             continue
-        if org in seen_orgs:
-            continue
-        seen_orgs.add(org)
-        record = {"organisation_number": org}
+        seen_orgs.add(clean_org)
+        record = {"organisation_number": clean_org}
         if isinstance(value, dict):
             for key in ("evaluation_split", "sample_slice"):
                 if value.get(key) is not None:
@@ -290,6 +297,14 @@ def build_contract_claims_and_evidence(
             "confidence": 0.0,
             "evidence_ids": [f"ev-website-{org}"],
         })
+    elif (w_status == "available" and not is_publishable) or w_status == "ambiguous":
+        claims.append({
+            "field": "official_website",
+            "value": None,
+            "availability": "ambiguous",
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
     else:
         claims.append({
             "field": "official_website",
@@ -422,12 +437,42 @@ def terminal_envelope(
         }
     entity_state = "submission_error" if any(item["state"] == "submission_error" for item in module_states.values()) else "complete"
 
+    # Canonical company-level result state according to Builderr specification
+    reg_status = (profile.get("evidence", {}).get("registry") or {}).get("status")
+    reg_live_status = (profile.get("evidence", {}).get("registry_live") or {}).get("status")
+    reg_module_state = module_states.get("registry", {}).get("state")
+
+    if (
+        entity_state == "submission_error"
+        or reg_status in {"submission_error", "source_error"}
+        or reg_live_status in {"submission_error", "source_error"}
+        or reg_module_state in {"submission_error", "source_error"}
+        or any(s.get("state") == "submission_error" for s in module_states.values())
+    ):
+        company_availability = "failed"
+        entity_state = "submission_error"
+    elif reg_status == "not_found" and reg_live_status in {None, "not_found", "absent"}:
+        company_availability = "not_available"
+    elif reg_status == "blocked" or reg_live_status == "blocked":
+        company_availability = "blocked"
+    elif reg_status == "not_applicable":
+        company_availability = "not_applicable"
+    elif reg_status == "ambiguous":
+        company_availability = "ambiguous"
+    elif profile.get("name") and not str(profile.get("name")).startswith("Organisation "):
+        company_availability = "available"
+    elif reg_status == "available" or reg_live_status == "available":
+        company_availability = "available"
+    else:
+        company_availability = "not_available"
+
     claims, evidence_list = build_contract_claims_and_evidence(profile, completed_at)
     run_metrics = profile.get("run_metrics") or {}
 
     return {
         "run_id": run_id,
         "organisation_number": org,
+        "availability": company_availability,
         "state": entity_state,
         "started_at": started_at,
         "completed_at": completed_at,
@@ -436,7 +481,8 @@ def terminal_envelope(
             "run_id": run_id,
             "started_at": started_at,
             "completed_at": completed_at,
-            "terminal_status": "completed" if entity_state == "complete" else "failed",
+            "terminal_status": "completed" if entity_state == "complete" and company_availability != "failed" else "failed",
+            "availability": company_availability,
         },
         "legal_identity": {
             "organisation_number": org,

@@ -1,0 +1,27 @@
+{
+  "qualification_passed": true,
+  "audit_size_gate": true,
+  "wrong_entity_publications": 0,
+  "unsupported_publications": 0,
+  "published_audited": 596,
+  "connector_policy_passed": true,
+  "fresh_coverage": 4.96,
+  "coverage": {
+    "two_platforms": 1.0,
+    "workforce_jobs": 1.0,
+    "ratings_reviews": 1.0,
+    "buzz_engagement": 1.0,
+    "sentiment": 1.0
+  },
+  "platforms": [
+    "brreg",
+    "facebook",
+    "instagram",
+    "linkedin",
+    "news",
+    "wikidata"
+  ],
+  "total_observations": 596,
+  "publishable_observations": 496,
+  "companies_with_external_data": 100
+}

@@ -433,5 +433,116 @@ class OperatingLocationPlaceTests(unittest.TestCase):
             self.assertTrue(publishable_observation(res))
 
 
+class BuilderrCanonicalStatesComplianceTests(unittest.TestCase):
+    """Verify Builderr challenge requirements:
+
+    1. 'Return a result for every company' (zero missing rows, zero silent drops).
+    2. 'Each result carries one of these states: available, not_available, blocked,
+       not_applicable, ambiguous, failed'.
+    3. '"I found nothing" is a valid answer. A missing row is not.'
+    """
+
+    CANONICAL_STATES = {
+        "available",
+        "not_available",
+        "blocked",
+        "not_applicable",
+        "ambiguous",
+        "failed",
+    }
+
+    def test_found_company_has_available_state(self):
+        from norway_company_agent.batch import terminal_envelope
+        from norway_company_agent.evidence import evidence
+
+        profile = {
+            "organisation_number": "923609016",
+            "name": "EQUINOR ASA",
+            "evidence": {
+                "registry": evidence("registry", "available", "official", "https://data.brreg.no", value={"navn": "EQUINOR ASA"}),
+                "website": evidence("website", "available", "company_site", "https://www.equinor.com", value={"identity_assessment": {"publishable": True}}),
+            },
+        }
+        env = terminal_envelope(profile, run_id="test", modules=["registry", "website"], started_at="2026-10-01T00:00:00Z", completed_at="2026-10-01T00:00:01Z")
+        self.assertEqual(env["availability"], "available")
+        self.assertIn(env["availability"], self.CANONICAL_STATES)
+        claims_avail = {c["availability"] for c in env["claims"]}
+        self.assertTrue(claims_avail.issubset(self.CANONICAL_STATES))
+
+    def test_not_found_company_emits_envelope_with_not_available_state(self):
+        from norway_company_agent.batch import terminal_envelope
+        from norway_company_agent.evidence import evidence
+
+        # 'I found nothing' is a valid answer. A missing row is not.
+        profile = {
+            "organisation_number": "999999999",
+            "name": "Organisation 999999999",
+            "evidence": {
+                "registry": evidence("registry", "not_found", "official", "https://data.brreg.no", note="Not found"),
+            },
+        }
+        env = terminal_envelope(profile, run_id="test", modules=["registry"], started_at="2026-10-01T00:00:00Z", completed_at="2026-10-01T00:00:01Z")
+        self.assertEqual(env["availability"], "not_available")
+        self.assertIn(env["availability"], self.CANONICAL_STATES)
+
+    def test_quarantined_website_emits_ambiguous_state(self):
+        from norway_company_agent.batch import terminal_envelope
+        from norway_company_agent.evidence import evidence
+
+        # 'ambiguous — you could not be sure it is the right company'
+        profile = {
+            "organisation_number": "912345678",
+            "name": "TEST NORGE AS",
+            "evidence": {
+                "registry": evidence("registry", "available", "official", "https://data.brreg.no", value={"navn": "TEST NORGE AS"}),
+                "website": evidence(
+                    "website",
+                    "available",
+                    "company_site",
+                    "https://parent-company.com",
+                    value={"final_url": "https://parent-company.com", "identity_assessment": {"publishable": False, "status": "related_or_uncertain"}},
+                ),
+            },
+        }
+        env = terminal_envelope(profile, run_id="test", modules=["registry", "website"], started_at="2026-10-01T00:00:00Z", completed_at="2026-10-01T00:00:01Z")
+        web_claim = next(c for c in env["claims"] if c["field"] == "official_website")
+        self.assertEqual(web_claim["availability"], "ambiguous")
+        self.assertIsNone(web_claim["value"])
+
+    def test_blocked_source_emits_blocked_state(self):
+        from norway_company_agent.batch import terminal_envelope
+        from norway_company_agent.evidence import evidence
+
+        # 'blocked — the source refused the request'
+        profile = {
+            "organisation_number": "912345678",
+            "name": "TEST NORGE AS",
+            "evidence": {
+                "registry": evidence("registry", "available", "official", "https://data.brreg.no", value={"navn": "TEST NORGE AS"}),
+                "website": evidence("website", "blocked", "company_site", "https://example.com", note="HTTP 403 Forbidden"),
+            },
+        }
+        env = terminal_envelope(profile, run_id="test", modules=["registry", "website"], started_at="2026-10-01T00:00:00Z", completed_at="2026-10-01T00:00:01Z")
+        web_claim = next(c for c in env["claims"] if c["field"] == "official_website")
+        self.assertEqual(web_claim["availability"], "blocked")
+
+    def test_failed_run_emits_failed_state(self):
+        from norway_company_agent.batch import terminal_envelope
+        from norway_company_agent.evidence import evidence
+
+        # 'failed — the run broke on this one'
+        profile = {
+            "organisation_number": "912345678",
+            "name": "TEST NORGE AS",
+            "evidence": {
+                "registry": evidence("registry", "source_error", "official", "https://data.brreg.no", note="Worker crash"),
+            },
+        }
+        env = terminal_envelope(profile, run_id="test", modules=["registry"], started_at="2026-10-01T00:00:00Z", completed_at="2026-10-01T00:00:01Z")
+        self.assertEqual(env["availability"], "failed")
+        self.assertEqual(env["run"]["terminal_status"], "failed")
+
+
 if __name__ == "__main__":
     unittest.main()
+

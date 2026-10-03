@@ -1,0 +1,10 @@
+{
+  "name": "signalpost-starter-kit",
+  "version": "0.1.0",
+  "description": "Sanchit-Signalpost Norwegian Company Intelligence Agent",
+  "scripts": {
+    "check:signalpost": "uv run python -m pytest tests/ -q && uv run python first_run.py",
+    "check:signalpost-showcase": "uv run python -c \"import os; assert os.path.exists('out/demo-100/showcase.html') or os.path.exists('out/test-smoke/showcase.html'), 'Showcase HTML found'\"",
+    "check:signalpost-challenge": "uv run python -m strategies.freeze --verify"
+  }
+}

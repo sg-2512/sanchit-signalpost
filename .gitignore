@@ -7,10 +7,15 @@ brreg-enheter.csv
 signalpost-universe.jsonl.gz
 ~$*.docx
 .env
+.agents/
 out/agent-*/
 out/test-*/
+out/final-*/
 out/evaluation-*/
 out/new-100-run/
+out/smoke-*/
+out/eval-report.json
+out/refresh-test.json
 dev-5-*.jsonl
 *.egg-info/
 .coverage

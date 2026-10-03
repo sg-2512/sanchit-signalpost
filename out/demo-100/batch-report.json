@@ -1,0 +1,68 @@
+{
+  "run_id": "daily-001",
+  "started_at": "2026-10-03T09:19:31.548387Z",
+  "completed_at": "2026-10-03T09:24:33.576165Z",
+  "wall_clock_seconds": 302.0,
+  "expected_count": 100,
+  "emitted_envelopes": 100,
+  "profiles_fetched_this_run": 100,
+  "resumed_profiles": 0,
+  "modules": [
+    "registry",
+    "accounting_obligation",
+    "registry_live",
+    "financials",
+    "roles",
+    "group",
+    "locations",
+    "website"
+  ],
+  "registry": {
+    "registry_snapshot_sha256": "90d394deca1e12a3808e4f87fee4ab01a31c23c849f4b44271cad7208d751e12",
+    "registry_rows_scanned": 1170184,
+    "requested": 100,
+    "selected": 100
+  },
+  "operations": {
+    "requests": 1446,
+    "bytes": 16472716,
+    "p50_ms": 1027,
+    "p95_ms": 3983,
+    "third_party_cost_usd": 0.0
+  },
+  "budget": {
+    "total_requests": 1446,
+    "max_requests": 2000,
+    "remaining_requests": 554,
+    "total_cost_usd": 0.0,
+    "max_cost_usd": 10.0,
+    "total_bytes": 16472716,
+    "elapsed_seconds": 302.0,
+    "p50_ms": 1027,
+    "p95_ms": 3983
+  },
+  "external_connectors": {
+    "google_news_rss": true,
+    "news_credibility_engine": true,
+    "linkedin_guest_discovery": true,
+    "google_places_api": false,
+    "youtube_data_api": true,
+    "brave_search_api": false,
+    "wikidata_sparql_p2333": true,
+    "brreg_kunngjoringer": true,
+    "enhetsregisteret_subunits": true,
+    "patentstyret_nipo": false,
+    "doffin_procurement": false
+  },
+  "validation": {
+    "passed": true,
+    "checks": {
+      "exact_expected_count": true,
+      "unique_organisation_numbers": true,
+      "all_entity_states_terminal": true,
+      "all_module_states_terminal": true,
+      "zero_silent_drops": true
+    },
+    "invalid_states": []
+  }
+}

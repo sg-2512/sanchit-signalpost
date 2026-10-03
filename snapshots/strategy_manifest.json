@@ -1,0 +1,124 @@
+{
+  "manifest_version": "1.0.0",
+  "created_at": "2026-10-03T08:48:48.655763+00:00",
+  "git_commit": "63437fbb9828a9de1713763164f9a9d414e0bea7",
+  "git_dirty": true,
+  "environment": {
+    "python_version": "3.14.2",
+    "platform": "win32",
+    "integrity_mode": "development"
+  },
+  "global_budget_envelope": {
+    "max_requests_per_1000": 2000,
+    "max_cost_usd_per_1000": 10.0,
+    "max_runtime_seconds_per_1000": 2700.0
+  },
+  "routes_count": 11,
+  "routes": {
+    "registry_site": {
+      "version": "1.0.0",
+      "category": "official",
+      "description": "Brreg official homepage & live registry verification",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "static_homepage": {
+      "version": "1.0.0",
+      "category": "crawl",
+      "description": "Clean text extraction & metadata crawl",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "sitemap_static": {
+      "version": "1.0.0",
+      "category": "crawl",
+      "description": "XML sitemap parsing & robots.txt discovery",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "targeted_paths": {
+      "version": "1.0.0",
+      "category": "crawl",
+      "description": "Deep crawl of /about, /contact, /leadership, /locations, /careers, /news",
+      "estimated_requests": 2,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "jsonld_opengraph": {
+      "version": "1.0.0",
+      "category": "structured",
+      "description": "Structured schema extraction via extruct",
+      "estimated_requests": 0,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "search_candidates": {
+      "version": "1.0.0",
+      "category": "discovery",
+      "description": "Licensed Brave Search candidate discovery",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.005,
+      "enabled": true
+    },
+    "nav_jobs": {
+      "version": "1.0.0",
+      "category": "official",
+      "description": "Official NAV open jobs API vacancy extraction",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "google_places": {
+      "version": "1.0.0",
+      "category": "discovery",
+      "description": "Google Places API location and review verification",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.017,
+      "enabled": true
+    },
+    "leader_bridge": {
+      "version": "1.0.0",
+      "category": "structured",
+      "description": "Official role-to-brand bridge for leadership profiles",
+      "estimated_requests": 0,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "browser_fallback": {
+      "version": "1.0.0",
+      "category": "fallback",
+      "description": "Playwright headless fallback strictly for confirmed JS shells",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    },
+    "pdf_fallback": {
+      "version": "1.0.0",
+      "category": "fallback",
+      "description": "Annual-account PDF layout extraction via pypdf",
+      "estimated_requests": 1,
+      "estimated_cost_usd": 0.0,
+      "enabled": true
+    }
+  },
+  "framework_files": {
+    "strategies/base.py": "fd9fb692608a48ad58e5e53d76ff11d5d9dcd99d49dafa7103da317051ff0a05",
+    "strategies/registry.py": "4f90cefc6e15ea65c45ab360313e4a2c8acd82db5671f4c1af9cd070b92a5489",
+    "strategies/attempts.py": "9ea4eb2c2e69126049acadcc7f35e40aa5684589ef30596a231a3fbc9c0bac26",
+    "strategies/freeze.py": "7e0075499e1857b07640206870c0c7c219f2d2bbdfb894d0cd62e09c619125a7"
+  },
+  "connector_files": {
+    "src/norway_company_agent/connectors/brave_search.py": "a69106c64cbb8a35611a69d932c727649c6c05ba8301227fa98608e47bc63f10",
+    "src/norway_company_agent/connectors/google_places.py": "f5ccb2ce8b4d714c12bbabf685b094ef8ae49a5ff8ca985d01be62bf93f2c1c5",
+    "src/norway_company_agent/connectors/nav_jobs.py": "4036a2ed09163abcbe4f4bcc13abb6fdf568793646562bc95546018f6bf98635",
+    "src/norway_company_agent/connectors/google_news.py": "d7e83825931d551e4168452d8db53303312b130764a2d02af303438bc1323cf5",
+    "src/norway_company_agent/connectors/youtube.py": "900d2b5344365c730da293f6e2967cedd2fcbaea3d6958c864f552c9d6cee7c1",
+    "src/norway_company_agent/connectors/linkedin.py": "33e462d7e7eb781c853821726d7beb84c7a94182133f748836d64bce3de98c0a",
+    "src/norway_company_agent/budget.py": "a8d10bafa193c4549cb61de3ff49843a7628bef338b9aa3c9db5d3d3dc008dc2",
+    "src/norway_company_agent/identity.py": "fe02c25ae638fbed500ee98946f4c72155f2bfd68fdf8d96bd53591ad20e447c"
+  },
+  "overall_manifest_hash": "b2199d1908644c757abf0f5a73556346d6b0afcf785811ba3d51e91a97cfaca8"
+}

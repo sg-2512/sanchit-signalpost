@@ -23,10 +23,16 @@ The system uses a multi-stage deterministic crawling pipeline managed by [`src/n
 | **Brreg Entity API** | `official.py` | Official Register | 50 req/sec (polite: 20/s) | Legal identity, status, form, address |
 | **Regnskapsregisteret** | `official.py` | Official Register | 30 req/min | Annual accounts, balance sheet, P&L |
 | **Brreg Roles API** | `official.py` | Official Register | 50 req/sec | Board members, general managers, auditors |
-| **Brreg Subunits API** | `official.py` | Official Register | 50 req/sec | Operating locations, branch offices |
+| **Brreg Subunits (Underenheter)** | `connectors/subunits.py` | Official Register | 50 req/sec | Operating locations, branch offices & headcount |
+| **Brreg Kunngjøringer** | `connectors/kunngjoringer.py` | Official Register | 10 req/sec | Dated legal notices, capital & auditor changes |
+| **Wikidata SPARQL (P2333)** | `connectors/wikidata.py` | Open CC0 Data | 5 req/sec | Official social handles, CEO, inception, QID |
+| **Patentstyret API** | `connectors/patentstyret.py` | Official Open API | 10 req/sec | Norwegian trademarks and patent registrations |
+| **Doffin Procurement** | `connectors/doffin.py` | Official Open API | 10 req/sec | Public procurement contract award notices |
 | **NAV Arbeidsplassen** | `connectors/nav_jobs.py` | Official Govt API | 10 req/sec | Active hiring vacancies by orgnr |
 | **Google Places API** | `connectors/google_places.py` | Permitted API | 10 req/sec | Physical store ratings, address, coords |
-| **Google News RSS** | `connectors/google_news.py` | Permitted RSS | 5 req/sec | Media mentions and recent news sentiment |
+| **YouTube Data API v3** | `connectors/youtube.py` | Permitted API | 10 req/sec | Corporate channel verification and video metrics |
+| **LinkedIn Guest Typeahead** | `connectors/linkedin.py` | Open Discovery API | 5 req/sec | Corporate LinkedIn profile verification |
+| **Google News RSS** | `connectors/google_news.py` | Permitted RSS | 5 req/sec | Media mentions and news sentiment |
 | **Brave Search API** | `connectors/brave_search.py` | Candidate Discovery | 5 req/sec | Website candidate discovery |
 
 ## 3. Resource Budgets & Governance
@@ -51,3 +57,12 @@ Per company batch execution, the agent strictly enforces the competition resourc
         └── 3. No match or verification failed?
                └── Mark "availability": "not_available" (Zero wrong-company leaks)
 ```
+
+## 5. Safe URL Handling & SSRF Defense
+
+All outbound crawling executes through [`assert_public_url`](file:///c:/Users/Sanchit%20Gupta/builderr/signalpost-starter-kit/src/norway_company_agent/website.py#L41-L56) and `SafeRedirectHandler`:
+- **Protocol Whitelist:** Enforces `http` or `https` schemes; disallows dangerous schemas (`file:`, `gopher:`, `ftp:`, `data:`).
+- **IP Address Sanitization:** Resolves domain DNS and blocks private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.1`, `::1`), link-local (`169.254.169.254` AWS/cloud metadata), and multicast ranges.
+- **Redirect Re-Validation:** Every HTTP 3xx redirect target is checked before the redirect is performed.
+- **Payload Caps:** Strict socket timeouts (5.0s–20.0s) and bounded read sizes prevent decompression bombs or resource exhaustion.
+
