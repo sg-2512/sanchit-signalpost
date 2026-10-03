@@ -270,7 +270,7 @@ To: submit@builderr.ai
 Subject: Signalpost Round 1 Submission — Sanchit-Signalpost
 
 Repository URL: https://github.com/sg-2512/sanchit-signalpost.git
-Commit Hash: d78b27d99d861c30862bce96577c7f7ba75ff8c2
+Commit Hash: (Latest sealed commit on main)
 Agent Name: Sanchit-Signalpost (Norway Company Intelligence Agent)
 Contact for Results: sanchitgupta2512@gmail.com
 
@@ -292,7 +292,7 @@ Models / APIs / Licences:
 4. Patentstyret & Doffin Procurement APIs — NLOD 2.0
 5. Google Places & YouTube Data API v3 — Licensed Google Cloud APIs
 6. Brave Search API — Licensed Web Search API
-7. Synthesis Engine — Grounded deterministic template (default, $0.00) / optional OpenAI gpt-4o-mini fallback
+7. Synthesis Engine — Grounded deterministic template (default, $0.00) / optional OpenAI gpt-4o fallback
 
 Expected Cost per Official Batch:
 $0.00 (Agent operates entirely on free official registers and CC0 open data with zero third-party API spend)

@@ -94,17 +94,19 @@ def generate_company_synthesis(
     # If an LLM is available in environment and budget permits, attempt fluid synthesis
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key and budget and budget.can_proceed():
+        model_name = os.environ.get("OPENAI_MODEL", "gpt-4o")
         llm_summary = _call_openai_synthesis(
             name=name, org=org, form=form, muni=muni, ind_label=ind_label,
             employees=employees, filing_year=filing_year, revenue=revenue, profit=profit,
             chair=chair, ceo=ceo, loc_count=loc_count, site_url=site_url,
             social_platforms=social_platforms, news_mentions=news_mentions,
             unknowns=unknowns, api_key=openai_key, budget=budget,
+            model=model_name,
         )
         if llm_summary:
             return {
                 "summary": llm_summary,
-                "model": "gpt-4o-mini",
+                "model": model_name,
                 "grounded": True,
                 "unknowns": unknowns,
             }
@@ -188,8 +190,9 @@ def _call_openai_synthesis(
     unknowns: list[str],
     api_key: str,
     budget: Any,
+    model: str = "gpt-4o",
 ) -> str | None:
-    """Invoke OpenAI gpt-4o-mini for fluid executive summary."""
+    """Invoke OpenAI (gpt-4o by default) for fluid executive summary."""
     facts = {
         "name": name,
         "organisation_number": org,
@@ -218,12 +221,12 @@ def _call_openai_synthesis(
 
     url = "https://api.openai.com/v1/chat/completions"
     payload = json.dumps({
-        "model": "gpt-4o-mini",
+        "model": model,
         "messages": [
             {"role": "system", "content": "You write strictly grounded, factual business profiles without hallucination."},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 150,
+        "max_tokens": 200,
         "temperature": 0.2,
     }).encode("utf-8")
 
@@ -238,17 +241,17 @@ def _call_openai_synthesis(
     )
 
     t0 = time.monotonic()
+    est_cost = 0.0003 if "mini" in model else 0.0025
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw = resp.read()
             elapsed_ms = (time.monotonic() - t0) * 1000
             data = json.loads(raw)
-            # Approximate cost: ~$0.0003 per completion
-            budget.record_request(bytes_received=len(raw), latency_ms=elapsed_ms, cost_usd=0.0003)
+            budget.record_request(bytes_received=len(raw), latency_ms=elapsed_ms, cost_usd=est_cost)
             choices = data.get("choices") or []
             if choices:
                 return choices[0].get("message", {}).get("content", "").strip()
     except Exception:
-        budget.record_request(cost_usd=0.0003)
+        budget.record_request(cost_usd=est_cost)
         return None
     return None
