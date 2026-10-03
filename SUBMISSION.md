@@ -269,10 +269,10 @@ When submitting to Builderr, provide the following exact information:
 To: submit@builderr.ai
 Subject: Signalpost Round 1 Submission — Sanchit-Signalpost
 
-Repository URL: https://github.com/sanchit251206/signalpost-norway-agent.git
-Commit Hash: 63437fbb9828a9de1713763164f9a9d414e0bea7 (or latest sealed commit)
+Repository URL: https://github.com/sg-2512/sanchit-signalpost.git
+Commit Hash: d78b27d99d861c30862bce96577c7f7ba75ff8c2
 Agent Name: Sanchit-Signalpost (Norway Company Intelligence Agent)
-Contact for Results: <your-email@domain.com>
+Contact for Results: sanchitgupta2512@gmail.com
 
 One Evaluator Run Command:
 uv run python run_agent.py --organisations dev-100-companies.jsonl --bulk brreg-enheter.csv --output-dir out/daily --expected-count 100 --workers 8
