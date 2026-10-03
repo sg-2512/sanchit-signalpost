@@ -1,0 +1,89 @@
+{
+  "qualification_passed": true,
+  "audit_size_gate": true,
+  "exact_company_precision": 1.0,
+  "wrong_entity_publications": 0,
+  "wrong_company_publications": 0,
+  "unsupported_publications": 0,
+  "evidence_span_validity": 1.0,
+  "published_audited": 125,
+  "connector_policy_passed": true,
+  "fresh_coverage": 8.9,
+  "coverage": {
+    "two_platforms": 1.0,
+    "workforce_jobs": 1.0,
+    "ratings_reviews": 1.0,
+    "buzz_engagement": 1.0,
+    "sentiment": 1.0
+  },
+  "platforms": [
+    "brreg",
+    "facebook",
+    "instagram",
+    "job_board",
+    "linkedin",
+    "news",
+    "wikidata"
+  ],
+  "total_observations": 125,
+  "publishable_observations": 89,
+  "companies_with_external_data": 10,
+  "measurements": {
+    "exact_company_precision": 1.0,
+    "wrong_company_publications": 0,
+    "evidence_span_validity": 1.0,
+    "crawl_completion": 1.0,
+    "refresh_correctness": 1.0,
+    "false_change_rate": 0.0,
+    "cost_per_company": 0.0,
+    "request_count": 241,
+    "p50_ms": 1430,
+    "p95_ms": 7894,
+    "per_field_precision_recall_coverage": {
+      "legal_identity": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "official_website": {
+        "company_coverage": 0.7,
+        "precision": 1.0,
+        "recall": 0.7
+      },
+      "annual_accounts": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "roles": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "operating_locations": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "hiring_status": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "accounting_obligation": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    },
+    "abstention": {
+      "total": 3,
+      "by_state": {
+        "ambiguous": 3
+      },
+      "by_field": {
+        "official_website": 3
+      }
+    }
+  }
+}

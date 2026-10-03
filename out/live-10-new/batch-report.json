@@ -1,0 +1,125 @@
+{
+  "run_id": "daily-001",
+  "started_at": "2026-10-03T17:02:18.629351Z",
+  "completed_at": "2026-10-03T17:04:52.463715Z",
+  "wall_clock_seconds": 153.8,
+  "expected_count": 10,
+  "emitted_envelopes": 10,
+  "profiles_fetched_this_run": 10,
+  "resumed_profiles": 0,
+  "modules": [
+    "registry",
+    "accounting_obligation",
+    "registry_live",
+    "financials",
+    "roles",
+    "group",
+    "locations",
+    "website"
+  ],
+  "registry": {
+    "registry_snapshot_sha256": "90d394deca1e12a3808e4f87fee4ab01a31c23c849f4b44271cad7208d751e12",
+    "registry_rows_scanned": 158,
+    "requested": 10,
+    "selected": 10
+  },
+  "operations": {
+    "requests": 241,
+    "bytes": 10478615,
+    "p50_ms": 1430,
+    "p95_ms": 7894,
+    "third_party_cost_usd": 0.0
+  },
+  "measurements": {
+    "exact_company_precision": 1.0,
+    "wrong_company_publications": 0,
+    "evidence_span_validity": 1.0,
+    "crawl_completion": 1.0,
+    "refresh_correctness": 1.0,
+    "false_change_rate": 0.0,
+    "cost_per_company": 0.0,
+    "request_count": 241,
+    "p50_ms": 1430,
+    "p95_ms": 7894,
+    "per_field_precision_recall_coverage": {
+      "legal_identity": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "official_website": {
+        "company_coverage": 0.7,
+        "precision": 1.0,
+        "recall": 0.7
+      },
+      "annual_accounts": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "roles": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "operating_locations": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "hiring_status": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "accounting_obligation": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    },
+    "abstention": {
+      "total": 3,
+      "by_state": {
+        "ambiguous": 3
+      },
+      "by_field": {
+        "official_website": 3
+      }
+    }
+  },
+  "budget": {
+    "total_requests": 241,
+    "max_requests": 1900,
+    "remaining_requests": 1659,
+    "total_cost_usd": 0.0,
+    "max_cost_usd": 10.0,
+    "total_bytes": 10478615,
+    "elapsed_seconds": 153.8,
+    "p50_ms": 1430,
+    "p95_ms": 7894
+  },
+  "external_connectors": {
+    "google_news_rss": true,
+    "news_credibility_engine": true,
+    "linkedin_guest_discovery": true,
+    "google_places_api": false,
+    "youtube_data_api": true,
+    "brave_search_api": false,
+    "wikidata_sparql_p2333": true,
+    "brreg_kunngjoringer": true,
+    "enhetsregisteret_subunits": true,
+    "patentstyret_nipo": true
+  },
+  "validation": {
+    "passed": true,
+    "checks": {
+      "exact_expected_count": true,
+      "unique_organisation_numbers": true,
+      "all_entity_states_terminal": true,
+      "all_module_states_terminal": true,
+      "zero_silent_drops": true
+    },
+    "invalid_states": []
+  }
+}
