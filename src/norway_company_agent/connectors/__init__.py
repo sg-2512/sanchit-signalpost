@@ -1,7 +1,6 @@
 """External data connectors for the SignalPost live agent."""
 
 from .brave_search import discover_company_website, is_available as brave_available
-from .doffin import fetch_doffin_awards, is_available as doffin_available
 from .google_news import fetch_google_news
 from .google_places import fetch_place_data, is_available as places_available
 from .kunngjoringer import fetch_brreg_kunngjoringer
@@ -16,8 +15,6 @@ from .youtube import fetch_youtube_data, is_available as youtube_available
 __all__ = [
     "discover_company_website",
     "brave_available",
-    "fetch_doffin_awards",
-    "doffin_available",
     "fetch_google_news",
     "fetch_place_data",
     "places_available",

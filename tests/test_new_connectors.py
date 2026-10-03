@@ -20,7 +20,6 @@ from norway_company_agent.connectors.wikidata import (
 from norway_company_agent.connectors.kunngjoringer import fetch_brreg_kunngjoringer
 from norway_company_agent.connectors.subunits import fetch_company_subunits
 from norway_company_agent.connectors.patentstyret import fetch_patentstyret_data
-from norway_company_agent.connectors.doffin import fetch_doffin_awards
 
 
 class NewConnectorsUnitTests(unittest.TestCase):
@@ -184,38 +183,7 @@ class NewConnectorsUnitTests(unittest.TestCase):
         self.assertEqual(o["metrics"]["application_number"], "202401234")
 
     # ------------------------------------------------------------------------
-    # 5. Doffin Connector
-    # ------------------------------------------------------------------------
-    def test_doffin_awards_parsing(self) -> None:
-        mock_payload = {
-            "items": [
-                {
-                    "id": "2025-123456",
-                    "title": "Drift og vedlikehold av IT-systemer",
-                    "buyer": {"name": "Oslo Kommune"},
-                    "publicationDate": "2025-03-01",
-                    "value": 5000000,
-                }
-            ]
-        }
-        raw_bytes = json.dumps(mock_payload).encode("utf-8")
-
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = raw_bytes
-        mock_resp.__enter__.return_value = mock_resp
-
-        with patch("urllib.request.urlopen", return_value=mock_resp):
-            obs = fetch_doffin_awards("999888777", "IT Konsulent AS")
-
-        self.assertEqual(len(obs), 1)
-        o = obs[0]
-        self.assertEqual(o["platform"], "doffin")
-        self.assertEqual(o["signal_type"], "public_procurement_award")
-        self.assertEqual(o["exact_entity"], True)
-        self.assertEqual(o["metrics"]["contracting_authority"], "Oslo Kommune")
-
-    # ------------------------------------------------------------------------
-    # 6. Budget Guard Enforcement
+    # 5. Budget Guard Enforcement
     # ------------------------------------------------------------------------
     def test_budget_exhaustion_blocks_all_new_connectors(self) -> None:
         mock_budget = MagicMock()
@@ -225,7 +193,6 @@ class NewConnectorsUnitTests(unittest.TestCase):
         self.assertEqual(fetch_brreg_kunngjoringer("923609016", "Test", budget=mock_budget), [])
         self.assertEqual(fetch_company_subunits("923609016", "Test", budget=mock_budget), [])
         self.assertEqual(fetch_patentstyret_data("923609016", "Test", budget=mock_budget), [])
-        self.assertEqual(fetch_doffin_awards("923609016", "Test", budget=mock_budget), [])
 
 
 if __name__ == "__main__":

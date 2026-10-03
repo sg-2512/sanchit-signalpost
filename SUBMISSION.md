@@ -127,8 +127,6 @@ The agent integrates a layered multi-connector intelligence suite:
    - SPARQL query on Property `P2333` (Norwegian organisation number). Direct CC0 open data mapping org numbers to official social handles (LinkedIn, YouTube, Facebook, Twitter/X), CEO names, inception dates, and Wikipedia items ($0 cost).
 6. **Patentstyret / Norwegian Industrial Property Office (`connectors/patentstyret.py`)**:
    - Trademark and patent registry connector bridging registered corporate entities to commercial brand assets (`services.patentstyret.no`). Supports `PATENTSTYRET_API_KEY` with graceful fallback when unconfigured.
-7. **Doffin Public Procurement (`connectors/doffin.py`)**:
-   - National procurement database connector for contract award notices. Supports `DOFFIN_API_KEY` with graceful fallback when unconfigured.
 
 ### C. Discovery, Media & Social Connectors (Tier 3)
 8. **Google Places API (New) (`connectors/google_places.py`)**:
@@ -217,8 +215,8 @@ The agent uses strictly lawful, policy-compliant, and licensed data sources:
 3. **Wikidata SPARQL Query Service:**
    - **Licensing:** Creative Commons CC0 1.0 Universal (Public Domain Dedication).
    - **Compliance:** Queries indexed by property `P2333` (Norwegian organisation number) under standard User-Agent etiquette.
-4. **Patentstyret & Doffin Public Procurement APIs:**
-   - **Licensing:** Official open data APIs provided under NLOD 2.0 by the Norwegian Industrial Property Office and National Procurement Database.
+4. **Patentstyret Industrial Property API:**
+   - **Licensing:** Official open data API provided under NLOD 2.0 by the Norwegian Industrial Property Office.
 5. **Google Places & YouTube Data API v3:**
    - **Licensing:** Licensed Google Cloud APIs accessed under developer API terms with developer key credentials.
 6. **Brave Search API:**
@@ -230,7 +228,7 @@ The agent uses strictly lawful, policy-compliant, and licensed data sources:
 
 ### B. Server-Side Secrets & Credential Management
 - **Zero Hardcoded Secrets:** No API keys, credentials, or private tokens are stored in source code or version control.
-- **12-Factor Configuration:** All credentials (`PLACES_API_KEY`, `YOUTUBE_API_KEY`, `BRAVE_SEARCH_API_KEY`, `OPENAI_API_KEY`, `PATENTSTYRET_API_KEY`, `DOFFIN_API_KEY`) are injected via environment variables or `.env` (template in `.env.example`).
+- **12-Factor Configuration:** All credentials (`PLACES_API_KEY`, `YOUTUBE_API_KEY`, `BRAVE_SEARCH_API_KEY`, `OPENAI_API_KEY`, `PATENTSTYRET_API_KEY`) are injected via environment variables or `.env` (template in `.env.example`).
 - **Header-Based Transmission:** Secrets are passed strictly in request headers (e.g. `X-Goog-Api-Key`, `X-Subscription-Token`), never leaked into URLs or query strings (`tests/test_poc.py` verifies `test_brave_request_keeps_key_out_of_url_and_parses_in_memory`).
 - **Audit-Safe Logging:** Secret keys are never output to logs, terminal stdout, error traces, or audit envelopes.
 - **Circuit Breakers & Graceful Degradation:** If any API key is missing or encounters a quota exhaust (HTTP 429), the connector gracefully abstains without throwing unhandled exceptions or breaking the output contract.
@@ -289,7 +287,7 @@ Models / APIs / Licences:
 1. Brønnøysundregistrene (Enhetsregisteret, Regnskapsregisteret, Underenheter, Kunngjøringer) — NLOD 2.0 / CC-BY 4.0
 2. NAV Arbeidsplassen Open Jobs API — NLOD 2.0
 3. Wikidata SPARQL Query Service (P2333) — CC0 1.0 Universal
-4. Patentstyret & Doffin Procurement APIs — NLOD 2.0
+4. Patentstyret Industrial Property API — NLOD 2.0
 5. Google Places & YouTube Data API v3 — Licensed Google Cloud APIs
 6. Brave Search API — Licensed Web Search API
 7. Synthesis Engine — Grounded deterministic template (default, $0.00) / optional OpenAI gpt-4o fallback

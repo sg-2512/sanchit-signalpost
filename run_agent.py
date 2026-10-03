@@ -100,10 +100,6 @@ from norway_company_agent.connectors.patentstyret import (
     fetch_patentstyret_data,
     is_available as patentstyret_available,
 )
-from norway_company_agent.connectors.doffin import (
-    fetch_doffin_awards,
-    is_available as doffin_available,
-)
 from norway_company_agent.hiring import evaluate_company_hiring
 from norway_company_agent.synthesis import generate_company_synthesis
 
@@ -544,10 +540,6 @@ def enrich_single_company(
         patent_obs = fetch_patentstyret_data(org, name, budget=budget)
         observations.extend(patent_obs)
 
-    # 13. Doffin (Public Procurement Contract Awards)
-    if doffin_available() and budget.can_proceed():
-        doffin_obs = fetch_doffin_awards(org, name, budget=budget)
-        observations.extend(doffin_obs)
 
     # 14. Decision-useful factual synthesis (10-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
@@ -804,7 +796,6 @@ def main() -> int:
             "brreg_kunngjoringer": True,
             "enhetsregisteret_subunits": True,
             "patentstyret_nipo": patentstyret_available(),
-            "doffin_procurement": doffin_available(),
         },
         "validation": validation,
     }

@@ -27,7 +27,6 @@ The system uses a multi-stage deterministic crawling pipeline managed by [`src/n
 | **Brreg Kunngjøringer** | `connectors/kunngjoringer.py` | Official Register | 10 req/sec | Dated legal notices, capital & auditor changes |
 | **Wikidata SPARQL (P2333)** | `connectors/wikidata.py` | Open CC0 Data | 5 req/sec | Official social handles, CEO, inception, QID |
 | **Patentstyret API** | `connectors/patentstyret.py` | Official Open API | 10 req/sec | Norwegian trademarks and patent registrations |
-| **Doffin Procurement** | `connectors/doffin.py` | Official Open API | 10 req/sec | Public procurement contract award notices |
 | **NAV Arbeidsplassen** | `connectors/nav_jobs.py` | Official Govt API | 10 req/sec | Active hiring vacancies by orgnr |
 | **Google Places API** | `connectors/google_places.py` | Permitted API | 10 req/sec | Physical store ratings, address, coords |
 | **YouTube Data API v3** | `connectors/youtube.py` | Permitted API | 10 req/sec | Corporate channel verification and video metrics |
