@@ -18,7 +18,7 @@ The SignalPost live company intelligence agent combines official Norwegian gover
 - **Exact-Entity Precision:** **596 / 596 (100.0%)** — **0 wrong-company publications** (Fatal Gate passed)
 - **Resource Consumption:**
   - Requests: 1,446 / 2,000 (554 requests remaining under budget envelope)
-  - Third-party spend: **$0.00** ($10.00 budget ceiling)
+  - Third-party spend: **$0.00** base registers / **$3.10** with all external APIs active (strict $10.00 budget ceiling)
   - Elapsed time: 302.0s (5.0 minutes vs. 40-minute safety ceiling)
 - **Awardable Score:** **`100.000 / 100.000` (QUALIFIED)**
 
@@ -268,32 +268,43 @@ To: submit@builderr.ai
 Subject: Signalpost Round 1 Submission — Sanchit-Signalpost
 
 Repository URL: https://github.com/sg-2512/sanchit-signalpost.git
-Commit Hash: (Latest sealed commit on main)
+Commit Hash: (Latest commit on main)
 Agent Name: Sanchit-Signalpost (Norway Company Intelligence Agent)
 Contact for Results: sanchitgupta2512@gmail.com
 
 One Evaluator Run Command:
 uv run python run_agent.py --organisations dev-100-companies.jsonl --bulk brreg-enheter.csv --output-dir out/daily --expected-count 100 --workers 8
 
-100-Company Smoke-Test Report / Results:
-- Included in repository at out/demo-100/
-  - Envelopes (100% valid, 0 silent drops): out/demo-100/envelopes.jsonl
-  - Observations (596 verified signals): out/demo-100/all-observations.jsonl
-  - Interactive Showcase: out/demo-100/showcase.html
-  - Proxy Scorecard (100.0/100 QUALIFIED): out/demo-100/score-report.json
-  - Operational Report (302s, $0.00 spend): out/demo-100/run-report.json
+Smoke-Test Reports Included in Repository:
+1. 100-Company Evaluation Run (out/demo-100/):
+   - Envelopes (100% valid, 0 silent drops): out/demo-100/envelopes.jsonl
+   - Observations (596 verified signals): out/demo-100/all-observations.jsonl
+   - Interactive Showcase: out/demo-100/showcase.html
+   - Proxy Scorecard: 100.0 / 100.0 (QUALIFIED) (out/demo-100/score-report.json)
+   - Operational Report (302s wall clock): out/demo-100/run-report.json
+2. 10-Company Fresh Live Run with Patentstyret IP Integration (out/live-10-new/):
+   - Envelopes (10/10 VALID, 0 silent drops): out/live-10-new/envelopes.jsonl
+   - Observations (125 total, 25 Patentstyret patents & trademarks): out/live-10-new/all-observations.jsonl
+   - Interactive Showcase: out/live-10-new/showcase.html
+   - Proxy Scorecard: 100.0 / 100.0 (QUALIFIED) (out/live-10-new/score-report.json)
 
 Models / APIs / Licences:
 1. Brønnøysundregistrene (Enhetsregisteret, Regnskapsregisteret, Underenheter, Kunngjøringer) — NLOD 2.0 / CC-BY 4.0
-2. NAV Arbeidsplassen Open Jobs API — NLOD 2.0
-3. Wikidata SPARQL Query Service (P2333) — CC0 1.0 Universal
-4. Patentstyret Industrial Property API — NLOD 2.0
-5. Google Places & YouTube Data API v3 — Licensed Google Cloud APIs
-6. Brave Search API — Licensed Web Search API
-7. Synthesis Engine — Grounded deterministic template (default, $0.00) / optional OpenAI gpt-4o fallback
+2. Patentstyret Industrial Property API — NLOD 2.0 (Supports PATENTSTYRET_API_KEY)
+3. NAV Arbeidsplassen Open Jobs API — NLOD 2.0
+4. Wikidata SPARQL Query Service (P2333) — CC0 1.0 Universal
+5. Google Places API (New & Legacy TextSearch) — Licensed Google Cloud API
+6. YouTube Data API v3 — Licensed Google Cloud API
+7. Brave Search API — Licensed Web Search API
+8. OpenAI API (gpt-4o) — LLM Synthesis Fallback Engine
 
-Expected Cost per Official Batch:
-$0.00 (Agent operates entirely on free official registers and CC0 open data with zero third-party API spend)
+Expected Cost per 100-Company Evaluation Batch:
+Total Estimated Third-Party API Cost: $3.10
+- Google Places API: $1.70 (100 calls × $0.017)
+- Brave Search API: $0.50 (100 calls × $0.005)
+- YouTube Data API v3: $0.50 (100 calls × $0.005)
+- OpenAI API (gpt-4o synthesis): $0.40 (100 calls × ~$0.004)
+Total: $3.10 for 100 companies (strictly within the $10.00 competition budget ceiling, with $6.90 safety headroom)
 ```
 
 
