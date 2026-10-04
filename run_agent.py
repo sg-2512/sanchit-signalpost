@@ -765,6 +765,16 @@ def enrich_single_company(
     if budget.can_proceed():
         wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
         observations.extend(wiki_obs)
+        if wiki_obs and "website" in profile.get("evidence", {}):
+            web_val = (profile.get("evidence", {}).get("website", {}).get("value") or {})
+            if isinstance(web_val, dict):
+                cur_soc = web_val.setdefault("social_links", [])
+                for wo in wiki_obs:
+                    if wo.get("signal_type") == "profile_handle" and wo.get("source_url"):
+                        plat = wo.get("platform")
+                        p_url = wo.get("source_url")
+                        if not any(s.get("url") == p_url for s in cur_soc):
+                            cur_soc.append({"platform": plat, "url": p_url})
 
     # 12. Enhetsregisteret Subunits (Regional Workplace & Branch Mapping)
     if budget.can_proceed():

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -63,9 +64,11 @@ def fetch_youtube_data(
 
     if not channel_id:
         # Search YouTube for the company
+        clean_name = re.sub(r"\b(AS|ASA|BA|DA|ANS|ENK|NUF|SF|IKS|KF)\b", "", company_name, flags=re.I).strip()
+        search_query = clean_name if len(clean_name) >= 3 else company_name.strip()
         search_url = (
             f"https://www.googleapis.com/youtube/v3/search"
-            f"?q={urllib.parse.quote(company_name + ' Norway')}"
+            f"?q={urllib.parse.quote(search_query + ' Norway')}"
             f"&type=channel"
             f"&regionCode=NO"
             f"&maxResults=1"

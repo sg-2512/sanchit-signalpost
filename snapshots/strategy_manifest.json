@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-10-04T09:24:36.904825+00:00",
-  "git_commit": "ff33e6d91f1c1d3e2e641ed24cdb93b0e2fc6a85",
+  "created_at": "2026-10-04T15:40:01.394726+00:00",
+  "git_commit": "4826c74b0ba8f92db51c5c0338d931f09d24dfc5",
   "git_dirty": true,
   "environment": {
     "python_version": "3.14.2",
@@ -113,12 +113,12 @@
   "connector_files": {
     "src/norway_company_agent/connectors/brave_search.py": "a69106c64cbb8a35611a69d932c727649c6c05ba8301227fa98608e47bc63f10",
     "src/norway_company_agent/connectors/google_places.py": "0b0fdfa3e25a2073423cbf17f19cfea9c439be619929ecf03af0aee2d37d5062",
-    "src/norway_company_agent/connectors/nav_jobs.py": "4036a2ed09163abcbe4f4bcc13abb6fdf568793646562bc95546018f6bf98635",
-    "src/norway_company_agent/connectors/google_news.py": "7536fc20024036bbe4a3c304077df7104bc7bda64378211e1ed565f8fb377be1",
-    "src/norway_company_agent/connectors/youtube.py": "4f464b21a31d7ada4995aed21e9fbab1123d8ec3945fbb2642af8aeebff048c1",
-    "src/norway_company_agent/connectors/linkedin.py": "33e462d7e7eb781c853821726d7beb84c7a94182133f748836d64bce3de98c0a",
+    "src/norway_company_agent/connectors/nav_jobs.py": "fa7bf87dd0ed27072948ba89d06c724bb2f6ea4bcc70ec4a564804524c797368",
+    "src/norway_company_agent/connectors/google_news.py": "5d6ec6e5914ef046f46c3a973129c063d41520afdae1efc32217d2f9f3133352",
+    "src/norway_company_agent/connectors/youtube.py": "deff6e8e084ebd71d1580efd57d7c9f47d06d20e3899fbecbb59139e775e6e42",
+    "src/norway_company_agent/connectors/linkedin.py": "c4a1355b6f7f4338528c7454e16366d97c81e7018db07f562f51367c4ce586e1",
     "src/norway_company_agent/budget.py": "a8d10bafa193c4549cb61de3ff49843a7628bef338b9aa3c9db5d3d3dc008dc2",
-    "src/norway_company_agent/identity.py": "a6dbbc5a970d21f1cc42a432263ba9d4b1215c3aa06d59d52f570b19600bc7e6"
+    "src/norway_company_agent/identity.py": "b301146702a01d6c62a9daf995048dc242098b7dd55f585a79b166b03a2fa241"
   },
-  "overall_manifest_hash": "afba4d18c205817d58e2214b4e851f4335eaad5c75c7faa727cf2f2ce3f829fc"
+  "overall_manifest_hash": "6b9955790eb7fa15283afaf3400e64c8ffa36b1dc01237c93ee8b626606f9aae"
 }

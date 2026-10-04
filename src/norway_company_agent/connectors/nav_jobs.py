@@ -55,7 +55,9 @@ def fetch_nav_jobs(
     if budget and not budget.can_proceed():
         return []
 
-    clean_query = urllib.parse.quote(company_name.strip())
+    # Query by clean core brand first (e.g. 'DNB' or 'Equinor'), then fallback to full name
+    query_str = legal_core if len(legal_core) >= 3 else company_name.strip()
+    clean_query = urllib.parse.quote(query_str)
     url = f"https://arbeidsplassen.nav.no/stillinger/api/search?q={clean_query}&size=10"
 
     start_time = time.perf_counter()

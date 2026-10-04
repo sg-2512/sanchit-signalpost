@@ -75,7 +75,7 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     normalized_raw = unicodedata.normalize("NFKD", candidate_text).encode("ascii", "ignore").decode().casefold()
     homepage_token_sets = [set(_tokens(part)) for part in homepage_identity_parts if part]
     exact_homepage_name = bool(core and any(set(core).issubset(tokens) for tokens in homepage_token_sets))
-    substantive_homepage = len(str(value.get("main_text_excerpt") or "").strip()) >= 100
+    substantive_homepage = len(str(value.get("main_text_excerpt") or "").strip()) >= 50 or len(str(value.get("title") or "").strip()) >= 15
     is_business_sports_club = bool(re.search(r"(?:^|\s)B\.?\s*I\.?\s*L\.?(?:\s|$)", str(profile.get("name") or ""), re.I))
 
     # Sovereign registry official management portal recognition (e.g. housing co-ops c/o BORI BBL -> bori.no)
@@ -85,25 +85,34 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     if not raw_addr:
         raw_addr = reg_val.get("forretningsadresse.adresse") or reg_val.get("postadresse.adresse") or ""
     addr_text = " ".join(raw_addr) if isinstance(raw_addr, list) else str(raw_addr or "")
-    co_match = re.search(r"\bc/o\s+([a-zA-Z0-9æøåÆØÅ]+)", addr_text, re.I)
+    post_val = reg_val.get("postadresse") or {}
+    post_raw = post_val.get("adresse") if isinstance(post_val, dict) else (reg_val.get("postadresse.adresse") or "")
+    post_text = " ".join(post_raw) if isinstance(post_raw, list) else str(post_raw or "")
+    combined_addr_text = f"{addr_text} {post_text}"
+    co_match = re.search(r"\bc/o\s+([a-zA-Z0-9æøåÆØÅ]+)", combined_addr_text, re.I)
     co_manager = co_match.group(1).lower() if co_match else ""
     email_val = str(reg_val.get("epostadresse") or profile.get("email") or "")
     email_domain = email_val.split("@")[1].lower() if "@" in email_val else ""
     org_form = str(profile.get("legal_form") or reg_val.get("organisasjonsform.kode") or (reg_val.get("organisasjonsform") or {}).get("kode") or "").upper()
-    is_co_op = org_form in {"SAM", "BRL", "BOL", "BA", "SA"}
+    is_co_op = org_form in {"SAM", "BRL", "BOL", "BA", "SA", "ESEK"}
 
     reg_hjemmeside = str(reg_val.get("hjemmeside") or profile.get("website") or "").lower()
     clean_reg_host = reg_hjemmeside.replace("https://", "").replace("http://", "").split("/")[0].replace("www.", "")
     clean_cand_host = hostname.lower().replace("www.", "")
     is_declared_hjemmeside = bool(clean_reg_host and clean_cand_host and clean_reg_host == clean_cand_host)
 
+    known_bbl_managers = ("bori", "obos", "usbl", "tobb", "vestbo", "bonord", "nobl", "kobbl", "gbl", "sobo", "bbl")
+    is_known_bbl = any(bbl in clean_cand_host or bbl in clean_reg_host for bbl in known_bbl_managers)
+
     is_official_manager_portal = False
-    if (is_co_op or co_manager) and substantive_homepage:
-        if co_manager and (co_manager in hostname.lower() or co_manager in normalized_candidate_text):
+    if (is_co_op or co_manager or is_known_bbl) and substantive_homepage:
+        if is_known_bbl and (is_declared_hjemmeside or is_co_op):
+            is_official_manager_portal = True
+        elif co_manager and (co_manager in hostname.lower() or co_manager in normalized_candidate_text):
             is_official_manager_portal = True
         elif email_domain and (email_domain in hostname.lower() or hostname.lower() in email_domain):
             is_official_manager_portal = True
-        elif is_declared_hjemmeside:
+        elif is_declared_hjemmeside and is_co_op:
             is_official_manager_portal = True
 
     if any(marker in normalized_raw for marker in parked_markers):

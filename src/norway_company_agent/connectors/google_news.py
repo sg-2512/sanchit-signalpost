@@ -35,6 +35,8 @@ def exact_title_match(company_name: str, title: str) -> bool:
     for index in range(len(title_tokens) - len(company_tokens) + 1):
         if title_tokens[index:index + len(company_tokens)] != company_tokens:
             continue
+        if len(company_tokens) >= 2 or len(company_tokens[0]) >= 5:
+            return True
         if index == 0 or title_tokens[index - 1] in allowed_predecessors:
             return True
     return False
@@ -45,7 +47,7 @@ def fetch_google_news(
     company_name: str,
     *,
     limit: int = 5,
-    years: int = 2,
+    years: int = 3,
     budget: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch news mentions for a company from Google News RSS.
@@ -56,8 +58,8 @@ def fetch_google_news(
         return []
 
     clean_name = re.sub(r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", str(company_name or ""), flags=re.I).strip()
-    query_name = clean_name if len(clean_name) >= 4 else company_name
-    query = urllib.parse.quote(f'"{query_name}" when:{years}y')
+    query_name = clean_name if len(clean_name) >= 3 else company_name
+    query = urllib.parse.quote(f'"{query_name}"')
     url = f"https://news.google.com/rss/search?q={query}&hl=no&gl=NO&ceid=NO:no"
 
     try:

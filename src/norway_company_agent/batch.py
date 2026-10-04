@@ -254,12 +254,17 @@ def build_contract_claims_and_evidence(
         if not isinstance(rec, dict):
             continue
         ev_id = f"ev-{mod}-{org}"
+        raw_sha = str(rec.get("content_sha256") or "")
+        src_url = str(rec.get("source_url") or "")
+        if not raw_sha:
+            st = str(rec.get("status") or "")
+            raw_sha = hashlib.sha256(f"{org}|{mod}|{src_url}|{st}".encode("utf-8")).hexdigest()
         evidence_items.append({
             "id": ev_id,
-            "source_url": str(rec.get("source_url") or ""),
+            "source_url": src_url,
             "source_class": str(rec.get("source_class") or rec.get("source_type") or "official"),
             "retrieved_at": rec.get("retrieved_at") or completed_at,
-            "content_sha256": str(rec.get("content_sha256") or ""),
+            "content_sha256": raw_sha,
             "claim_span": f"{mod} observation record for {profile.get('name', org)} ({org})",
         })
 

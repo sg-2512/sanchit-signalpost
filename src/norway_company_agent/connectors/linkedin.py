@@ -62,7 +62,9 @@ def discover_linkedin_company(
     if budget and not budget.can_proceed():
         return None
 
-    clean_query = urllib.parse.quote(company_name.strip())
+    clean_brand = re.sub(r"\b(AS|ASA|BA|DA|ANS|ENK|NUF|SF|IKS|KF)\b", "", company_name, flags=re.I).strip()
+    search_term = clean_brand if len(clean_brand) >= 3 else company_name.strip()
+    clean_query = urllib.parse.quote(search_term)
     url = f"https://www.linkedin.com/jobs-guest/api/typeaheadHits?typeaheadType=COMPANY&query={clean_query}"
 
     start_time = time.perf_counter()

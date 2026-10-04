@@ -332,6 +332,29 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
             "content_sha256": digest,
         })
 
+    # Detect Norwegian ATS portals (Webcruiter, Jobbnorge, Teamtailor, Recman, Easycruit, Finn)
+    ats_domains = ("webcruiter.no", "jobbnorge.no", "teamtailor.com", "recman.no", "recman.io", "easycruit.com", "reachmee.com", "finn.no/jobb")
+    for anchor in soup.select("a[href]"):
+        href = str(anchor.get("href") or "").strip()
+        if any(ats in href.lower() for ats in ats_domains) and not href.startswith(("tel:", "mailto:", "javascript:", "#")):
+            clean_href = urllib.parse.urljoin(page_url, href)
+            a_text = anchor.get_text(" ", strip=True) or "Ledig stilling"
+            if len(a_text) < 4 or a_text.casefold() in {"les mer", "søk her", "søk stilling", "apply here", "apply", "klikk her"}:
+                parsed_ats = urllib.parse.urlparse(clean_href)
+                a_text = f"Ledig stilling ({parsed_ats.netloc})"
+            if a_text.casefold() not in seen_titles:
+                seen_titles.add(a_text.casefold())
+                digest = hashlib.sha256(f"{a_text}|{clean_href}".encode("utf-8")).hexdigest()
+                jobs.append({
+                    "title": a_text[:120],
+                    "url": clean_href,
+                    "published_at": time.strftime("%Y-%m-%d", time.gmtime()),
+                    "excerpt": f"External Norwegian recruitment ATS posting at {clean_href}",
+                    "content_sha256": digest,
+                })
+                if len(jobs) >= 8:
+                    break
+
     return jobs
 
 
