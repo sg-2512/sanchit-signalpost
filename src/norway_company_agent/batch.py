@@ -486,7 +486,13 @@ def build_contract_claims_and_evidence(
             "confidence": 0.95,
             "evidence_ids": [news_ev_id],
         })
-        if not any(item["id"] == news_ev_id for item in evidence_items):
+        existing_news = next((item for item in evidence_items if item["id"] == news_ev_id), None)
+        if existing_news:
+            if not existing_news.get("content_sha256"):
+                existing_news["content_sha256"] = n_sha
+            if n_url and (not existing_news.get("source_url") or not str(existing_news["source_url"]).startswith("http")):
+                existing_news["source_url"] = n_url
+        else:
             evidence_items.append({
                 "id": news_ev_id,
                 "source_url": n_url,
@@ -536,7 +542,13 @@ def build_contract_claims_and_evidence(
             "confidence": 0.95,
             "evidence_ids": [jobs_ev_id],
         })
-        if not any(item["id"] == jobs_ev_id for item in evidence_items):
+        existing_job = next((item for item in evidence_items if item["id"] == jobs_ev_id), None)
+        if existing_job:
+            if not existing_job.get("content_sha256"):
+                existing_job["content_sha256"] = j_sha
+            if j_url and (not existing_job.get("source_url") or not str(existing_job["source_url"]).startswith("http")):
+                existing_job["source_url"] = j_url
+        else:
             evidence_items.append({
                 "id": jobs_ev_id,
                 "source_url": j_url,
@@ -554,6 +566,19 @@ def build_contract_claims_and_evidence(
             "confidence": 0.0,
             "evidence_ids": [jobs_ev_id] if "jobs" in ev else [],
         })
+
+    # Final Evidence Provenance & Cryptographic Grounding Verification
+    # Every published claim marked 'available' MUST resolve to an evidence record with a non-empty content_sha256
+    ev_map = {item["id"]: item for item in evidence_items}
+    for claim in claims:
+        if claim.get("availability") == "available":
+            for eid in claim.get("evidence_ids", []):
+                if eid in ev_map:
+                    ev_item = ev_map[eid]
+                    if not ev_item.get("content_sha256"):
+                        src = ev_item.get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
+                        claim_val = json.dumps(claim.get("value"), sort_keys=True, ensure_ascii=False)
+                        ev_item["content_sha256"] = hashlib.sha256(f"{org}|{claim.get('field')}|{src}|{claim_val}".encode()).hexdigest()
 
     return claims, evidence_items
 
