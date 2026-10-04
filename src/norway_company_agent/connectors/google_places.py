@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -20,6 +22,11 @@ from typing import Any
 
 
 _QUOTA_EXHAUSTED = False
+_CONSECUTIVE_429 = 0
+_MAX_CONSECUTIVE_429 = 5
+_PLACES_LOCK = threading.Lock()
+_LAST_REQUEST_TIME = 0.0
+_MIN_INTERVAL = 0.15  # 150ms between requests to prevent QPS burst 429
 
 
 def is_available() -> bool:
@@ -59,6 +66,14 @@ def fetch_place_data(
         if municipality:
             search_input = f"{company_name} {municipality} Norway"
 
+    global _LAST_REQUEST_TIME, _CONSECUTIVE_429
+    with _PLACES_LOCK:
+        now = time.monotonic()
+        diff = now - _LAST_REQUEST_TIME
+        if diff < _MIN_INTERVAL:
+            time.sleep(_MIN_INTERVAL - diff)
+        _LAST_REQUEST_TIME = time.monotonic()
+
     # Try Places API (New) first (preferred by Google)
     new_url = "https://places.googleapis.com/v1/places:searchText"
     payload = json.dumps({"textQuery": search_input}).encode("utf-8")
@@ -74,6 +89,7 @@ def fetch_place_data(
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = resp.read()
             data = json.loads(raw.decode())
+        _CONSECUTIVE_429 = 0
 
         if budget:
             budget.record_request(cost_usd=0.017, bytes_received=len(raw))
@@ -156,8 +172,10 @@ def fetch_place_data(
 
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
-            _QUOTA_EXHAUSTED = True
-            return []
+            _CONSECUTIVE_429 += 1
+            if _CONSECUTIVE_429 >= _MAX_CONSECUTIVE_429:
+                _QUOTA_EXHAUSTED = True
+            time.sleep(0.3)
     except Exception:
         # Fallback to legacy Places API if new API fails
         try:

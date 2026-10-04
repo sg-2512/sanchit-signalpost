@@ -79,7 +79,7 @@ def fetch_youtube_data(
                 search_data = json.loads(search_raw)
 
             if budget:
-                budget.record_request(bytes_received=len(search_raw))
+                budget.record_request(cost_usd=0.005, bytes_received=len(search_raw))
 
             items = search_data.get("items", [])
             if not items:
@@ -109,7 +109,7 @@ def fetch_youtube_data(
             stats_data = json.loads(stats_raw)
 
         if budget:
-            budget.record_request(bytes_received=len(stats_raw))
+            budget.record_request(cost_usd=0.002, bytes_received=len(stats_raw))
 
         items = stats_data.get("items", [])
         if not items:

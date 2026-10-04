@@ -2,7 +2,7 @@
 
 **Hackathon:** Builderr Signalpost Challenge (Round 1: Norwegian Company Intelligence Agent)  
 **Target:** ≥ 65.0 Qualification Minimum (Achieved: **100.0 / 100.0 QUALIFIED**)  
-**Code Integrity:** Sealed Manifest (`SHA-256: 51bef7fb68d1c2415bc58ec669fbbe3e8a1e0ef487591399fd6ac850da404ade`)  
+**Code Integrity:** Sealed Manifest (`SHA-256: 18268944241513795630a0ee262064e03281ed192141eb903c156900f99abb27`)  
 **Test Suite:** 219 / 219 Tests Passing (100% Pass Rate in ~14s)
 
 ---

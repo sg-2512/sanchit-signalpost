@@ -498,7 +498,12 @@ def enrich_single_company(
     # 2. Google Places (if API key available)
     places_obs: list[dict[str, Any]] = []
     if places_available() and budget.can_proceed():
-        address = profile.get("business_address") or (profile.get("evidence", {}).get("registry_live", {}).get("value", {}) or {}).get("business_address")
+        address = (
+            profile.get("address")
+            or profile.get("municipality")
+            or profile.get("business_address")
+            or (profile.get("evidence", {}).get("registry_live", {}).get("value", {}) or {}).get("forretningsadresse")
+        )
         places_obs = fetch_place_data(org, name, address=address, budget=budget)
 
     # 3. Fetch and verify company website via multi-level waterfall
