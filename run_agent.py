@@ -801,7 +801,7 @@ def main() -> int:
     parser.add_argument("--run-id", default="daily-001", help="Unique run identifier")
     parser.add_argument("--expected-count", type=int, default=None, help="Expected number of companies")
     parser.add_argument("--workers", type=int, default=8, help="Worker threads")
-    parser.add_argument("--max-requests", type=int, default=1850, help="Request budget (safety margin below 2000)")
+    parser.add_argument("--max-requests", type=int, default=1950, help="Request budget (safety margin below 2000)")
     parser.add_argument("--max-cost", type=float, default=10.0, help="Max API spend in USD")
     parser.add_argument("--max-time", type=float, default=2400, help="Max wall clock seconds (40 min safety)")
     parser.add_argument("--resume", action="store_true", help="Resume from existing completed profiles")
