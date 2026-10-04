@@ -306,6 +306,14 @@ Smoke-Test Reports Included in Repository:
    - Observations (125 total, 25 Patentstyret patents & trademarks): out/live-10-new/all-observations.jsonl
    - Interactive Showcase: out/live-10-new/showcase.html
    - Proxy Scorecard: 100.0 / 100.0 (QUALIFIED) (out/live-10-new/score-report.json)
+3. 100-Company Review Benchmark Run (out/smoke-100-review/):
+   - Envelopes (100/100 VALID, 0 silent drops): out/smoke-100-review/envelopes.jsonl
+   - Observations (697 total across 9 platforms): out/smoke-100-review/all-observations.jsonl
+   - Grounded Scored Claims: 594 available claims, 0 unlinked evidence references, 0 empty SHA-256 digests
+   - Specific Review Cases Verified: Org 813396092 (bori.no dated news) and Org 838797172 (granne.no job postings)
+   - Interactive Showcase: out/smoke-100-review/showcase.html
+   - Proxy Scorecard: 99.96 / 100.0 (QUALIFIED) (out/smoke-100-review/score-report.json)
+   - Operational Report (354s wall clock, 1,664 requests): out/smoke-100-review/run-report.json
 
 Models / APIs / Licences:
 1. Brønnøysundregistrene (Enhetsregisteret, Regnskapsregisteret, Underenheter, Kunngjøringer) — NLOD 2.0 / CC-BY 4.0
