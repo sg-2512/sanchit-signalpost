@@ -446,6 +446,8 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
         "organisation_number": org,
         "platform": "news",
         "signal_type": "public_mention",
+        "text": f"Offisiell registrering i Enhetsregisteret: {name} ({reg_date})",
+        "published_at": reg_date,
         "source_url": source_url,
         "retrieved_at": retrieved_at,
         "content_sha256": digest,
@@ -457,7 +459,7 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
         "sentiment_label": "neutral",
         "sentiment_model_version": "NOSIBLE/financial-sentiment-v1.2-base",
         "evidence_span": f"Official Norwegian registration publication for {name} (org {org}) in Enhetsregisteret, registered {reg_date}",
-        "metrics": {"notice_type": "registration_announcement", "registration_date": reg_date},
+        "metrics": {"notice_type": "registration_announcement", "registration_date": reg_date, "title": f"Offisiell registrering i Enhetsregisteret ({reg_date})"},
         "strategy": "official_public_notices",
     }]
 
@@ -623,7 +625,8 @@ def enrich_single_company(
     observations.extend(extract_workforce_observation(profile))
     observations.extend(extract_profile_metrics_observation(profile))
     observations.extend(extract_place_observations(profile))
-    observations.extend(extract_notice_observation(profile))
+    notice_obs = extract_notice_observation(profile)
+    observations.extend(notice_obs)
 
     # 5. Google News RSS (free)
     news_obs: list[dict[str, Any]] = []
@@ -671,6 +674,8 @@ def enrich_single_company(
     if not all_news_obs and kunn_obs:
         dated_kunn = [o for o in kunn_obs if o.get("published_at") and not str(o.get("id") or "").startswith("notice-kunn-anchor")]
         all_news_obs = dated_kunn[:5]
+    if not all_news_obs and notice_obs:
+        all_news_obs = [o for o in notice_obs if o.get("published_at")]
 
     if all_news_obs:
         primary_n = all_news_obs[0]

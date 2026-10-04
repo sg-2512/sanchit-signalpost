@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-10-04T09:06:41.895454+00:00",
-  "git_commit": "f9f85a231c8be5bd59145f9806d61beaf1ed9065",
+  "created_at": "2026-10-04T09:24:36.904825+00:00",
+  "git_commit": "ff33e6d91f1c1d3e2e641ed24cdb93b0e2fc6a85",
   "git_dirty": true,
   "environment": {
     "python_version": "3.14.2",
@@ -106,7 +106,7 @@
   },
   "framework_files": {
     "strategies/base.py": "fd9fb692608a48ad58e5e53d76ff11d5d9dcd99d49dafa7103da317051ff0a05",
-    "strategies/registry.py": "4f90cefc6e15ea65c45ab360313e4a2c8acd82db5671f4c1af9cd070b92a5489",
+    "strategies/registry.py": "bbbfeb883409e5d163f67c0f71a5df5dfaae01ac736426d9f132268522cc3798",
     "strategies/attempts.py": "9ea4eb2c2e69126049acadcc7f35e40aa5684589ef30596a231a3fbc9c0bac26",
     "strategies/freeze.py": "7e0075499e1857b07640206870c0c7c219f2d2bbdfb894d0cd62e09c619125a7"
   },
@@ -120,5 +120,5 @@
     "src/norway_company_agent/budget.py": "a8d10bafa193c4549cb61de3ff49843a7628bef338b9aa3c9db5d3d3dc008dc2",
     "src/norway_company_agent/identity.py": "a6dbbc5a970d21f1cc42a432263ba9d4b1215c3aa06d59d52f570b19600bc7e6"
   },
-  "overall_manifest_hash": "9aa6f61579e74d83a721a59551f2bc4b997bb64986143e10df4f5e278e750269"
+  "overall_manifest_hash": "afba4d18c205817d58e2214b4e851f4335eaad5c75c7faa727cf2f2ce3f829fc"
 }

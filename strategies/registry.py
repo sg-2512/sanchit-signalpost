@@ -644,6 +644,8 @@ class GooglePlacesRoute(StrategyRoute):
         has_key = bool(os.getenv("GOOGLE_PLACES_API_KEY") or context.options.get("mock_google_places"))
         if not has_key:
             return False, "google_places_api_key_missing"
+        if not org.get("name") and not org.get("organisation_number"):
+            return False, "missing_company_name_and_orgnr"
         return True, None
 
     def run(self, org: dict[str, Any], context: ExecutionContext) -> StrategyAttemptResult:
