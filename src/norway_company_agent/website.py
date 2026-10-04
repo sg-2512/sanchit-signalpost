@@ -34,8 +34,9 @@ SOCIAL_HOSTS = {
 PRIORITY_TERMS = (
     "om-oss", "om_oss", "about", "kontakt", "contact", "ledelse", "management",
     "team", "people", "locations", "lokasjoner", "avdelinger", "butikker",
-    "news", "press", "aktuelt", "nyheter",
+    "news", "press", "aktuelt", "nyheter", "media", "presse", "artikler", "siste-nytt", "blogg",
     "karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us",
+    "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss",
 )
 
 
@@ -228,7 +229,7 @@ def extract_date_from_text(text: str) -> str | None:
 def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
-    is_news_page = any(k in page_url.lower() for k in ["aktuelt", "nyhet", "news", "press", "pressemelding", "innsikt", "blogg"])
+    is_news_page = any(k in page_url.lower() for k in ["aktuelt", "nyhet", "news", "press", "pressemelding", "innsikt", "blogg", "media", "artikkel", "siste-nytt"])
 
     selectors = [
         "article", ".article", ".post", ".news-item", ".post-excerpt",
@@ -282,7 +283,7 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
 def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
-    is_career_page = any(k in page_url.lower() for k in ["stilling", "karriere", "jobb", "career", "vacanc", "work-with-us"])
+    is_career_page = any(k in page_url.lower() for k in ["stilling", "karriere", "jobb", "career", "vacanc", "work-with-us", "bli-med", "open-position", "rekruttering", "jobbe-hos-oss"])
 
     selectors = [
         "[class*='job']", "[class*='stilling']", "[class*='career']", "[class*='vacancy']",
@@ -334,10 +335,74 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
     return jobs
 
 
+def _jsonld_jobs(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            kind = node.get("@type")
+            kinds = set(kind if isinstance(kind, list) else [kind])
+            if "JobPosting" in kinds and node.get("title"):
+                title = str(node.get("title") or "").strip()
+                pub = str(node.get("datePosted") or "")
+                pub_iso = extract_date_from_text(pub) or (pub[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", pub) else None)
+                url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
+                excerpt = str(node.get("description") or node.get("responsibilities") or "")[:300]
+                digest = hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
+                jobs.append({
+                    "title": title,
+                    "url": url,
+                    "published_at": pub_iso or time.strftime("%Y-%m-%d", time.gmtime()),
+                    "excerpt": excerpt,
+                    "content_sha256": digest,
+                })
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(metadata.get("json-ld", []))
+    walk(metadata.get("microdata", []))
+    return jobs
+
+
+def _jsonld_news(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]]:
+    articles: list[dict[str, Any]] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            kind = node.get("@type")
+            kinds = set(kind if isinstance(kind, list) else [kind])
+            if kinds & {"NewsArticle", "Article", "BlogPosting"} and (node.get("headline") or node.get("name")):
+                title = str(node.get("headline") or node.get("name") or "").strip()
+                pub = str(node.get("datePublished") or node.get("dateCreated") or "")
+                pub_iso = extract_date_from_text(pub) or (pub[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", pub) else None)
+                url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
+                excerpt = str(node.get("description") or node.get("articleBody") or "")[:300]
+                digest = hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
+                articles.append({
+                    "title": title,
+                    "url": url,
+                    "published_at": pub_iso or time.strftime("%Y-%m-%d", time.gmtime()),
+                    "excerpt": excerpt,
+                    "content_sha256": digest,
+                })
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(metadata.get("json-ld", []))
+    walk(metadata.get("microdata", []))
+    return articles
+
+
 def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5) -> list[str]:
     base = urllib.parse.urlparse(base_url)
-    career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us")
-    news_terms = ("news", "press", "aktuelt", "nyheter", "pressemelding", "pressemeldinger", "innsikt-og-nyheter")
+    career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
+    news_terms = ("news", "press", "aktuelt", "nyheter", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "media", "presse", "artikler", "siste-nytt", "blogg", "publikasjoner")
     about_terms = ("om-oss", "om_oss", "about", "kontakt", "contact", "ledelse", "management", "team", "people", "locations", "lokasjoner", "avdelinger", "butikker")
 
     career_cands: dict[str, int] = {}
@@ -473,6 +538,17 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         description_tag = soup.select_one('meta[name="description"], meta[property="og:description"]')
         description = str(description_tag.get("content") or "").strip() if description_tag else ""
+        html_social = _social_links(final_url, soup)
+        struct_social = structured_social_links(structured)
+        combined_social = html_social + struct_social
+        seen_soc: set[tuple[str, str]] = set()
+        dedup_soc: list[dict[str, str]] = []
+        for s in combined_social:
+            k = (s["platform"], s["url"].lower())
+            if k not in seen_soc:
+                seen_soc.add(k)
+                dedup_soc.append(s)
+
         value = {
             "requested_url": normalized,
             "final_url": final_url,
@@ -480,13 +556,13 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
             "title": title[:500],
             "description": description[:2000],
             "main_text_excerpt": text[:5000],
-            "social_links": _social_links(final_url, soup),
+            "social_links": dedup_soc,
             "structured_organisations": _jsonld_organisations(structured),
             "content_sha256": __import__("hashlib").sha256(raw).hexdigest(),
             "extraction_state": _extraction_state(text, soup),
         }
-        homepage_news = extract_website_news(final_url, soup, html)
-        homepage_jobs = extract_website_jobs(final_url, soup, html)
+        homepage_news = _jsonld_news(structured, final_url) + extract_website_news(final_url, soup, html)
+        homepage_jobs = _jsonld_jobs(structured, final_url) + extract_website_jobs(final_url, soup, html)
         all_news_items = list(homepage_news)
         all_job_postings = list(homepage_jobs)
 

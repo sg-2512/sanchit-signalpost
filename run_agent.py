@@ -660,8 +660,18 @@ def enrich_single_company(
     profile["hiring"] = hiring_block
     observations.extend(hiring_obs)
 
+    # 8b. Brreg Kunngjøringer (Official Legal Announcements)
+    kunn_obs: list[dict[str, Any]] = []
+    if budget.can_proceed():
+        kunn_obs = fetch_brreg_kunngjoringer(org, name, budget=budget)
+        observations.extend(kunn_obs)
+
     # 9. Populate evidence records for news, jobs, and hiring
     all_news_obs = list(web_news_obs) + list(news_obs)
+    if not all_news_obs and kunn_obs:
+        dated_kunn = [o for o in kunn_obs if o.get("published_at") and not str(o.get("id") or "").startswith("notice-kunn-anchor")]
+        all_news_obs = dated_kunn[:5]
+
     if all_news_obs:
         primary_n = all_news_obs[0]
         profile.setdefault("evidence", {})["news"] = {
@@ -750,11 +760,6 @@ def enrich_single_company(
     if budget.can_proceed():
         wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
         observations.extend(wiki_obs)
-
-    # 11. Brreg Kunngjøringer (Official Legal Announcements)
-    if budget.can_proceed():
-        kunn_obs = fetch_brreg_kunngjoringer(org, name, budget=budget)
-        observations.extend(kunn_obs)
 
     # 12. Enhetsregisteret Subunits (Regional Workplace & Branch Mapping)
     if budget.can_proceed():

@@ -7,7 +7,9 @@ brreg-enheter.csv
 signalpost-universe.jsonl.gz
 ~$*.docx
 .env
-.agents/
+.agents/teamwork/
+!.agents/rules/
+!.agents/skills/
 out/agent-*/
 out/test-*/
 out/final-*/

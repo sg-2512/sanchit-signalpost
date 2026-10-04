@@ -200,6 +200,7 @@ def extract_email_domain_candidate(profile: dict[str, Any]) -> str | None:
     if not email or "@" not in str(email):
         return None
     domain = str(email).split("@")[-1].lower().strip()
+    domain = domain.translate(str.maketrans({"æ": "ae", "ø": "o", "å": "a"}))
     if not domain or domain in GENERIC_MAIL_DOMAINS or "." not in domain:
         return None
     return f"https://www.{domain}"

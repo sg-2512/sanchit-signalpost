@@ -91,12 +91,16 @@ def fetch_brreg_kunngjoringer(
         for idx, notice in enumerate(found_notices):
             n_desc = notice["description"]
             n_date = notice["date"]
+            parts = n_date.split(".")
+            iso_date = f"{parts[2]}-{parts[1]}-{parts[0]}" if len(parts) == 3 else n_date
             obs_id = f"notice-kunn-{clean_org}-{hashlib.sha256(f'{clean_org}|{n_date}|{n_desc}'.encode()).hexdigest()[:16]}"
             observations.append({
                 "id": obs_id,
                 "organisation_number": clean_org,
                 "platform": "brreg",
                 "signal_type": "public_mention",
+                "text": f"Offisiell kunngjøring: {n_desc}",
+                "published_at": iso_date,
                 "source_url": url,
                 "retrieved_at": retrieved_at,
                 "content_sha256": digest,
@@ -117,6 +121,7 @@ def fetch_brreg_kunngjoringer(
                 "metrics": {
                     "notice_date": n_date,
                     "notice_type": n_desc,
+                    "title": f"Offisiell kunngjøring: {n_desc}",
                     "source": "brreg_kunngjoringer",
                 },
                 "strategy": "brreg_kunngjoringer_announcements",
