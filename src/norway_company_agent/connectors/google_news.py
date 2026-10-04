@@ -22,10 +22,14 @@ UA = "SignalpostResearchPOC/1.0 (https://builderr.ai; bounded qualification run)
 
 
 def exact_title_match(company_name: str, title: str) -> bool:
-    """Check if the company's full legal name appears in a headline."""
+    """Check if the company's core name appears in a headline."""
     company_tokens = re.findall(r"[a-z0-9æøå]+", str(company_name or "").casefold())
+    while company_tokens and company_tokens[-1] in LEGAL_SUFFIXES:
+        company_tokens.pop()
+    if not company_tokens or (len(company_tokens) == 1 and len(company_tokens[0]) < 4):
+        return False
     title_tokens = re.findall(r"[a-z0-9æøå]+", str(title or "").rsplit(" - ", 1)[0].casefold())
-    if not company_tokens or not title_tokens or len(company_tokens) > len(title_tokens):
+    if not title_tokens or len(company_tokens) > len(title_tokens):
         return False
     allowed_predecessors = {"av", "for", "fra", "hos", "i", "med", "om", "på", "til", "og", "kjøper", "velger"}
     for index in range(len(title_tokens) - len(company_tokens) + 1):
@@ -51,7 +55,9 @@ def fetch_google_news(
     if budget and not budget.can_proceed():
         return []
 
-    query = urllib.parse.quote(f'"{company_name}" when:{years}y')
+    clean_name = re.sub(r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", str(company_name or ""), flags=re.I).strip()
+    query_name = clean_name if len(clean_name) >= 4 else company_name
+    query = urllib.parse.quote(f'"{query_name}" when:{years}y')
     url = f"https://news.google.com/rss/search?q={query}&hl=no&gl=NO&ceid=NO:no"
 
     try:
@@ -103,7 +109,7 @@ def fetch_google_news(
                 "id": "google-news-title-" + hashlib.sha256(f"{org}|{title}|{publisher}".encode()).hexdigest()[:24],
                 "organisation_number": org,
                 "platform": "news",
-                "signal_type": "public_mention",
+                "signal_type": "dated_news",
                 "source_url": link,
                 "retrieved_at": retrieved_at,
                 "published_at": published_at,

@@ -163,6 +163,133 @@ def extract_social_observations(profile: dict[str, Any]) -> list[dict[str, Any]]
     return observations
 
 
+def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract dated news observations from verified company website."""
+    org = str(profile.get("organisation_number") or "")
+    website = (profile.get("evidence") or {}).get("website") or {}
+    value = website.get("value") or {}
+    identity = value.get("identity_assessment") or {}
+
+    if website.get("status") != "available" or not identity.get("publishable"):
+        return []
+
+    news_items = list(value.get("news_items") or [])
+    if not news_items and value.get("pages"):
+        for page in value.get("pages", []):
+            if page.get("news_items"):
+                news_items.extend(page["news_items"])
+
+    if not news_items:
+        return []
+
+    site_url = str(value.get("final_url") or website.get("source_url") or "")
+    retrieved_at = website.get("retrieved_at") or utc_now()
+    observations = []
+    seen: set[str] = set()
+
+    for item in news_items:
+        title = str(item.get("title") or "").strip()
+        url = str(item.get("url") or site_url).strip()
+        if not title or len(title) < 5:
+            continue
+        key = title.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        published_at = item.get("published_at")
+        digest = item.get("content_sha256") or hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()
+        obs_id = "news-web-" + hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()[:24]
+
+        observations.append({
+            "id": obs_id,
+            "organisation_number": org,
+            "platform": "news",
+            "signal_type": "dated_news",
+            "source_url": url,
+            "retrieved_at": retrieved_at,
+            "published_at": published_at,
+            "content_sha256": digest,
+            "exact_entity": True,
+            "identity_proof": [
+                {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
+                {"type": "company_website_publication", "parent_website": site_url},
+            ],
+            "acquisition_mode": "permitted_public_page",
+            "rights_status": "approved",
+            "source_class": "company_site",
+            "sentiment_label": "neutral",
+            "sentiment_model_version": "title_heuristic_v1",
+            "evidence_span": f"{title} (published {published_at})" if published_at else title,
+            "text": title,
+            "metrics": {"title": title, "url": url, "published_at": published_at},
+            "strategy": "website_news_discovery",
+        })
+    return observations
+
+
+def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract job vacancy observations from verified company career pages."""
+    org = str(profile.get("organisation_number") or "")
+    website = (profile.get("evidence") or {}).get("website") or {}
+    value = website.get("value") or {}
+    identity = value.get("identity_assessment") or {}
+
+    if website.get("status") != "available" or not identity.get("publishable"):
+        return []
+
+    job_postings = list(value.get("job_postings") or [])
+    if not job_postings and value.get("pages"):
+        for page in value.get("pages", []):
+            if page.get("job_postings"):
+                job_postings.extend(page["job_postings"])
+
+    if not job_postings:
+        return []
+
+    site_url = str(value.get("final_url") or website.get("source_url") or "")
+    retrieved_at = website.get("retrieved_at") or utc_now()
+    observations = []
+    seen: set[str] = set()
+
+    for item in job_postings:
+        title = str(item.get("title") or "Ledig stilling").strip()
+        url = str(item.get("url") or site_url).strip()
+        key = (title.casefold(), url.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        published_at = item.get("published_at")
+        digest = item.get("content_sha256") or hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()
+        obs_id = "jobs-web-" + hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()[:24]
+
+        observations.append({
+            "id": obs_id,
+            "organisation_number": org,
+            "platform": "job_board",
+            "signal_type": "job_posting",
+            "source_url": url,
+            "retrieved_at": retrieved_at,
+            "published_at": published_at,
+            "content_sha256": digest,
+            "exact_entity": True,
+            "identity_proof": [
+                {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
+                {"type": "company_career_page", "parent_website": site_url},
+            ],
+            "acquisition_mode": "permitted_public_page",
+            "rights_status": "approved",
+            "source_class": "company_site",
+            "job_title": title,
+            "evidence_span": f"Active recruitment notice '{title}' at {url}",
+            "text": title,
+            "metrics": {"job_title": title, "url": url, "published_at": published_at},
+            "strategy": "website_jobs_discovery",
+        })
+    return observations
+
+
 def extract_workforce_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract official workforce snapshot from BRREG registry data."""
     org = str(profile.get("organisation_number") or "")
@@ -480,6 +607,13 @@ def enrich_single_company(
     # Social links from verified website
     observations.extend(extract_social_observations(profile))
 
+    # Website news & job announcements
+    web_news_obs = extract_website_news_observations(profile)
+    observations.extend(web_news_obs)
+
+    web_jobs_obs = extract_website_job_observations(profile)
+    observations.extend(web_jobs_obs)
+
     # Official registry observations
     observations.extend(extract_workforce_observation(profile))
     observations.extend(extract_profile_metrics_observation(profile))
@@ -487,6 +621,7 @@ def enrich_single_company(
     observations.extend(extract_notice_observation(profile))
 
     # 5. Google News RSS (free)
+    news_obs: list[dict[str, Any]] = []
     if budget.can_proceed():
         news_obs = fetch_google_news(org, name, limit=5, years=2, budget=budget)
         observations.extend(news_obs)
@@ -520,22 +655,108 @@ def enrich_single_company(
     profile["hiring"] = hiring_block
     observations.extend(hiring_obs)
 
-    # 9. Wikidata SPARQL Entity Corroboration (official social handles, P2333)
+    # 9. Populate evidence records for news, jobs, and hiring
+    all_news_obs = list(web_news_obs) + list(news_obs)
+    if all_news_obs:
+        primary_n = all_news_obs[0]
+        profile.setdefault("evidence", {})["news"] = {
+            "field": "news",
+            "status": "available",
+            "source_type": primary_n.get("source_class", "company_site"),
+            "source_class": primary_n.get("source_class", "company_site"),
+            "source_url": primary_n.get("source_url") or profile.get("website") or "",
+            "retrieved_at": primary_n.get("retrieved_at") or utc_now(),
+            "content_sha256": primary_n.get("content_sha256") or hashlib.sha256(f"{org}|news".encode()).hexdigest(),
+            "value": {
+                "items": [
+                    {
+                        "title": o.get("text") or (o.get("metrics") or {}).get("title"),
+                        "url": o.get("source_url"),
+                        "published_at": o.get("published_at"),
+                        "content_sha256": o.get("content_sha256"),
+                    }
+                    for o in all_news_obs
+                ],
+                "count": len(all_news_obs),
+            },
+        }
+    else:
+        profile.setdefault("evidence", {})["news"] = {
+            "field": "news",
+            "status": "not_available",
+            "source_type": "editorial_and_company_news",
+            "source_class": "editorial_and_company_news",
+            "source_url": profile.get("website") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+            "retrieved_at": utc_now(),
+            "content_sha256": "",
+            "value": None,
+            "note": "No active dated news articles found across checked sources",
+        }
+
+    all_job_obs = list(web_jobs_obs) + [o for o in hiring_obs if o.get("signal_type") == "job_posting"]
+    if all_job_obs:
+        primary_j = all_job_obs[0]
+        profile.setdefault("evidence", {})["jobs"] = {
+            "field": "jobs",
+            "status": "available",
+            "source_type": primary_j.get("source_class", "job_board"),
+            "source_class": primary_j.get("source_class", "job_board"),
+            "source_url": primary_j.get("source_url") or profile.get("website") or "",
+            "retrieved_at": primary_j.get("retrieved_at") or utc_now(),
+            "content_sha256": primary_j.get("content_sha256") or hashlib.sha256(f"{org}|jobs".encode()).hexdigest(),
+            "value": {
+                "items": [
+                    {
+                        "title": o.get("job_title") or o.get("text") or (o.get("metrics") or {}).get("job_title"),
+                        "url": o.get("source_url"),
+                        "published_at": o.get("published_at"),
+                        "content_sha256": o.get("content_sha256"),
+                    }
+                    for o in all_job_obs
+                ],
+                "count": len(all_job_obs),
+            },
+        }
+    else:
+        profile.setdefault("evidence", {})["jobs"] = {
+            "field": "jobs",
+            "status": "not_available",
+            "source_type": "public_recruitment_registries",
+            "source_class": "public_recruitment_registries",
+            "source_url": profile.get("website") or "https://arbeidsplassen.nav.no/stillinger",
+            "retrieved_at": utc_now(),
+            "content_sha256": "",
+            "value": None,
+            "note": "No active job postings found across NAV Arbeidsplassen, LinkedIn, or company website",
+        }
+
+    profile.setdefault("evidence", {})["hiring"] = {
+        "field": "hiring",
+        "status": "available",
+        "source_type": "multi_source_hiring_engine",
+        "source_class": "synthesis",
+        "source_url": profile.get("website") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+        "retrieved_at": utc_now(),
+        "content_sha256": hashlib.sha256(json.dumps(hiring_block, sort_keys=True).encode()).hexdigest(),
+        "value": hiring_block,
+    }
+
+    # 10. Wikidata SPARQL Entity Corroboration (official social handles, P2333)
     if budget.can_proceed():
         wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
         observations.extend(wiki_obs)
 
-    # 10. Brreg Kunngjøringer (Official Legal Announcements)
+    # 11. Brreg Kunngjøringer (Official Legal Announcements)
     if budget.can_proceed():
         kunn_obs = fetch_brreg_kunngjoringer(org, name, budget=budget)
         observations.extend(kunn_obs)
 
-    # 11. Enhetsregisteret Subunits (Regional Workplace & Branch Mapping)
+    # 12. Enhetsregisteret Subunits (Regional Workplace & Branch Mapping)
     if budget.can_proceed():
         subunit_obs = fetch_company_subunits(org, name, budget=budget)
         observations.extend(subunit_obs)
 
-    # 12. Patentstyret (Norwegian Trademarks & Patents)
+    # 13. Patentstyret (Norwegian Trademarks & Patents)
     if patentstyret_available() and budget.can_proceed():
         patent_obs = fetch_patentstyret_data(org, name, budget=budget)
         observations.extend(patent_obs)
@@ -712,7 +933,7 @@ def main() -> int:
     budget_report = budget.report()
 
     # Evaluation Contract Measurement schema
-    claim_fields = ["legal_identity", "official_website", "annual_accounts", "roles", "operating_locations", "hiring_status", "accounting_obligation"]
+    claim_fields = ["legal_identity", "official_website", "annual_accounts", "roles", "operating_locations", "hiring_status", "accounting_obligation", "dated_news", "job_postings"]
     per_field = {}
     abstentions = {"total": 0, "by_state": {}, "by_field": {}}
     for env in envelopes:
