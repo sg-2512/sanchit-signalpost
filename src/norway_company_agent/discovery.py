@@ -152,12 +152,12 @@ def probe_heuristic_domain(
     if len(tokens[0]) >= 4 and tokens[0] != candidates[0]:
         candidates.append(tokens[0])
 
-    for slug in candidates[:3]:
+    for slug in candidates[:1]:
         if len(slug) < 3:
             continue
         probe_urls = [f"https://www.{slug}.no", f"https://{slug}.no"]
         for url in probe_urls:
-            if budget and not budget.can_proceed():
+            if budget and not budget.can_proceed(reserve=50):
                 return None
 
             try:

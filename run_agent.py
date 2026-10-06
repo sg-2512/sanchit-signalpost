@@ -499,7 +499,7 @@ def enrich_single_company(
 
     # 2. Google Places (if API key available)
     places_obs: list[dict[str, Any]] = []
-    if places_available() and budget.can_proceed():
+    if places_available() and budget.can_proceed(reserve=50):
         address = (
             profile.get("address")
             or profile.get("municipality")
@@ -528,7 +528,7 @@ def enrich_single_company(
                     verified_website = True
 
         # Level 2: Official registry corporate email domain (post@firmanavn.no -> firmanavn.no)
-        if not verified_website and budget.can_proceed():
+        if not verified_website and budget.can_proceed(reserve=50):
             email_site = extract_email_domain_candidate(profile)
             if email_site:
                 w_rec, w_met = fetch_website(email_site)
@@ -543,7 +543,7 @@ def enrich_single_company(
                         verified_website = True
 
         # Level 3: Google Places verified websiteUri
-        if not verified_website and places_obs and budget.can_proceed():
+        if not verified_website and places_obs and budget.can_proceed(reserve=50):
             places_site = None
             for p in places_obs:
                 u = p.get("website_uri") or (p.get("metrics") or {}).get("website_uri")
@@ -563,7 +563,7 @@ def enrich_single_company(
                         verified_website = True
 
         # Level 4: Free heuristic .no Norwegian domain probe with org-number validation
-        if not verified_website and budget.can_proceed():
+        if not verified_website and budget.can_proceed(reserve=50):
             heuristic_site = probe_heuristic_domain(profile, budget=budget)
             if heuristic_site:
                 w_rec, w_met = fetch_website(heuristic_site)
@@ -578,7 +578,7 @@ def enrich_single_company(
                         verified_website = True
 
         # Level 5: Commercial search API (Brave Search) if key configured
-        if not verified_website and brave_available() and budget.can_proceed():
+        if not verified_website and brave_available() and budget.can_proceed(reserve=50):
             search_site = discover_company_website(profile, budget=budget)
             if search_site:
                 w_rec, w_met = fetch_website(search_site)
@@ -630,7 +630,7 @@ def enrich_single_company(
 
     # 5. Google News RSS (free)
     news_obs: list[dict[str, Any]] = []
-    if budget.can_proceed():
+    if budget.can_proceed(reserve=50):
         news_obs = fetch_google_news(org, name, limit=5, years=2, budget=budget)
         observations.extend(news_obs)
 
@@ -638,13 +638,13 @@ def enrich_single_company(
     observations.extend(places_obs)
 
     # 7. YouTube Data API connector
-    if youtube_available() and budget.can_proceed():
+    if youtube_available() and budget.can_proceed(reserve=50):
         social_links = ((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("social_links") or [])
         yt_obs = fetch_youtube_data(org, name, social_links=social_links, budget=budget)
         observations.extend(yt_obs)
 
     # 7. LinkedIn Company Discovery (free, open guest typeahead with anti-impersonation)
-    if budget.can_proceed():
+    if budget.can_proceed(reserve=50):
         social_links = ((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("social_links") or [])
         has_linkedin = any(
             (link.get("platform") == "linkedin" or "linkedin.com" in str(link.get("url") or "").lower())
@@ -665,7 +665,7 @@ def enrich_single_company(
 
     # 8b. Brreg Kunngjøringer (Official Legal Announcements)
     kunn_obs: list[dict[str, Any]] = []
-    if budget.can_proceed():
+    if budget.can_proceed(reserve=50):
         kunn_obs = fetch_brreg_kunngjoringer(org, name, budget=budget)
         observations.extend(kunn_obs)
 
@@ -762,7 +762,7 @@ def enrich_single_company(
     }
 
     # 10. Wikidata SPARQL Entity Corroboration (official social handles, P2333)
-    if budget.can_proceed():
+    if budget.can_proceed(reserve=50):
         wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
         observations.extend(wiki_obs)
         if wiki_obs and "website" in profile.get("evidence", {}):
@@ -777,12 +777,12 @@ def enrich_single_company(
                             cur_soc.append({"platform": plat, "url": p_url})
 
     # 12. Enhetsregisteret Subunits (Regional Workplace & Branch Mapping)
-    if budget.can_proceed():
+    if budget.can_proceed(reserve=50):
         subunit_obs = fetch_company_subunits(org, name, budget=budget)
         observations.extend(subunit_obs)
 
     # 13. Patentstyret (Norwegian Trademarks & Patents)
-    if patentstyret_available() and budget.can_proceed():
+    if patentstyret_available() and budget.can_proceed(reserve=50):
         patent_obs = fetch_patentstyret_data(org, name, budget=budget)
         observations.extend(patent_obs)
 

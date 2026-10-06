@@ -133,7 +133,7 @@ def evaluate_company_hiring(
 
     # 3. NAV Arbeidsplassen Live Job Search
     nav_jobs: list[dict[str, Any]] = []
-    if budget and budget.can_proceed():
+    if budget and budget.can_proceed(reserve=50):
         nav_jobs = fetch_nav_jobs(name, org, budget=budget)
         for job in nav_jobs:
             signals.append({
@@ -147,7 +147,7 @@ def evaluate_company_hiring(
 
     # 4. LinkedIn Guest Jobs Search
     li_jobs: list[dict[str, Any]] = []
-    if budget and budget.can_proceed():
+    if budget and budget.can_proceed(reserve=50):
         li_jobs = fetch_linkedin_jobs(name, org, budget=budget)
         for job in li_jobs:
             signals.append({

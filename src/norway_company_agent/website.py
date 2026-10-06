@@ -511,7 +511,7 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
     return news_urls, career_urls
 
 
-def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 6) -> list[str]:
+def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3) -> list[str]:
     base = urllib.parse.urlparse(base_url)
     career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
     news_terms = ("news", "press", "aktuelt", "nyheter", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "media", "presse", "artikler", "siste-nytt", "blogg", "publikasjoner")

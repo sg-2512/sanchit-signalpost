@@ -49,9 +49,9 @@ class BudgetTracker:
         with self._lock:
             return max(0.0, self.max_cost_usd - self.cost_usd)
 
-    def can_proceed(self) -> bool:
+    def can_proceed(self, reserve: int = 0) -> bool:
         with self._lock:
-            if self.requests >= self.max_requests:
+            if self.requests + reserve >= self.max_requests:
                 return False
             if self.cost_usd >= self.max_cost_usd:
                 return False
@@ -68,12 +68,12 @@ class BudgetTracker:
             if latency:
                 self.latencies_ms.append(latency)
 
-    def fetch_json(self, url: str, *, timeout: float = 20.0, attempts: int = 3, cost_per_request: float = 0.0) -> FetchResult:
+    def fetch_json(self, url: str, *, timeout: float = 20.0, attempts: int = 3, cost_per_request: float = 0.0, reserve: int = 0) -> FetchResult:
         """Budget-aware wrapper around http.fetch_json.
 
         Records each attempt as a request against the budget.
         """
-        if not self.can_proceed():
+        if not self.can_proceed(reserve=reserve):
             from .evidence import utc_now
             return FetchResult(url, 0, 0, 0, error="budget_exhausted", retrieved_at=utc_now())
 
