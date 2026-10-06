@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from .website import normalize_homepage
+from .website import normalize_homepage, _safe_urlopen
 
 
 BLOCKED_DISCOVERY_HOSTS = {
@@ -155,24 +155,25 @@ def probe_heuristic_domain(
     for slug in candidates[:3]:
         if len(slug) < 3:
             continue
-        url = f"https://www.{slug}.no"
-        if budget and not budget.can_proceed():
-            return None
+        probe_urls = [f"https://www.{slug}.no", f"https://{slug}.no"]
+        for url in probe_urls:
+            if budget and not budget.can_proceed():
+                return None
 
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; SignalpostAgent/1.0; +https://builderr.ai)"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if resp.status in (200, 301, 302):
-                    raw = resp.read(250_000).decode("utf-8", errors="replace")
-                    if budget:
-                        budget.record_request(bytes_received=len(raw), cost_usd=0.0)
-                    if org in raw or name.lower() in raw.lower():
-                        return resp.geturl() or url
-        except Exception:
-            pass
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; SignalpostAgent/1.0; +https://builderr.ai)"},
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    if resp.status in (200, 301, 302):
+                        raw = resp.read(250_000).decode("utf-8", errors="replace")
+                        if budget:
+                            budget.record_request(bytes_received=len(raw), cost_usd=0.0)
+                        if org in raw or name.lower() in raw.lower():
+                            return resp.geturl() or url
+            except Exception:
+                pass
 
     return None
 

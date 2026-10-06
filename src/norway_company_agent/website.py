@@ -370,13 +370,18 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
             "content_sha256": digest,
         })
 
-    # Detect Norwegian ATS portals (Webcruiter, Jobbnorge, Teamtailor, Recman, Easycruit, Finn)
-    ats_domains = ("webcruiter.no", "jobbnorge.no", "teamtailor.com", "recman.no", "recman.io", "easycruit.com", "reachmee.com", "finn.no/jobb")
-    for anchor in soup.select("a[href]"):
-        href = str(anchor.get("href") or "").strip()
+    # Detect Norwegian and international ATS portals (Webcruiter, Jobbnorge, Teamtailor, Recman, Easycruit, Finn, ReachMee, etc.)
+    ats_domains = (
+        "webcruiter.no", "webcruiter.com", "jobbnorge.no", "teamtailor.com",
+        "recman.no", "recman.io", "easycruit.com", "reachmee.com", "finn.no/jobb",
+        "bamboohr.com", "lever.co", "greenhouse.io", "workable.com",
+    )
+    candidate_elements = soup.select("a[href]") + soup.select("iframe[src]")
+    for anchor in candidate_elements:
+        href = str(anchor.get("href") or anchor.get("src") or "").strip()
         if any(ats in href.lower() for ats in ats_domains) and not href.startswith(("tel:", "mailto:", "javascript:", "#")):
             clean_href = urllib.parse.urljoin(page_url, href)
-            a_text = anchor.get_text(" ", strip=True) or "Ledig stilling"
+            a_text = anchor.get_text(" ", strip=True) or anchor.get("title") or "Ledig stilling"
             if len(a_text) < 4 or a_text.casefold() in {"les mer", "søk her", "søk stilling", "apply here", "apply", "klikk her"}:
                 parsed_ats = urllib.parse.urlparse(clean_href)
                 a_text = f"Ledig stilling ({parsed_ats.netloc})"
@@ -387,7 +392,7 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
                     "title": a_text[:120],
                     "url": clean_href,
                     "published_at": time.strftime("%Y-%m-%d", time.gmtime()),
-                    "excerpt": f"External Norwegian recruitment ATS posting at {clean_href}",
+                    "excerpt": f"External recruitment ATS posting at {clean_href}",
                     "content_sha256": digest,
                 })
                 if len(jobs) >= 8:
@@ -461,7 +466,7 @@ def _jsonld_news(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]
 
 
 def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[str], list[str]]:
-    """Discovers news and career URLs from /sitemap.xml if available."""
+    """Discovers news and career URLs from /sitemap.xml (and nested sitemaps) if available."""
     news_urls: list[str] = []
     career_urls: list[str] = []
     parsed = urllib.parse.urlparse(base_url)
@@ -473,6 +478,21 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
             if "xml" in content_type or "text" in content_type or "/sitemap" in resp.geturl().lower():
                 raw_xml = resp.read(1_000_000).decode("utf-8", errors="replace")
                 locs = re.findall(r"<loc>(https?://[^<]+)</loc>", raw_xml, re.I)
+
+                # If sitemap index with nested sitemaps, probe post/news/career sub-sitemap
+                if "<sitemap>" in raw_xml.lower():
+                    sub_sitemaps = re.findall(r"<sitemap>\s*<loc>(https?://[^<]+)</loc>", raw_xml, re.I)
+                    for sub_url in sub_sitemaps:
+                        if any(t in sub_url.lower() for t in ["post", "news", "nyhet", "karriere", "jobb"]):
+                            try:
+                                sub_req = urllib.request.Request(sub_url.strip(), headers={"User-Agent": USER_AGENT})
+                                with _safe_urlopen(sub_req, timeout=timeout) as sub_resp:
+                                    sub_xml = sub_resp.read(500_000).decode("utf-8", errors="replace")
+                                    locs.extend(re.findall(r"<loc>(https?://[^<]+)</loc>", sub_xml, re.I))
+                                    break
+                            except Exception:
+                                pass
+
                 news_terms = ("/nyhet", "/news", "/aktuelt", "/presse", "/pressemelding", "/artikkel", "/article", "/blogg", "/siste-nytt")
                 career_terms = ("/karriere", "/career", "/jobb", "/stilling", "/vacanc", "/ledig")
                 candidate_news = [l.strip() for l in locs if any(t in l.lower() for t in news_terms)]

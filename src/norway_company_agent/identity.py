@@ -186,12 +186,22 @@ def assess_social_identity(profile: dict[str, Any], link: dict[str, str]) -> dic
     has_geo_token = any(token in GEOGRAPHIC_TOKENS for token in core)
     brand_tokens = [t for t in core if t not in GENERIC_INDUSTRY_WORDS and len(t) >= 4]
 
+    # Domain SLD matching (e.g. g3i.no -> g3i in instagram.com/g3i.no)
+    website_url = str(profile.get("website") or (profile.get("evidence", {}).get("website", {}).get("value") or {}).get("final_url") or "")
+    web_host = urllib.parse.urlparse(website_url).hostname or ""
+    web_clean = web_host.lower().removeprefix("www.")
+    domain_sld = web_clean.split(".")[0] if "." in web_clean else web_clean
+    domain_match = bool(domain_sld and len(domain_sld) >= 3 and domain_sld in handle_compact)
+
     if core_compact and core_compact in handle_compact:
         score = 0.98
         reason = "normalized legal-name sequence appears in the social handle"
     elif len(core) == 1 and matched:
         score = 0.95
         reason = "single distinctive legal-name token appears in the social handle"
+    elif domain_match:
+        score = 0.95
+        reason = "verified company website domain SLD appears in the social handle"
     elif not has_geo_token and brand_tokens and all(bt in handle_compact for bt in brand_tokens):
         score = 0.94
         reason = "distinctive brand name appears in social handle for entity with generic industry descriptor"
