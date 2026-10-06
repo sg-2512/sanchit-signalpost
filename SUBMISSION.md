@@ -2,7 +2,7 @@
 
 **Hackathon:** Builderr Signalpost Challenge (Round 1: Norwegian Company Intelligence Agent)  
 **Target:** ≥ 65.0 Qualification Minimum (Achieved: **100.0 / 100.0 QUALIFIED**)  
-**Code Integrity:** Sealed Manifest (`SHA-256: f29da2b6c7fc8465efcaa149199b4fe5efb0c9944488ec672aa1b61683725570`)  
+**Code Integrity:** Sealed Manifest (`SHA-256: e13527c0393881b9ef3e068f82cb3e068db897d021a58e92bde63a2880796757`)  
 **Test Suite:** 225 / 225 Tests Passing (100% Pass Rate in ~21s)
 
 ---
@@ -287,7 +287,7 @@ To: submit@builderr.ai
 Subject: Signalpost Round 1 Submission — Sanchit-Signalpost
 
 Repository URL: https://github.com/sg-2512/sanchit-signalpost.git
-Commit Hash: 8f5fd2fbfa23418545b2593fcf3e8be47a0d0571
+Commit Hash: 0237259516a2a207a5d89dcb68fc89c1d5325efb
 Agent Name: Sanchit-Signalpost (Norway Company Intelligence Agent)
 Contact for Results: sanchitgupta2512@gmail.com
 
@@ -314,6 +314,12 @@ Smoke-Test Reports Included in Repository:
    - Interactive Showcase: out/smoke-100-review/showcase.html
    - Proxy Scorecard: 99.96 / 100.0 (QUALIFIED) (out/smoke-100-review/score-report.json)
    - Operational Report (354s wall clock, 1,664 requests): out/smoke-100-review/run-report.json
+4. 100-Company Final Sealed Live Run (out/final-smoke-100/):
+   - Envelopes (100/100 VALID, 0 silent drops): out/final-smoke-100/envelopes.jsonl
+   - Observations (646 total, 523 publishable): out/final-smoke-100/all-observations.jsonl
+   - Interactive Showcase: out/final-smoke-100/showcase.html
+   - Proxy Scorecard: 100.0 / 100.0 (QUALIFIED) (out/final-smoke-100/score-report.json)
+   - Operational Report (317.7s wall clock, 1,524 requests, $0.043 cost): out/final-smoke-100/run-report.json
 
 Models / APIs / Licences:
 1. Brønnøysundregistrene (Enhetsregisteret, Regnskapsregisteret, Underenheter, Kunngjøringer) — NLOD 2.0 / CC-BY 4.0
