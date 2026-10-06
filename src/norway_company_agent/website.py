@@ -5,6 +5,7 @@ import ipaddress
 import json
 import re
 import socket
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -66,6 +67,26 @@ class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 SAFE_OPENER = urllib.request.build_opener(SafeRedirectHandler())
 
 
+def _build_safe_ssl_opener() -> urllib.request.OpenerDirector:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return urllib.request.build_opener(SafeRedirectHandler(), urllib.request.HTTPSHandler(context=ctx))
+
+
+SAFE_SSL_FALLBACK_OPENER = _build_safe_ssl_opener()
+
+
+def _safe_urlopen(request: urllib.request.Request, timeout: float):
+    try:
+        return SAFE_OPENER.open(request, timeout=timeout)
+    except urllib.error.URLError as exc:
+        exc_str = str(exc).lower()
+        if "ssl" in exc_str or "certificate" in exc_str or "hostname" in exc_str:
+            return SAFE_SSL_FALLBACK_OPENER.open(request, timeout=timeout)
+        raise
+
+
 def normalize_homepage(value: str | None) -> str | None:
     value = str(value or "").strip()
     if not value:
@@ -102,7 +123,7 @@ def _robots_allowed(url: str, timeout: float) -> bool:
     parser.set_url(robots_url)
     try:
         request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
-        with SAFE_OPENER.open(request, timeout=min(timeout, 4.0)) as response:
+        with _safe_urlopen(request, timeout=min(timeout, 4.0)) as response:
             parser.parse(response.read().decode("utf-8", errors="replace").splitlines())
         _ROBOTS_CACHE[robots_url] = (parser, now)
         return parser.can_fetch(USER_AGENT, url)
@@ -251,6 +272,8 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
         link = urllib.parse.urljoin(page_url, a["href"]) if a else page_url
         if link.startswith(("tel:", "mailto:", "javascript:", "#")):
             continue
+        if _registered_domain(link) != _registered_domain(page_url):
+            link = page_url
 
         time_tag = container.find("time")
         pub_date = None
@@ -276,6 +299,21 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
         })
         if len(items) >= 10:
             break
+
+    if not items and is_news_page:
+        h1 = soup.find("h1")
+        raw_title = h1.get_text(" ", strip=True) if h1 else (soup.title.get_text(" ", strip=True) if soup.title else "")
+        if len(raw_title) >= 5 and not any(skip in raw_title.casefold() for skip in ["om oss", "kontakt", "cookie", "personvern", "meny", "forside"]):
+            title = raw_title.split(" - ")[0].split(" | ")[0].strip()
+            pub_date = extract_date_from_text(raw_html[:3000]) or time.strftime("%Y-%m-%d", time.gmtime())
+            digest = hashlib.sha256(f"{title}|{page_url}".encode("utf-8")).hexdigest()
+            items.append({
+                "title": title[:200],
+                "url": page_url,
+                "published_at": pub_date,
+                "excerpt": (soup.find("main") or soup.find("article") or soup).get_text(" ", strip=True)[:300],
+                "content_sha256": digest,
+            })
 
     return items
 
@@ -422,7 +460,38 @@ def _jsonld_news(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]
     return articles
 
 
-def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5) -> list[str]:
+def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[str], list[str]]:
+    """Discovers news and career URLs from /sitemap.xml if available."""
+    news_urls: list[str] = []
+    career_urls: list[str] = []
+    parsed = urllib.parse.urlparse(base_url)
+    sitemap_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/sitemap.xml", "", "", ""))
+    try:
+        req = urllib.request.Request(sitemap_url, headers={"User-Agent": USER_AGENT})
+        with _safe_urlopen(req, timeout=timeout) as resp:
+            content_type = resp.headers.get("content-type", "").lower()
+            if "xml" in content_type or "text" in content_type or "/sitemap" in resp.geturl().lower():
+                raw_xml = resp.read(1_000_000).decode("utf-8", errors="replace")
+                locs = re.findall(r"<loc>(https?://[^<]+)</loc>", raw_xml, re.I)
+                news_terms = ("/nyhet", "/news", "/aktuelt", "/presse", "/pressemelding", "/artikkel", "/article", "/blogg", "/siste-nytt")
+                career_terms = ("/karriere", "/career", "/jobb", "/stilling", "/vacanc", "/ledig")
+                candidate_news = [l.strip() for l in locs if any(t in l.lower() for t in news_terms)]
+                leaf_news = [l for l in candidate_news if len(l.strip("/").split("/")) > 4 and "-" in l.strip("/").split("/")[-1]]
+                candidate_careers = [l.strip() for l in locs if any(t in l.lower() for t in career_terms)]
+
+                for l in (leaf_news or candidate_news):
+                    if l not in news_urls and len(news_urls) < 3:
+                        news_urls.append(l)
+
+                for l in candidate_careers:
+                    if l not in career_urls and len(career_urls) < 3:
+                        career_urls.append(l)
+    except Exception:
+        pass
+    return news_urls, career_urls
+
+
+def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 6) -> list[str]:
     base = urllib.parse.urlparse(base_url)
     career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
     news_terms = ("news", "press", "aktuelt", "nyheter", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "media", "presse", "artikler", "siste-nytt", "blogg", "publikasjoner")
@@ -458,6 +527,16 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5) -> list[
         if o_rank is not None:
             other_cands[clean] = min(o_rank, other_cands.get(clean, o_rank))
 
+    # If fewer than 2 news links or fewer than 2 career links found in HTML, check sitemap
+    if len(news_cands) < 2 or len(career_cands) < 2:
+        s_news, s_careers = _discover_sitemap_urls(base_url)
+        for u in s_careers:
+            if u not in career_cands:
+                career_cands[u] = 5
+        for u in s_news:
+            if u not in news_cands:
+                news_cands[u] = 5
+
     selected: list[str] = []
     # Up to 2 career links guaranteed
     for u, _ in sorted(career_cands.items(), key=lambda x: x[1])[:2]:
@@ -482,7 +561,7 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
     started = time.monotonic()
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
     try:
-        with SAFE_OPENER.open(request, timeout=timeout) as response:
+        with _safe_urlopen(request, timeout=timeout) as response:
             raw = response.read(max_bytes + 1)
             elapsed = int((time.monotonic() - started) * 1000)
             final_url = response.geturl()
@@ -544,7 +623,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
     started = time.monotonic()
     request = urllib.request.Request(normalized, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
     try:
-        with SAFE_OPENER.open(request, timeout=timeout) as response:
+        with _safe_urlopen(request, timeout=timeout) as response:
             content_type = response.headers.get("content-type", "")
             raw = response.read(max_bytes + 1)
             elapsed = int((time.monotonic() - started) * 1000)

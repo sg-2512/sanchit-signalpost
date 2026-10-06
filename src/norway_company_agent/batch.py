@@ -316,9 +316,23 @@ def build_contract_claims_and_evidence(
             "confidence": 0.99,
             "evidence_ids": [f"ev-website-{org}"],
         })
+        claims.append({
+            "field": "website",
+            "value": website_url,
+            "availability": "available",
+            "confidence": 0.99,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
     elif w_status == "blocked":
         claims.append({
             "field": "official_website",
+            "value": None,
+            "availability": "blocked",
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
+        claims.append({
+            "field": "website",
             "value": None,
             "availability": "blocked",
             "confidence": 0.0,
@@ -332,6 +346,13 @@ def build_contract_claims_and_evidence(
             "confidence": 0.0,
             "evidence_ids": [f"ev-website-{org}"],
         })
+        claims.append({
+            "field": "website",
+            "value": None,
+            "availability": "ambiguous",
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
     else:
         claims.append({
             "field": "official_website",
@@ -339,6 +360,63 @@ def build_contract_claims_and_evidence(
             "availability": "not_available",
             "confidence": 0.0,
             "evidence_ids": [f"ev-website-{org}"],
+        })
+        claims.append({
+            "field": "website",
+            "value": None,
+            "availability": "not_available",
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-website-{org}"],
+        })
+
+    # 3b. Company-Owned Social Profiles Claim (Brief Section 4)
+    social_links = list(w_val.get("social_links") or [])
+    if is_publishable and social_links:
+        social_ev_id = f"ev-social-{org}"
+        claims.append({
+            "field": "social_profiles",
+            "value": social_links,
+            "availability": "available",
+            "confidence": 0.95,
+            "evidence_ids": [social_ev_id],
+        })
+        primary_soc = social_links[0].get("url") if social_links else None
+        for s in social_links:
+            if s.get("platform") == "linkedin":
+                primary_soc = s.get("url")
+                break
+        claims.append({
+            "field": "social_profile",
+            "value": primary_soc,
+            "availability": "available",
+            "confidence": 0.95,
+            "evidence_ids": [social_ev_id],
+        })
+        if not any(item["id"] == social_ev_id for item in evidence_items):
+            social_sha = hashlib.sha256(json.dumps(social_links, sort_keys=True).encode()).hexdigest()
+            evidence_items.append({
+                "id": social_ev_id,
+                "source_url": primary_soc or website_url or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+                "source_class": "company_owned",
+                "retrieved_at": completed_at,
+                "content_sha256": social_sha,
+                "claim_span": f"Verified company-owned social profiles: {', '.join(s.get('platform', '') for s in social_links)}",
+            })
+    else:
+        social_ev_id = f"ev-social-{org}"
+        claims.append({
+            "field": "social_profiles",
+            "value": None,
+            "availability": "not_available",
+            "confidence": 0.0,
+            "evidence_ids": [social_ev_id] if "website" in ev else [],
+        })
+        claims.append({
+            "field": "social_profile",
+            "value": None,
+            "availability": "not_available",
+            "confidence": 0.0,
+            "evidence_ids": [social_ev_id] if "website" in ev else [],
         })
 
     # 4. Annual Accounts Claim
@@ -407,10 +485,26 @@ def build_contract_claims_and_evidence(
             "evidence_ids": [f"ev-locations-{org}"] if "locations" in ev else [],
         })
 
-    # 7. Hiring / Recruitment Status Claim
+    # 7. Hiring / Recruitment Status Claim (and hiring_signal alias)
     hiring = profile.get("hiring") or (ev.get("hiring") or {}).get("value") or {}
+    careers_url = w_val.get("careers_url") or hiring.get("careers_url")
+    if not careers_url and w_val.get("pages"):
+        for p in w_val.get("pages", []):
+            u = p.get("url") or ""
+            if any(term in u.lower() for term in ["karriere", "career", "jobb", "stilling", "vacanc"]):
+                careers_url = u
+                break
+    if not careers_url and hiring.get("signals"):
+        for sig in hiring.get("signals", []):
+            u = sig.get("url") or ""
+            if any(term in u.lower() for term in ["karriere", "career", "jobb", "stilling", "vacanc"]):
+                careers_url = u
+                break
+    if not careers_url and w_val.get("job_postings"):
+        careers_url = w_val["job_postings"][0].get("url")
+
+    hiring_ev_id = f"ev-hiring-{org}"
     if hiring:
-        hiring_ev_id = f"ev-hiring-{org}"
         claims.append({
             "field": "hiring_status",
             "value": {
@@ -422,8 +516,24 @@ def build_contract_claims_and_evidence(
             "confidence": 0.95 if hiring.get("confidence") == "high" else 0.80,
             "evidence_ids": [hiring_ev_id],
         })
+        if careers_url or hiring.get("appears_to_be_hiring"):
+            claims.append({
+                "field": "hiring_signal",
+                "value": careers_url or (f"{website_url.rstrip('/')}/careers" if website_url else "hiring"),
+                "availability": "available",
+                "confidence": 0.95,
+                "evidence_ids": [hiring_ev_id],
+            })
+        else:
+            claims.append({
+                "field": "hiring_signal",
+                "value": None,
+                "availability": "not_available",
+                "confidence": 0.0,
+                "evidence_ids": [hiring_ev_id],
+            })
         if not any(item["id"] == hiring_ev_id for item in evidence_items):
-            hiring_src = website_url or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
+            hiring_src = careers_url or website_url or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
             hiring_sha = hashlib.sha256(json.dumps(hiring, sort_keys=True).encode()).hexdigest()
             evidence_items.append({
                 "id": hiring_ev_id,
@@ -436,6 +546,13 @@ def build_contract_claims_and_evidence(
     else:
         claims.append({
             "field": "hiring_status",
+            "value": None,
+            "availability": "not_available",
+            "confidence": 0.0,
+            "evidence_ids": [],
+        })
+        claims.append({
+            "field": "hiring_signal",
             "value": None,
             "availability": "not_available",
             "confidence": 0.0,
@@ -491,6 +608,17 @@ def build_contract_claims_and_evidence(
             "confidence": 0.95,
             "evidence_ids": [news_ev_id],
         })
+        claims.append({
+            "field": "news",
+            "value": {
+                "title": n_title,
+                "published_at": n_pub,
+                "url": n_url,
+            },
+            "availability": "available",
+            "confidence": 0.95,
+            "evidence_ids": [news_ev_id],
+        })
         existing_news = next((item for item in evidence_items if item["id"] == news_ev_id), None)
         if existing_news:
             if not existing_news.get("content_sha256"):
@@ -508,10 +636,18 @@ def build_contract_claims_and_evidence(
             })
     else:
         news_ev_id = f"ev-news-{org}"
+        news_avail = "not_available" if n_status in {"not_available", "not_found", "absent", None} else _to_availability_state(n_status)
         claims.append({
             "field": "dated_news",
             "value": None,
-            "availability": "not_available" if n_status in {"not_available", "not_found", "absent", None} else _to_availability_state(n_status),
+            "availability": news_avail,
+            "confidence": 0.0,
+            "evidence_ids": [news_ev_id] if "news" in ev else [],
+        })
+        claims.append({
+            "field": "news",
+            "value": None,
+            "availability": news_avail,
             "confidence": 0.0,
             "evidence_ids": [news_ev_id] if "news" in ev else [],
         })
@@ -547,6 +683,17 @@ def build_contract_claims_and_evidence(
             "confidence": 0.95,
             "evidence_ids": [jobs_ev_id],
         })
+        claims.append({
+            "field": "jobs",
+            "value": {
+                "title": j_title,
+                "url": j_url,
+                "published_at": primary_job.get("published_at"),
+            },
+            "availability": "available",
+            "confidence": 0.95,
+            "evidence_ids": [jobs_ev_id],
+        })
         existing_job = next((item for item in evidence_items if item["id"] == jobs_ev_id), None)
         if existing_job:
             if not existing_job.get("content_sha256"):
@@ -564,10 +711,18 @@ def build_contract_claims_and_evidence(
             })
     else:
         jobs_ev_id = f"ev-jobs-{org}"
+        jobs_avail = "not_available" if j_status in {"not_available", "not_found", "absent", None} else _to_availability_state(j_status)
         claims.append({
             "field": "job_postings",
             "value": None,
-            "availability": "not_available" if j_status in {"not_available", "not_found", "absent", None} else _to_availability_state(j_status),
+            "availability": jobs_avail,
+            "confidence": 0.0,
+            "evidence_ids": [jobs_ev_id] if "jobs" in ev else [],
+        })
+        claims.append({
+            "field": "jobs",
+            "value": None,
+            "availability": jobs_avail,
             "confidence": 0.0,
             "evidence_ids": [jobs_ev_id] if "jobs" in ev else [],
         })
