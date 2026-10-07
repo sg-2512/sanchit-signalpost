@@ -1,11 +1,14 @@
 import json
+import sys
 from pathlib import Path
 from collections import Counter
 
-envelopes_path = Path("out/smoke-100-test/envelopes.jsonl")
+env_file_arg = sys.argv[1] if len(sys.argv) > 1 else "out/smoke-100-test/envelopes.jsonl"
+envelopes_path = Path(env_file_arg)
 envelopes = [json.loads(line) for line in envelopes_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+N = len(envelopes)
 
-print(f"Total Envelopes: {len(envelopes)}")
+print(f"Total Envelopes: {N}")
 
 required_root_keys = [
     "run_id", "organisation_number", "availability", "state",
@@ -69,7 +72,7 @@ for env in envelopes:
         companies_with_claim[f] += 1
 
 print("\n--- 1. Schema Integrity Audit ---")
-print(f"Total Root Envelopes Valid: {len(envelopes)} / 100")
+print(f"Total Root Envelopes Valid: {N} / {N}")
 print(f"Total Claims Emitted: {total_claims}")
 print(f"Total Evidence Records: {total_evidence}")
 print(f"Evidence Reference Broken Links: {evidence_id_misses}")
@@ -77,8 +80,8 @@ print(f"Secret / Key Leaks in URLs: {secret_leaks}")
 
 print("\n--- 2. Field Presence per Envelope (Claim Structure Emitted) ---")
 for f, count in sorted(companies_with_claim.items(), key=lambda x: -x[1]):
-    print(f"  {f:25}: {count} / 100 envelopes ({count}%)")
+    print(f"  {f:25}: {count} / {N} envelopes ({count * 100 // max(N, 1)}%)")
 
 print("\n--- 3. Field Available Signal Rate (Claim Has Verified Available Data) ---")
 for f, count in sorted(available_field_counts.items(), key=lambda x: -x[1]):
-    print(f"  {f:25}: {count} / 100 ({count}%)")
+    print(f"  {f:25}: {count} / {N} ({count * 100 // max(N, 1)}%)")
