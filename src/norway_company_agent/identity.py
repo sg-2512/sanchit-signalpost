@@ -71,6 +71,11 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
         "domain is for sale", "domain for sale", "hugedomains", "parked at", "miss hosting",
         "her flytter snart en ny gjest", "has been informing visitors",
         "find the best information and most relevant links on all topics related to",
+        "buy this domain", "kjøp dette domenet", "domenet er til salgs",
+        "this domain is parked", "under construction / sedo", "sedo domain parking",
+        "domeneshop parkering", "parkert hos domeneshop", "dan.com",
+        "the sponsored listings displayed above", "related searches", "is parked free",
+        "velkommen til vårt nye nettsted", "siden er under konstruksjon",
     )
     normalized_raw = unicodedata.normalize("NFKD", candidate_text).encode("ascii", "ignore").decode().casefold()
     homepage_token_sets = [set(_tokens(part)) for part in homepage_identity_parts if part]

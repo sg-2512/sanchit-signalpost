@@ -37,6 +37,34 @@ class Evidence:
         return asdict(self)
 
 
+import urllib.parse
+
+SECRET_QUERY_PARAMS = {"key", "api_key", "apikey", "secret", "token", "access_token", "auth"}
+
+
+def sanitize_url(url: Any) -> str:
+    """Sanitize secrets, API keys, and auth tokens from URLs recorded in evidence/audit logs."""
+    if not url:
+        return ""
+    url_str = str(url).strip()
+    try:
+        parsed = urllib.parse.urlparse(url_str)
+        if not parsed.query:
+            return url_str
+        q = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        changed = False
+        for param in list(q.keys()):
+            if param.lower() in SECRET_QUERY_PARAMS:
+                q[param] = ["REDACTED"]
+                changed = True
+        if not changed:
+            return url_str
+        clean_query = urllib.parse.urlencode(q, doseq=True)
+        return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, clean_query, parsed.fragment))
+    except Exception:
+        return url_str
+
+
 def evidence(
     field: str,
     status: EvidenceStatus,
@@ -56,7 +84,7 @@ def evidence(
         status=status,
         source_type=source_type,
         source_class=source_type,
-        source_url=source_url,
+        source_url=sanitize_url(source_url),
         retrieved_at=retrieved_at or utc_now(),
         value=value,
         as_of=as_of,

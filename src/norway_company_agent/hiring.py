@@ -115,6 +115,38 @@ def evaluate_company_hiring(
             "count": employees,
         })
 
+    # 1b. Statutory Annual Accounts Workforce (FTEs / Årsverk)
+    fin_ev = evidence.get("financials") or {}
+    fin_val = fin_ev.get("value") or {}
+    notes_text = str(fin_val.get("notes") or fin_val.get("raw_notes") or fin_val.get("director_report") or "")
+    if notes_text:
+        ANNUAL_REPORT_FTE_PATTERNS = [
+            re.compile(r"antall\s+årsverk\s+i\s+regnskapsåret\s+(?:er|var)?\s*(\d+)", re.I),
+            re.compile(r"selskapet\s+har\s+sysselsatt\s+(\d+)\s+årsverk", re.I),
+            re.compile(r"sysselsatt\s+(\d+)\s+årsverk", re.I),
+            re.compile(r"(\d+)\s+årsverk\b", re.I),
+            re.compile(r"antall\s+ansatte\s+(?:er|var|:)?\s*(\d+)", re.I),
+        ]
+        fte_count = None
+        if re.search(r"\b(?:selskapet|foretaket)\s+har\s+ingen\s+ansatte\b", notes_text, re.I):
+            fte_count = 0
+        else:
+            for pat in ANNUAL_REPORT_FTE_PATTERNS:
+                m = pat.search(notes_text)
+                if m:
+                    try:
+                        fte_count = int(m.group(1))
+                        break
+                    except ValueError:
+                        pass
+        if fte_count is not None:
+            signals.append({
+                "source": "regnskapsregisteret_annual_accounts",
+                "type": "statutory_workforce_fte",
+                "detail": f"{fte_count} statutory årsverk (FTEs) reported in annual accounts filing",
+                "count": fte_count,
+            })
+
     # 2. Website Career Section & Recruitment Keywords
     web_signals = extract_website_hiring_signals(website_val)
     if web_signals["has_career_page"]:

@@ -543,6 +543,87 @@ class BuilderrCanonicalStatesComplianceTests(unittest.TestCase):
         self.assertEqual(env["run"]["terminal_status"], "failed")
 
 
+class AdvancedLearningsTests(unittest.TestCase):
+    """Tests verifying the architectural advancements inspired by Nikita's repository review."""
+
+    def test_sanitize_url_redacts_api_keys_and_tokens(self):
+        from norway_company_agent.evidence import sanitize_url, evidence
+
+        # Test direct URL sanitization
+        places_url = "https://maps.googleapis.com/maps/api/place/textsearch/json?query=Test+AS&key=AIzaSySecretApiKey123"
+        clean_url = sanitize_url(places_url)
+        self.assertNotIn("AIzaSySecretApiKey123", clean_url)
+        self.assertIn("key=REDACTED", clean_url)
+
+        # Test evidence record creation automatically sanitizes URL
+        ev = evidence("reviews", "available", "licensed_api", places_url)
+        self.assertNotIn("AIzaSySecretApiKey123", ev["source_url"])
+        self.assertIn("key=REDACTED", ev["source_url"])
+
+    def test_expanded_parked_domain_markers_reject_placeholder_pages(self):
+        from norway_company_agent.identity import assess_website_identity
+
+        # Test domeneshop parking placeholder
+        parked_domeneshop = {
+            "organisation_number": "912345678",
+            "name": "Nordic Tech AS",
+            "evidence": {
+                "website": {
+                    "status": "available",
+                    "value": {
+                        "final_url": "https://nordictech.no",
+                        "title": "Nordic Tech AS - Domeneshop parkering",
+                        "main_text_excerpt": "Domenet er parkert hos Domeneshop.",
+                    },
+                },
+            },
+        }
+        res = assess_website_identity(parked_domeneshop)
+        self.assertFalse(res["publishable"])
+        self.assertLessEqual(res["score"], 0.1)
+
+        # Test dan.com for-sale placeholder
+        parked_dan = {
+            "organisation_number": "912345678",
+            "name": "Acme Nordic AS",
+            "evidence": {
+                "website": {
+                    "status": "available",
+                    "value": {
+                        "final_url": "https://acmenordic.no",
+                        "title": "Acme Nordic AS",
+                        "main_text_excerpt": "Buy this domain on dan.com. Domenet er til salgs.",
+                    },
+                },
+            },
+        }
+        res_dan = assess_website_identity(parked_dan)
+        self.assertFalse(res_dan["publishable"])
+
+    def test_statutory_annual_accounts_workforce_fte_mining(self):
+        from norway_company_agent.hiring import evaluate_company_hiring
+
+        profile = {
+            "organisation_number": "912345678",
+            "name": "Byggmester Hansen AS",
+            "employees": None,
+            "evidence": {
+                "financials": {
+                    "status": "available",
+                    "value": {
+                        "notes": "Note 4 Lønnskostnader: Selskapet har sysselsatt 14 årsverk i regnskapsåret.",
+                    },
+                },
+            },
+        }
+        hiring_block, obs = evaluate_company_hiring(profile)
+        signals = hiring_block.get("signals", [])
+        fte_signal = next((s for s in signals if s.get("type") == "statutory_workforce_fte"), None)
+        self.assertIsNotNone(fte_signal)
+        self.assertEqual(fte_signal["count"], 14)
+        self.assertEqual(fte_signal["source"], "regnskapsregisteret_annual_accounts")
+
+
 if __name__ == "__main__":
     unittest.main()
 

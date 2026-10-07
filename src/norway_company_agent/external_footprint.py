@@ -62,8 +62,13 @@ def _host(url: str) -> str:
     return (urlparse(url).hostname or "").casefold().removeprefix("www.")
 
 
+from .evidence import sanitize_url
+
+
 def validate_observation(item: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
+    if item.get("source_url"):
+        item["source_url"] = sanitize_url(item["source_url"])
     if not str(item.get("id") or "").strip():
         reasons.append("missing observation id")
     if not str(item.get("organisation_number") or "").isdigit():
