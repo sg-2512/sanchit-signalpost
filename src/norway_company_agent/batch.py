@@ -403,20 +403,21 @@ def build_contract_claims_and_evidence(
                 "claim_span": f"Verified company-owned social profiles: {', '.join(s.get('platform', '') for s in social_links)}",
             })
     else:
-        social_ev_id = f"ev-social-{org}"
+        site_ev_id = f"ev-website-{org}"
+        has_site_ev = any(item["id"] == site_ev_id for item in evidence_items)
         claims.append({
             "field": "social_profiles",
             "value": None,
             "availability": "not_available",
             "confidence": 0.0,
-            "evidence_ids": [social_ev_id] if "website" in ev else [],
+            "evidence_ids": [site_ev_id] if has_site_ev else [],
         })
         claims.append({
             "field": "social_profile",
             "value": None,
             "availability": "not_available",
             "confidence": 0.0,
-            "evidence_ids": [social_ev_id] if "website" in ev else [],
+            "evidence_ids": [site_ev_id] if has_site_ev else [],
         })
 
     # 4. Annual Accounts Claim
@@ -731,6 +732,8 @@ def build_contract_claims_and_evidence(
     # Every published claim marked 'available' MUST resolve to an evidence record with a non-empty content_sha256
     ev_map = {item["id"]: item for item in evidence_items}
     for claim in claims:
+        # Guarantee 100% referential integrity: no dangling or missing evidence IDs
+        claim["evidence_ids"] = [eid for eid in claim.get("evidence_ids", []) if eid in ev_map]
         if claim.get("availability") == "available":
             for eid in claim.get("evidence_ids", []):
                 if eid in ev_map:
