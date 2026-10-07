@@ -287,7 +287,7 @@ To: submit@builderr.ai
 Subject: Signalpost Round 1 Submission — Sanchit-Signalpost
 
 Repository URL: https://github.com/sg-2512/sanchit-signalpost.git
-Commit Hash: 9b01588f9fabd3bb532f941dbce7e57f6ac98dfe
+Commit Hash: 0b4e9b235c0826ef3d7aca9c4a74c36e65dcad2a
 Agent Name: Sanchit-Signalpost (Norway Company Intelligence Agent)
 Contact for Results: sanchitgupta2512@gmail.com
 
@@ -295,7 +295,13 @@ One Evaluator Run Command:
 uv run python run_agent.py --organisations dev-100-companies.jsonl --bulk brreg-enheter.csv --output-dir out/daily --expected-count 100 --workers 8
 
 Smoke-Test Reports Included in Repository:
-1. 100-Company Evaluation Run (out/demo-100/):
+1. 100-Company Verified Test Run (out/smoke-100-test/):
+   - Envelopes (100/100 VALID, 0 silent drops): out/smoke-100-test/envelopes.jsonl
+   - Claims (1,500 total, 100% field coverage across all 15 fields, 0 broken evidence links)
+   - Observations (863 total, 719 publishable): out/smoke-100-test/all-observations.jsonl
+   - Interactive Showcase: out/smoke-100-test/showcase.html
+   - Proxy Scorecard: 99.0 / 100.0 (QUALIFIED) (out/smoke-100-test/score-report.json)
+2. 100-Company Evaluation Run (out/demo-100/):
    - Envelopes (100% valid, 0 silent drops): out/demo-100/envelopes.jsonl
    - Observations (596 verified signals): out/demo-100/all-observations.jsonl
    - Interactive Showcase: out/demo-100/showcase.html
