@@ -26,6 +26,7 @@ PLATFORMS = {
     "wikidata",
     "wikipedia",
     "company_directory",
+    "patentstyret",
 }
 
 SIGNAL_TYPES = {
@@ -40,6 +41,8 @@ SIGNAL_TYPES = {
     "public_post",
     "public_mention",
     "buzz_metrics",
+    "dated_news",
+    "patent_trademark_record",
 }
 
 # “Experimental” means the connector can be benchmarked locally, but its output cannot be

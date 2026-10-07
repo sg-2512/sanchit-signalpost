@@ -511,7 +511,7 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
     return news_urls, career_urls
 
 
-def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3) -> list[str]:
+def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_sitemap: bool = False) -> list[str]:
     base = urllib.parse.urlparse(base_url)
     career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
     news_terms = ("news", "press", "aktuelt", "nyheter", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "media", "presse", "artikler", "siste-nytt", "blogg", "publikasjoner")
@@ -547,8 +547,8 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3) -> list[
         if o_rank is not None:
             other_cands[clean] = min(o_rank, other_cands.get(clean, o_rank))
 
-    # If fewer than 2 news links or fewer than 2 career links found in HTML, check sitemap
-    if len(news_cands) < 2 or len(career_cands) < 2:
+    # If fewer than 2 news links or fewer than 2 career links found in HTML and sitemap check enabled
+    if check_sitemap and (len(news_cands) < 2 or len(career_cands) < 2):
         s_news, s_careers = _discover_sitemap_urls(base_url)
         for u in s_careers:
             if u not in career_cands:
@@ -702,7 +702,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         bytes_received = len(raw)
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
-        for page_url in _priority_links(final_url, soup):
+        for page_url in _priority_links(final_url, soup, check_sitemap=True):
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(
                 page_url,
                 homepage_domain=homepage_domain,

@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-10-07T14:56:28.042259+00:00",
-  "git_commit": "3741da813f1e63e8c42c79f9a6d72f2b947cdf41",
+  "created_at": "2026-10-07T16:53:36.858054+00:00",
+  "git_commit": "2a752a51b9762df9509c2be2e6d3e283e756a183",
   "git_dirty": true,
   "environment": {
     "python_version": "3.14.2",
@@ -118,7 +118,7 @@
     "src/norway_company_agent/connectors/youtube.py": "deff6e8e084ebd71d1580efd57d7c9f47d06d20e3899fbecbb59139e775e6e42",
     "src/norway_company_agent/connectors/linkedin.py": "c4a1355b6f7f4338528c7454e16366d97c81e7018db07f562f51367c4ce586e1",
     "src/norway_company_agent/budget.py": "2a825a9bb4c69173dfbce3dec02998ccce4217c625f5999e4a0c44552283319f",
-    "src/norway_company_agent/identity.py": "903a75b17bb2b17929f8178c4fa2719b13c824d5918eea3574feeddcbb135d40"
+    "src/norway_company_agent/identity.py": "8c53a53ee396295d04267ee47b79914af587065eed6cee8d82f81ba5e5facdb6"
   },
-  "overall_manifest_hash": "ebebe8c95638a0a15c4511716ff7cee30cc2915f351914382638134fd5b1b1d5"
+  "overall_manifest_hash": "08e9dc4e2cda6a3314d52848d6eebc15a6d0415812b24c4a48e3eb5f3399bd93"
 }

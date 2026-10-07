@@ -115,8 +115,6 @@ def fetch_brreg_kunngjoringer(
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
                 "source_class": "official_announcement",
-                "sentiment_label": "neutral",
-                "sentiment_model_version": "NOSIBLE/financial-sentiment-v1.2-base",
                 "evidence_span": f"Official Brønnøysund announcement on {n_date} for {company_name} ({clean_org}): {n_desc}",
                 "metrics": {
                     "notice_date": n_date,
@@ -148,8 +146,6 @@ def fetch_brreg_kunngjoringer(
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
                 "source_class": "official_announcement",
-                "sentiment_label": "neutral",
-                "sentiment_model_version": "NOSIBLE/financial-sentiment-v1.2-base",
                 "evidence_span": f"Official Brønnøysund legal announcements register verified for {company_name} (org {clean_org})",
                 "metrics": {
                     "source": "brreg_kunngjoringer_registry",

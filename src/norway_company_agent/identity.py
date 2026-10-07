@@ -196,7 +196,13 @@ def assess_social_identity(profile: dict[str, Any], link: dict[str, str]) -> dic
     web_host = urllib.parse.urlparse(website_url).hostname or ""
     web_clean = web_host.lower().removeprefix("www.")
     domain_sld = web_clean.split(".")[0] if "." in web_clean else web_clean
-    domain_match = bool(domain_sld and len(domain_sld) >= 3 and domain_sld in handle_compact)
+    domain_match = bool(
+        domain_sld
+        and len(domain_sld) >= 3
+        and domain_sld not in GENERIC_INDUSTRY_WORDS
+        and domain_sld not in LEGAL_AND_GENERIC
+        and domain_sld in handle_compact
+    )
 
     if core_compact and core_compact in handle_compact:
         score = 0.98
