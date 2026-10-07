@@ -18,6 +18,7 @@ out/new-100-run/
 out/smoke-*/
 out/fresh-*/
 out/eval-report.json
+out/eval-*/
 out/refresh-test.json
 dev-5-*.jsonl
 *.egg-info/
