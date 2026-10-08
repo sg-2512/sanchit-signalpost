@@ -295,7 +295,15 @@ One Evaluator Run Command:
 uv run python run_agent.py --organisations dev-100-companies.jsonl --bulk brreg-enheter.csv --output-dir out/daily --expected-count 100 --workers 8
 
 Smoke-Test Reports Included in Repository:
-1. 100-Company Verified Test Run (out/smoke-100-test/):
+1. 200-Company Large Universe Verified Run (out/smoke-200-test/):
+   - Envelopes (200/200 VALID, 0 silent drops): out/smoke-200-test/envelopes.jsonl
+   - Claims (3,000 total, 100% field coverage across all 15 fields, 0 broken evidence links)
+   - Observations (1,340 total, 1,340 publishable, 100% accepted): out/smoke-200-test/all-observations.jsonl
+   - Platforms (10 active): brreg, facebook, google_places, instagram, job_board, linkedin, news, patentstyret, wikidata, youtube
+   - Interactive Showcase: out/smoke-200-test/showcase.html
+   - Proxy Scorecard: 99.98 / 100.0 (QUALIFIED) (out/smoke-200-test/score-report.json)
+   - Operational Report (442.7s wall clock, $0.0620 API spend): out/smoke-200-test/batch-report.json
+2. 100-Company Verified Test Run (out/smoke-100-test/):
    - Envelopes (100/100 VALID, 0 silent drops): out/smoke-100-test/envelopes.jsonl
    - Claims (1,500 total, 100% field coverage across all 15 fields, 0 broken evidence links)
    - Observations (863 total, 719 publishable): out/smoke-100-test/all-observations.jsonl
