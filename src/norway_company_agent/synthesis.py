@@ -131,10 +131,20 @@ def generate_company_synthesis(
         sentences.append(f"The entity is {loc_str}.")
 
     # 3. Financials & Digital Presence
+    fin_trends = financials.get("financial_trends") or {}
+    solv_status = fin_trends.get("solvency_status")
+    eq_ratio = fin_trends.get("equity_ratio")
+    growth_label = fin_trends.get("growth_label")
+
     if filing_year and revenue is not None:
         rev_str = f"{revenue:,.0f} NOK revenue"
         prof_str = f"net profit of {profit:,.0f} NOK" if profit is not None else "net profit unrecorded"
         fin_str = f"Latest {filing_year} filings report {rev_str} and {prof_str}"
+        if solv_status and eq_ratio is not None:
+            fin_str += f" (financial health: {solv_status}, {eq_ratio*100:.1f}% equity ratio"
+            if growth_label:
+                fin_str += f", YoY revenue: {growth_label}"
+            fin_str += ")"
     elif filing_year:
         fin_str = f"Submitted annual accounts for {filing_year}"
     else:
@@ -166,6 +176,9 @@ def generate_company_synthesis(
         "grounded": True,
         "hiring_status": hiring.get("status") or "unreported",
         "appears_to_be_hiring": hiring.get("appears_to_be_hiring", False),
+        "financial_health": solv_status or "unreported",
+        "equity_ratio": eq_ratio,
+        "revenue_growth": growth_label,
         "unknowns": unknowns,
     }
 

@@ -37,7 +37,8 @@ TRUSTED_PUBLISHERS = {
     "nyss.no", "telemarkavisa.no", "lofotposten.no", "vol.no", "fremo.no",
     "sunnmoringen.no", "morenytt.no", "driva.no", "auraavis.no",
     # Nordic / International wire services & public bodies
-    "ntb.no", "reuters.com", "bloomberg.com", "apnews.com",
+    "ntb.no", "kommunikasjon.ntb.no", "mynewsdesk.com", "cision.com", "cision.no",
+    "reuters.com", "bloomberg.com", "apnews.com",
     "regjeringen.no", "ssb.no", "brreg.no", "toll.no", "skatteetaten.no",
 }
 

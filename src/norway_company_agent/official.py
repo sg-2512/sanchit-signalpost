@@ -74,23 +74,67 @@ def _get(value: Any, *path: str) -> Any:
 def normalize_financials(body: Any) -> dict[str, Any]:
     records = body if isinstance(body, list) else []
     if not records:
-        return {"records": []}
+        return {"records": [], "financial_trends": {}}
     normalized = []
     for item in records[:3]:
+        rev = _get(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "sumDriftsinntekter")
+        op_res = _get(item, "resultatregnskapResultat", "driftsresultat", "driftsresultat")
+        assets = _get(item, "eiendeler", "sumEiendeler")
+        equity = _get(item, "egenkapitalGjeld", "egenkapital", "sumEgenkapital")
+        
+        # Institutional diligence metrics
+        op_margin = round(float(op_res) / float(rev), 4) if rev and op_res is not None and float(rev) > 0 else None
+        eq_ratio = round(float(equity) / float(assets), 4) if assets and equity is not None and float(assets) > 0 else None
+        
+        solvency = None
+        if eq_ratio is not None:
+            if eq_ratio >= 0.40:
+                solvency = "Strong"
+            elif eq_ratio >= 0.20:
+                solvency = "Adequate"
+            else:
+                solvency = "Vulnerable"
+
         normalized.append({
             "record_id": item.get("id"),
             "account_type": item.get("regnskapstype"),
             "period": item.get("regnskapsperiode"),
             "currency": item.get("valuta"),
-            "revenue": _get(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "sumDriftsinntekter"),
-            "operating_result": _get(item, "resultatregnskapResultat", "driftsresultat", "driftsresultat"),
+            "revenue": rev,
+            "operating_result": op_res,
             "profit_before_tax": _get(item, "resultatregnskapResultat", "ordinaertResultatFoerSkattekostnad"),
             "annual_result": _get(item, "resultatregnskapResultat", "aarsresultat"),
-            "assets": _get(item, "eiendeler", "sumEiendeler"),
-            "equity": _get(item, "egenkapitalGjeld", "egenkapital", "sumEgenkapital"),
+            "assets": assets,
+            "equity": equity,
             "debt": _get(item, "egenkapitalGjeld", "gjeldOversikt", "sumGjeld"),
+            "operating_margin": op_margin,
+            "equity_ratio": eq_ratio,
+            "solvency_status": solvency,
         })
-    return {"records": normalized}
+
+    # Multi-year trajectory & CAGR computation
+    trends: dict[str, Any] = {}
+    if len(normalized) >= 2:
+        rev_0 = normalized[0].get("revenue")
+        rev_1 = normalized[1].get("revenue")
+        if rev_0 is not None and rev_1 is not None and float(rev_1) > 0:
+            growth = round((float(rev_0) - float(rev_1)) / float(rev_1), 4)
+            trends["yoy_revenue_growth"] = growth
+            trends["growth_label"] = f"{'+' if growth >= 0 else ''}{growth*100:.1f}%"
+
+    if len(normalized) >= 3:
+        rev_0 = normalized[0].get("revenue")
+        rev_2 = normalized[2].get("revenue")
+        if rev_0 is not None and rev_2 is not None and float(rev_2) > 0 and float(rev_0) > 0:
+            cagr = round((float(rev_0) / float(rev_2)) ** 0.5 - 1.0, 4)
+            trends["cagr_3yr"] = cagr
+            trends["cagr_label"] = f"{'+' if cagr >= 0 else ''}{cagr*100:.1f}%"
+
+    if normalized and normalized[0].get("solvency_status"):
+        trends["solvency_status"] = normalized[0]["solvency_status"]
+        trends["equity_ratio"] = normalized[0]["equity_ratio"]
+
+    return {"records": normalized, "financial_trends": trends}
 
 
 def normalize_financial_history(body: Any, org: str) -> dict[str, Any]:

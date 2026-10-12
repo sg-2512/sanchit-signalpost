@@ -210,7 +210,7 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
         "registrySource": evidence.get("registry", {}).get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{row.get('organisation_number')}",
         "registry": meta(evidence.get("registry", {})),
         "accounting": {**meta(accounting), "value": accounting.get("value") or {}},
-        "financial": {**meta(financial), "records": fin_records[:3]},
+        "financial": {**meta(financial), "records": fin_records[:3], "trends": (financial.get("value") or {}).get("financial_trends") or {}},
         "financialHistory": {**meta(financial_history), "pdfs": (financial_history.get("value") or {}).get("pdfs", [])},
         "roles": {**meta(roles), "items": role_items[:30]},
         "locations": {**meta(locations), "items": raw_loc_items[:30]},

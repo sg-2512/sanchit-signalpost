@@ -370,21 +370,35 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
             "content_sha256": digest,
         })
 
-    # Detect Norwegian and international ATS portals (Webcruiter, Jobbnorge, Teamtailor, Recman, Easycruit, Finn, ReachMee, etc.)
+    # Detect Norwegian and international ATS portals (Webcruiter, Jobbnorge, Teamtailor, Recman, Easycruit, Finn, ReachMee, Talentech, etc.)
     ats_domains = (
         "webcruiter.no", "webcruiter.com", "jobbnorge.no", "teamtailor.com",
-        "recman.no", "recman.io", "easycruit.com", "reachmee.com", "finn.no/jobb",
-        "bamboohr.com", "lever.co", "greenhouse.io", "workable.com",
+        "recman.no", "recman.io", "career.recman.no", "easycruit.com", "reachmee.com",
+        "finn.no/jobb", "finn.no/stilling", "workbuster.com", "workbuster.se",
+        "varbi.com", "jobylon.com", "homerun.co", "talentech.com", "talentech.io",
+        "karriere.no", "personio.de", "personio.com", "bamboohr.com", "lever.co",
+        "greenhouse.io", "workable.com", "smartrecruiters.com",
     )
     candidate_elements = soup.select("a[href]") + soup.select("iframe[src]")
     for anchor in candidate_elements:
         href = str(anchor.get("href") or anchor.get("src") or "").strip()
         if any(ats in href.lower() for ats in ats_domains) and not href.startswith(("tel:", "mailto:", "javascript:", "#")):
             clean_href = urllib.parse.urljoin(page_url, href)
-            a_text = anchor.get_text(" ", strip=True) or anchor.get("title") or "Ledig stilling"
-            if len(a_text) < 4 or a_text.casefold() in {"les mer", "søk her", "søk stilling", "apply here", "apply", "klikk her"}:
-                parsed_ats = urllib.parse.urlparse(clean_href)
-                a_text = f"Ledig stilling ({parsed_ats.netloc})"
+            parsed_ats = urllib.parse.urlparse(clean_href)
+            a_text = anchor.get_text(" ", strip=True) or anchor.get("title") or ""
+            
+            # Intelligent title decoding from URL slug if anchor text is generic
+            generic_texts = {"les mer", "søk her", "søk stilling", "apply here", "apply", "klikk her", "se stillinger", "open positions", "ledige stillinger"}
+            if len(a_text) < 4 or a_text.casefold() in generic_texts:
+                slug = parsed_ats.path.strip("/").split("/")[-1]
+                slug_clean = re.sub(r"^[0-9_-]+|[0-9_-]+$", "", slug)
+                slug_clean = re.sub(r"[-_]+", " ", slug_clean).strip()
+                if len(slug_clean) >= 4 and not slug_clean.isdigit():
+                    a_text = slug_clean.title()
+                else:
+                    ats_host = parsed_ats.netloc.removeprefix("www.")
+                    a_text = f"Ledig stilling ({ats_host})"
+
             if a_text.casefold() not in seen_titles:
                 seen_titles.add(a_text.casefold())
                 digest = hashlib.sha256(f"{a_text}|{clean_href}".encode("utf-8")).hexdigest()
@@ -702,7 +716,10 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         bytes_received = len(raw)
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
-        for page_url in _priority_links(final_url, soup, check_sitemap=True):
+        fast_path_saturated = bool(len(homepage_news) >= 1 and len(homepage_jobs) >= 1 and len(social) >= 1)
+        subpage_limit = 1 if fast_path_saturated else 3
+        check_sitemap = not fast_path_saturated
+        for page_url in _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=check_sitemap):
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(
                 page_url,
                 homepage_domain=homepage_domain,

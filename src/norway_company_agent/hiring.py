@@ -191,15 +191,27 @@ def evaluate_company_hiring(
             })
         new_obs.extend(li_jobs)
 
+    # 4b. Discovered ATS and Website Job Vacancies
+    web_jobs = (website_val.get("job_postings") or []) if isinstance(website_val, dict) else []
+    for wj in web_jobs:
+        if isinstance(wj, dict) and wj.get("title"):
+            signals.append({
+                "source": "company_website_job_posting",
+                "type": "corporate_job_posting",
+                "title": wj.get("title"),
+                "url": wj.get("url"),
+                "published_at": wj.get("published_at"),
+            })
+
     # Determine overall hiring status
-    active_postings_count = len(nav_jobs) + len(li_jobs)
-    has_web_hiring = web_signals["has_career_page"] or bool(web_signals["hiring_keywords_found"])
+    active_postings_count = len(nav_jobs) + len(li_jobs) + len(web_jobs)
+    has_web_hiring = web_signals["has_career_page"] or bool(web_signals["hiring_keywords_found"]) or bool(web_jobs)
 
     if active_postings_count > 0:
         appears_to_be_hiring = True
         status_code = "actively_recruiting"
         titles = [s.get("title") for s in signals if s.get("title")][:3]
-        summary_note = f"Actively hiring: {active_postings_count} open vacancy posting(s) confirmed on NAV/LinkedIn ({', '.join(filter(None, titles))})."
+        summary_note = f"Actively hiring: {active_postings_count} open vacancy posting(s) confirmed on NAV/LinkedIn/Website ({', '.join(filter(None, titles))})."
     elif has_web_hiring:
         appears_to_be_hiring = True
         status_code = "website_recruitment_open"
