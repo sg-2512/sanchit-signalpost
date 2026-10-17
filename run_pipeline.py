@@ -35,19 +35,28 @@ def run_step(description: str, cmd: list[str], cwd: Path = ROOT) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="SignalPost Master Pipeline")
-    parser.add_argument("--organisations", default="smoke-companies.jsonl", help="Organisation manifest (JSONL)")
+    parser.add_argument("--organisations", "--input", "--company-file", dest="organisations", default="smoke-companies.jsonl", help="Organisation manifest (JSONL)")
     parser.add_argument("--bulk", default="brreg-enheter.csv", help="Brreg bulk CSV")
-    parser.add_argument("--output-dir", default="out/pipeline", help="Output directory for all run artifacts")
+    parser.add_argument("--output-dir", "--out", dest="output_dir", default="out/pipeline", help="Output directory for all run artifacts")
     parser.add_argument("--run-id", default="pipeline-run-001", help="Unique run identifier")
-    parser.add_argument("--expected-count", type=int, default=10, help="Expected number of companies")
-    parser.add_argument("--workers", type=int, default=8, help="Worker threads for batch requests")
-    args = parser.parse_args()
+    parser.add_argument("--expected-count", type=int, default=None, help="Expected number of companies")
+    parser.add_argument("--max-orgs", "--limit", dest="max_orgs", type=int, default=None, help="Optional limit on number of companies")
+    parser.add_argument("--workers", "--concurrency", dest="workers", type=int, default=16, help="Worker threads for batch requests")
+    parser.add_argument("--resume", action="store_true", help="Resume from existing completed profiles")
+    args, _ = parser.parse_known_args()
 
     out_dir = ROOT / args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     orgs_path = ROOT / args.organisations
     bulk_path = ROOT / args.bulk
+
+    from norway_company_agent.batch import read_organisation_inputs, terminal_envelope
+    from norway_company_agent.evidence import utc_now
+    org_inputs = read_organisation_inputs(orgs_path)
+    if args.max_orgs and args.max_orgs > 0:
+        org_inputs = org_inputs[:args.max_orgs]
+    expected_count = len(org_inputs)
 
     profiles_out = out_dir / "profiles.jsonl"
     envelopes_out = out_dir / "envelopes.jsonl"
@@ -73,48 +82,50 @@ def main() -> int:
     score_report_out = out_dir / "score-report.json"
 
     # -------------------------------------------------------------
-    # Step 1: Batch Foundation Enrichment
+    # Step 1: Full Multi-Connector Agent Enrichment (run_agent.py)
     # -------------------------------------------------------------
-    modules = "registry,accounting_obligation,registry_live,financials,financial_history,roles,group,locations,website"
-    code = run_step(
-        "1. Batch Foundation Enrichment",
-        [
-            sys.executable,
-            str(ROOT / "scripts" / "run_competition_batch.py"),
-            "--organisations", str(orgs_path),
-            "--bulk", str(bulk_path),
-            "--profiles-output", str(profiles_out),
-            "--output", str(envelopes_out),
-            "--report", str(batch_report_out),
-            "--run-id", args.run_id,
-            "--expected-count", str(args.expected_count),
-            "--workers", str(args.workers),
-            "--modules", modules,
-        ]
-    )
+    modules = "registry,accounting_obligation,registry_live,financials,roles,group,locations,website"
+    step1_cmd = [
+        sys.executable,
+        str(ROOT / "run_agent.py"),
+        "--organisations", str(orgs_path),
+        "--bulk", str(bulk_path),
+        "--output-dir", str(out_dir),
+        "--profiles-output", str(profiles_out),
+        "--output", str(envelopes_out),
+        "--report", str(batch_report_out),
+        "--run-id", args.run_id,
+        "--expected-count", str(expected_count),
+        "--workers", str(args.workers),
+    ]
+    if args.max_orgs and args.max_orgs > 0:
+        step1_cmd.extend(["--max-orgs", str(args.max_orgs)])
+    if args.resume:
+        step1_cmd.append("--resume")
+    code = run_step("1. Batch Foundation & Multi-Connector Enrichment", step1_cmd)
     if code != 0:
         return code
 
     # -------------------------------------------------------------
     # Step 1b: Deterministic Resume Verification
     # -------------------------------------------------------------
-    run_step(
-        "1b. Deterministic Resume Verification",
-        [
-            sys.executable,
-            str(ROOT / "scripts" / "run_competition_batch.py"),
-            "--organisations", str(orgs_path),
-            "--bulk", str(bulk_path),
-            "--profiles-output", str(profiles_out),
-            "--output", str(envelopes_out),
-            "--report", str(resume_report_out),
-            "--run-id", f"{args.run_id}-resume",
-            "--expected-count", str(args.expected_count),
-            "--workers", str(args.workers),
-            "--modules", modules,
-            "--resume",
-        ]
-    )
+    step1b_cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_competition_batch.py"),
+        "--organisations", str(orgs_path),
+        "--bulk", str(bulk_path),
+        "--profiles-output", str(profiles_out),
+        "--output", str(envelopes_out),
+        "--report", str(resume_report_out),
+        "--run-id", f"{args.run_id}-resume",
+        "--expected-count", str(expected_count),
+        "--workers", str(args.workers),
+        "--modules", modules,
+        "--resume",
+    ]
+    if args.max_orgs and args.max_orgs > 0:
+        step1b_cmd.extend(["--max-orgs", str(args.max_orgs)])
+    run_step("1b. Deterministic Resume Verification", step1b_cmd)
 
     # -------------------------------------------------------------
     # Step 2: Social Links Normalization
@@ -132,12 +143,7 @@ def main() -> int:
     # Step 3: Extract Organisation Numbers List
     # -------------------------------------------------------------
     org_list_file = out_dir / "org-numbers.txt"
-    with orgs_path.open("r", encoding="utf-8") as handle:
-        org_numbers = [
-            json.loads(line)["organisation_number"]
-            for line in handle
-            if line.strip()
-        ]
+    org_numbers = [item["organisation_number"] for item in org_inputs]
     org_list_file.write_text("\n".join(org_numbers) + "\n", encoding="utf-8")
 
     # -------------------------------------------------------------
@@ -189,19 +195,40 @@ def main() -> int:
         ]
     )
 
-    # Merge external observations
+    # Merge external observations (preserving live observations from run_agent.py)
+    seen_obs_ids: set[str] = set()
     observations = []
-    for obs_file in (site_activity_out, site_news_out, google_news_out, social_workforce_out):
+    for obs_file in (all_observations_out, site_activity_out, site_news_out, google_news_out, social_workforce_out):
         if obs_file.exists():
             for line in obs_file.read_text(encoding="utf-8").splitlines():
                 if line.strip():
-                    observations.append(json.loads(line))
+                    row = json.loads(line)
+                    oid = str(row.get("id") or "")
+                    if oid and oid in seen_obs_ids:
+                        continue
+                    if oid:
+                        seen_obs_ids.add(oid)
+                    observations.append(row)
 
     all_observations_out.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in observations),
         encoding="utf-8"
     )
     print(f"[INFO] Combined {len(observations)} external observations into {all_observations_out}")
+
+    # Refresh terminal envelopes after social normalization and external observations
+    if profiles_out.exists():
+        updated_profiles = [json.loads(line) for line in profiles_out.read_text(encoding="utf-8").splitlines() if line.strip()]
+        mod_list = [m.strip() for m in modules.split(",") if m.strip()]
+        now_ts = utc_now()
+        updated_envelopes = [
+            terminal_envelope(p, run_id=args.run_id, modules=mod_list, started_at=now_ts, completed_at=now_ts)
+            for p in updated_profiles
+        ]
+        envelopes_out.write_text(
+            "".join(json.dumps(env, ensure_ascii=False, separators=(",", ":")) + "\n" for env in updated_envelopes),
+            encoding="utf-8",
+        )
 
     # Generate audit labels for verified observations
     label_rows = []
@@ -307,6 +334,7 @@ def main() -> int:
             str(ROOT / "scripts" / "build_prototype.py"),
             "--input", str(profiles_out),
             "--external-observations", str(all_observations_out),
+            "--limit", "1000",
             "--output", str(showcase_html),
         ]
     )

@@ -152,12 +152,18 @@ def probe_heuristic_domain(
     if len(tokens[0]) >= 4 and tokens[0] != candidates[0]:
         candidates.append(tokens[0])
 
-    for slug in candidates[:1]:
+    org_clean = re.sub(r"\D", "", org)
+    org_spaced = f"{org_clean[:3]} {org_clean[3:6]} {org_clean[6:]}" if len(org_clean) == 9 else org_clean
+    is_intl_scale = str(profile.get("legal_form") or "").upper() == "ASA" or int(profile.get("employees") or 0) >= 50
+
+    for slug in candidates[:2]:
         if len(slug) < 3:
             continue
         probe_urls = [f"https://www.{slug}.no", f"https://{slug}.no"]
+        if is_intl_scale:
+            probe_urls.append(f"https://www.{slug}.com")
         for url in probe_urls:
-            if budget and not budget.can_proceed(reserve=50):
+            if budget and not budget.can_proceed(reserve=20):
                 return None
 
             try:
@@ -170,7 +176,11 @@ def probe_heuristic_domain(
                         raw = resp.read(250_000).decode("utf-8", errors="replace")
                         if budget:
                             budget.record_request(bytes_received=len(raw), cost_usd=0.0)
-                        if org in raw or name.lower() in raw.lower():
+                        if (
+                            (org_clean and org_clean in raw)
+                            or (org_spaced and org_spaced in raw)
+                            or name.lower() in raw.lower()
+                        ):
                             return resp.geturl() or url
             except Exception:
                 pass

@@ -79,7 +79,13 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     )
     normalized_raw = unicodedata.normalize("NFKD", candidate_text).encode("ascii", "ignore").decode().casefold()
     homepage_token_sets = [set(_tokens(part)) for part in homepage_identity_parts if part]
-    exact_homepage_name = bool(core and any(set(core).issubset(tokens) for tokens in homepage_token_sets))
+    combined_homepage_tokens = set(_tokens(" ".join(str(part or "") for part in homepage_identity_parts if part)))
+    exact_homepage_name = bool(
+        core and (
+            any(set(core).issubset(tokens) for tokens in homepage_token_sets)
+            or (len(core) >= 2 and set(core).issubset(combined_homepage_tokens))
+        )
+    )
     substantive_homepage = len(str(value.get("main_text_excerpt") or "").strip()) >= 50 or len(str(value.get("title") or "").strip()) >= 15
     is_business_sports_club = bool(re.search(r"(?:^|\s)B\.?\s*I\.?\s*L\.?(?:\s|$)", str(profile.get("name") or ""), re.I))
 
@@ -109,35 +115,92 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     known_bbl_managers = ("bori", "obos", "usbl", "tobb", "vestbo", "bonord", "nobl", "kobbl", "gbl", "sobo", "bbl")
     is_known_bbl = any(bbl in clean_cand_host or bbl in clean_reg_host for bbl in known_bbl_managers)
 
-    is_official_manager_portal = False
-    if (is_co_op or co_manager or is_known_bbl) and substantive_homepage:
-        if is_known_bbl and (is_declared_hjemmeside or is_co_op):
-            is_official_manager_portal = True
-        elif co_manager and (co_manager in hostname.lower() or co_manager in normalized_candidate_text):
-            is_official_manager_portal = True
-        elif email_domain and (email_domain in hostname.lower() or hostname.lower() in email_domain):
-            is_official_manager_portal = True
-        elif is_declared_hjemmeside and is_co_op:
-            is_official_manager_portal = True
+    is_error_or_login_url = any(
+        err in final_url.lower() for err in ("error=true", "login_required", "/login", "/logg-inn")
+    )
+
+    domain_sld = clean_cand_host.split(".")[0] if "." in clean_cand_host else clean_cand_host
+    domain_sld_alnum = re.sub(r"[^a-z0-9]", "", domain_sld)
+    core_compact = "".join(core)
+    brand_tokens = [t for t in core if t not in GENERIC_INDUSTRY_WORDS and t not in GEOGRAPHIC_TOKENS]
+    non_brand_tokens = [t for t in core if t in GENERIC_INDUSTRY_WORDS or t in GEOGRAPHIC_TOKENS]
+    acronym = "".join(t[0] for t in core) if len(core) >= 3 else ""
+
+    # Brand Bridge: Trademark registered with Patentstyret (Route 9 Leader & Brand Bridge)
+    patent_brands = []
+    for pat in (profile.get("patents") or []):
+        p_title = pat.get("title")
+        if p_title and len(p_title) >= 3:
+            p_toks = _tokens(p_title)
+            if p_toks:
+                patent_brands.append((p_toks, "".join(p_toks), re.sub(r"[^a-z0-9]", "", "".join(p_toks))))
+
+    trademark_brand_match = False
+    for p_toks, p_compact, p_alnum in patent_brands:
+        if p_alnum and domain_sld_alnum == p_alnum and any(set(p_toks).issubset(tokens) for tokens in homepage_token_sets):
+            trademark_brand_match = True
+            break
+        elif p_alnum and p_alnum in domain_sld_alnum and len(p_alnum) >= 4:
+            if set(p_toks).issubset(combined_homepage_tokens) or (org_digits and org_digits in compact_candidate):
+                trademark_brand_match = True
+                break
 
     if any(marker in normalized_raw for marker in parked_markers):
         score = 0.1
         reasons.append("captured page is a parked, for-sale, or generic hosting placeholder")
+    elif is_error_or_login_url:
+        score = 0.2
+        reasons.append("captured URL redirected to an authentication error or login wall")
     elif is_business_sports_club and "bedriftsidrett" not in normalized_candidate_text and "b i l" not in normalized_candidate_text:
         score = 0.3
         reasons.append("business sports-club entity points to the operating company's site without club evidence")
     elif org_digits and org_digits in compact_homepage_candidate:
         score = 1.0
         reasons.append("exact organisation number appears in homepage identity evidence")
+    elif trademark_brand_match and substantive_homepage:
+        score = 0.95
+        reasons.append("verified registered trademark from Patentstyret matches website domain and homepage branding")
     elif len(core) >= 2 and exact_homepage_name:
         score = 0.95
         reasons.append("all normalized legal-name tokens appear together in homepage identity evidence")
+    elif is_declared_hjemmeside and substantive_homepage and len(core) >= 2 and ratio >= 0.99:
+        score = 0.95
+        reasons.append("all normalized legal-name tokens appear on declared registry website")
     elif len(core) == 1 and exact_homepage_name and substantive_homepage:
         score = 0.95
         reasons.append("single distinctive legal-name token appears in homepage identity evidence with substantive content")
-    elif is_official_manager_portal:
-        score = 0.92
-        reasons.append("official manager portal matches registered c/o management address or corporate email domain")
+    elif is_declared_hjemmeside and len(core) >= 2 and core_compact and domain_sld_alnum == core_compact:
+        score = 0.94
+        reasons.append("declared registry homepage domain SLD matches concatenated legal-name tokens")
+    elif (
+        is_declared_hjemmeside
+        and substantive_homepage
+        and brand_tokens
+        and non_brand_tokens
+        and domain_sld_alnum == "".join(brand_tokens)
+        and any(set(brand_tokens).issubset(tokens) for tokens in homepage_token_sets)
+    ):
+        score = 0.93
+        reasons.append("declared registry homepage domain SLD and homepage match distinctive brand token")
+    elif (
+        is_declared_hjemmeside
+        and substantive_homepage
+        and len(core) >= 3
+        and domain_sld_alnum == acronym
+        and set(core).issubset(candidate_tokens)
+    ):
+        score = 0.93
+        reasons.append("declared registry homepage acronym domain contains all legal-name tokens on site")
+    elif (
+        is_co_op
+        and is_known_bbl
+        and is_declared_hjemmeside
+        and substantive_homepage
+        and not is_error_or_login_url
+        and "minside." not in clean_cand_host
+    ):
+        score = 0.91
+        reasons.append("official registry declares verified BBL housing manager portal for co-op entity")
     elif ratio >= 0.75 and len(overlap) >= 2:
         score = 0.85
         reasons.append("most legal-name tokens appear, but exact identity is incomplete")
@@ -204,9 +267,22 @@ def assess_social_identity(profile: dict[str, Any], link: dict[str, str]) -> dic
         and domain_sld in handle_compact
     )
 
+    patents_brands = []
+    for pat in (profile.get("patents") or []):
+        p_title = pat.get("title")
+        if p_title and len(p_title) >= 3:
+            p_toks = _tokens(p_title)
+            if p_toks:
+                patents_brands.append(re.sub(r"[^a-z0-9]", "", "".join(p_toks)))
+
+    trademark_social_match = any(tb in handle_compact for tb in patents_brands if len(tb) >= 4)
+
     if core_compact and core_compact in handle_compact:
         score = 0.98
         reason = "normalized legal-name sequence appears in the social handle"
+    elif trademark_social_match:
+        score = 0.96
+        reason = "verified registered trademark from Patentstyret appears in the social handle"
     elif len(core) == 1 and matched:
         score = 0.95
         reason = "single distinctive legal-name token appears in the social handle"

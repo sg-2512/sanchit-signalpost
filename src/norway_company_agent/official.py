@@ -24,14 +24,20 @@ _history_lock = threading.Lock()
 _history_last_request = 0.0
 
 
-def accounting_obligation_assessment(profile: dict[str, Any]) -> dict[str, Any]:
+def accounting_obligation_assessment(
+    profile: dict[str, Any],
+    content_sha256: str = "",
+    source_url: str = "",
+) -> dict[str, Any]:
     """Classify the rule path without inventing a definitive exemption.
 
     Brreg's public rule is categorical for some forms and threshold/activity dependent for others.
     Registry employee counts are not treated as equivalent to statutory man-years or asset/revenue tests.
     """
-    legal_form = str(profile.get("legal_form") or "").upper()
-    latest = profile.get("latest_submitted_accounts")
+    org_form_obj = profile.get("organisasjonsform")
+    raw_form = org_form_obj.get("kode") if isinstance(org_form_obj, dict) else profile.get("organisasjonsform.kode")
+    legal_form = str(profile.get("legal_form") or raw_form or "").upper()
+    latest = profile.get("latest_submitted_accounts") or profile.get("sisteInnsendteAarsregnskap")
     if latest:
         classification = "filing_observed"
         reason = "The registry snapshot reports a latest submitted annual-account year."
@@ -44,12 +50,20 @@ def accounting_obligation_assessment(profile: dict[str, Any]) -> dict[str, Any]:
     else:
         classification = "special_rule_or_review_required"
         reason = "The open entity row is insufficient for a definitive accounting-obligation decision."
-    ruleset_hash = __import__("hashlib").sha256(ACCOUNTING_RULESET_VERSION.encode()).hexdigest()
+    ev_dict = profile.get("evidence") if isinstance(profile.get("evidence"), dict) else {}
+    reg_ev = (ev_dict or {}).get("registry_live") or (ev_dict or {}).get("registry") or {}
+    ruleset_hash = (
+        content_sha256
+        or reg_ev.get("content_sha256")
+        or __import__("hashlib").sha256(ACCOUNTING_RULESET_VERSION.encode()).hexdigest()
+    )
+    resolved_url = source_url or reg_ev.get("source_url") or ACCOUNTING_OBLIGATION_SOURCE
+    org_num = str(profile.get("organisation_number") or profile.get("organisasjonsnummer") or "") or None
     return evidence(
         "accounting_obligation",
         "available",
         "official_rule_interpretation",
-        ACCOUNTING_OBLIGATION_SOURCE,
+        resolved_url,
         value={
             "classification": classification,
             "legal_form": legal_form or None,
@@ -59,7 +73,7 @@ def accounting_obligation_assessment(profile: dict[str, Any]) -> dict[str, Any]:
         },
         as_of="2024-08-09",
         content_sha256=ruleset_hash,
-        source_row_key=str(profile.get("organisation_number") or "") or None,
+        source_row_key=org_num,
     )
 
 
@@ -200,6 +214,7 @@ def normalize_locations(body: Any) -> dict[str, Any]:
 def normalize_entity(body: Any) -> dict[str, Any]:
     body = body if isinstance(body, dict) else {}
     return {
+        **body,
         "organisation_number": body.get("organisasjonsnummer"),
         "name": body.get("navn"),
         "legal_form": _get(body, "organisasjonsform", "kode"),
@@ -207,6 +222,8 @@ def normalize_entity(body: Any) -> dict[str, Any]:
         "bankrupt": body.get("konkurs"),
         "liquidating": body.get("underAvvikling"),
         "website": body.get("hjemmeside"),
+        "epostadresse": body.get("epostadresse"),
+        "telefon": body.get("telefon"),
         "industry": body.get("naeringskode1"),
         "business_address": body.get("forretningsadresse"),
         "postal_address": body.get("postadresse"),

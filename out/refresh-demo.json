@@ -49,7 +49,10 @@
           "annual_result": 8,
           "assets": 80,
           "equity": 30,
-          "debt": 50
+          "debt": 50,
+          "operating_margin": 0.1,
+          "equity_ratio": 0.375,
+          "solvency_status": "Adequate"
         }
       ],
       "new_value": [
@@ -67,7 +70,10 @@
           "annual_result": 9,
           "assets": 90,
           "equity": 35,
-          "debt": 55
+          "debt": 55,
+          "operating_margin": 0.1,
+          "equity_ratio": 0.3889,
+          "solvency_status": "Adequate"
         }
       ],
       "source_url": "https://data.brreg.no/regnskapsregisteret/regnskap/923609016",

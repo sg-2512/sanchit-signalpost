@@ -42,9 +42,19 @@ def extract_website_hiring_signals(website_val: dict[str, Any] | None) -> dict[s
     """Scan company website evidence for career pages and recruitment notices."""
     if not website_val or not isinstance(website_val, dict):
         return {"has_career_page": False, "career_urls": [], "hiring_keywords_found": []}
+    identity_assessment = website_val.get("identity_assessment")
+    if isinstance(identity_assessment, dict) and not identity_assessment.get("publishable", True):
+        return {"has_career_page": False, "career_urls": [], "hiring_keywords_found": []}
 
     career_urls: list[str] = []
     keywords_found: list[str] = []
+
+    def _is_valid_career_url(u: str) -> bool:
+        ul = u.lower()
+        return bool(u and not any(bad in ul for bad in ("pa-jobb", "paa-jobb", "på-jobb")))
+
+    if website_val.get("careers_url") and _is_valid_career_url(str(website_val["careers_url"])):
+        career_urls.append(str(website_val["careers_url"]))
 
     # 1. Check pages crawl list
     pages = website_val.get("pages") or []
@@ -54,7 +64,7 @@ def extract_website_hiring_signals(website_val: dict[str, Any] | None) -> dict[s
         page_text = str(page.get("main_text_excerpt") or "")
 
         # Check URL
-        if any(p.search(page_url) for p in CAREER_URL_PATTERNS):
+        if _is_valid_career_url(page_url) and any(p.search(page_url) for p in CAREER_URL_PATTERNS):
             career_urls.append(page_url)
 
         # Check title
@@ -78,9 +88,14 @@ def extract_website_hiring_signals(website_val: dict[str, Any] | None) -> dict[s
             snippet = combined[max(0, m.start() - 20) : min(len(combined), m.end() + 40)].strip()
             keywords_found.append(f"Found '{m.group(0)}' on homepage ({snippet})")
 
+    deduped_urls: list[str] = []
+    for u in career_urls:
+        if u and u not in deduped_urls:
+            deduped_urls.append(u)
+
     return {
-        "has_career_page": len(career_urls) > 0,
-        "career_urls": sorted(set(career_urls)),
+        "has_career_page": len(deduped_urls) > 0,
+        "career_urls": deduped_urls,
         "hiring_keywords_found": keywords_found[:5],
     }
 
@@ -101,7 +116,10 @@ def evaluate_company_hiring(
     employees = profile.get("employees")
 
     evidence = profile.get("evidence") or {}
-    website_val = (evidence.get("website") or {}).get("value")
+    raw_website_val = (evidence.get("website") or {}).get("value")
+    identity_assessment = (raw_website_val or {}).get("identity_assessment") if isinstance(raw_website_val, dict) else None
+    is_site_publishable = identity_assessment.get("publishable", True) if isinstance(identity_assessment, dict) else True
+    website_val = raw_website_val if is_site_publishable else None
 
     new_obs: list[dict[str, Any]] = []
     signals: list[dict[str, Any]] = []

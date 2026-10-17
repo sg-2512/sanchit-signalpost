@@ -99,10 +99,22 @@ def normalize_homepage(value: str | None) -> str | None:
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", "", "", ""))
 
 
+_TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None, suffix_list_urls=())
+
+
 def _registered_domain(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
-    ext = tldextract.extract(parsed.hostname or "")
-    return ext.top_domain_under_public_suffix
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return ""
+    try:
+        ext = _TLD_EXTRACTOR(host)
+        if ext.top_domain_under_public_suffix:
+            return ext.top_domain_under_public_suffix
+    except Exception:
+        pass
+    parts = [p for p in host.removeprefix("www.").split(".") if p]
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
 _ROBOTS_CACHE: dict[str, tuple[urllib.robotparser.RobotFileParser | None, float]] = {}
@@ -247,10 +259,30 @@ def extract_date_from_text(text: str) -> str | None:
     return None
 
 
-def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str) -> list[dict[str, Any]]:
+def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page_sha256: str | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
-    is_news_page = any(k in page_url.lower() for k in ["aktuelt", "nyhet", "news", "press", "pressemelding", "innsikt", "blogg", "media", "artikkel", "siste-nytt"])
+    lower_url = page_url.lower()
+    if any(k in lower_url for k in ["/career", "/karriere", "/jobb", "/stilling", "/vacanc", "/work-with-us", "/ledige-stillinger"]):
+        return []
+    is_news_page = any(k in lower_url for k in ["aktuelt", "nyhet", "news", "press", "pressemelding", "innsikt", "blogg", "media", "artikkel", "siste-nytt"])
+    real_page_sha = page_sha256 or hashlib.sha256(raw_html.encode("utf-8", errors="replace")).hexdigest()
+
+    page_meta_date = None
+    for meta_sel in (
+        'meta[property="article:published_time"]',
+        'meta[property="article:modified_time"]',
+        'meta[name="publish-date"]',
+        'meta[name="date"]',
+        'meta[name="DC.date.issued"]',
+        'meta[property="og:updated_time"]',
+    ):
+        m_node = soup.select_one(meta_sel)
+        if m_node and m_node.get("content"):
+            c_val = str(m_node.get("content")).strip()
+            page_meta_date = extract_date_from_text(c_val) or (c_val[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", c_val) else None)
+            if page_meta_date:
+                break
 
     selectors = [
         "article", ".article", ".post", ".news-item", ".post-excerpt",
@@ -272,6 +304,8 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
         link = urllib.parse.urljoin(page_url, a["href"]) if a else page_url
         if link.startswith(("tel:", "mailto:", "javascript:", "#")):
             continue
+        if any(k in link.lower() for k in ["/career", "/karriere", "/jobb", "/stilling", "/vacanc"]):
+            continue
         if _registered_domain(link) != _registered_domain(page_url):
             link = page_url
 
@@ -283,51 +317,103 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
             pub_date = extract_date_from_text(container.get_text(" ", strip=True))
         if not pub_date:
             img = container.find("img", src=True)
-            if img:
-                pub_date = extract_date_from_text(img["src"])
-        if not pub_date and is_news_page:
-            pub_date = time.strftime("%Y-%m-%d", time.gmtime())
+        if not pub_date:
+            from_meta = True
+            pub_date = extract_date_from_text(link)
+            if not pub_date:
+                pub_date = page_meta_date
+            else:
+                from_meta = False
+        else:
+            from_meta = False
 
+        if not pub_date:
+            continue
+
+        item_url = page_url.rstrip("/") if ("/aktuelt" in page_url.lower() and from_meta) else link
         seen_titles.add(title.casefold())
-        digest = hashlib.sha256(f"{title}|{link}".encode("utf-8")).hexdigest()
         items.append({
             "title": title,
-            "url": link,
+            "url": item_url,
+            "article_url": link,
+            "source_url": page_url.rstrip("/"),
             "published_at": pub_date,
             "excerpt": container.get_text(" ", strip=True)[:300],
-            "content_sha256": digest,
+            "content_sha256": real_page_sha,
         })
         if len(items) >= 10:
             break
+
+    # Fallback for news hub pages (/aktuelt, /nyheter) where headings are direct h2/h3 links
+    if not items and is_news_page:
+        fallback_date = page_meta_date or extract_date_from_text(raw_html[:10000])
+        if fallback_date:
+            for h in soup.find_all(["h2", "h3"]):
+                title = h.get_text(" ", strip=True)
+                if len(title) < 8 or len(title) > 200 or title.casefold() in seen_titles:
+                    continue
+                if any(skip in title.casefold() for skip in ["meny", "kontakt", "om oss", "les mer", "vis alle", "søk", "filter", "del på", "cookie", "personvern"]):
+                    continue
+                a = h.find("a", href=True) or h.find_parent("a", href=True)
+                if not a:
+                    parent_box = h.find_parent(["div", "li", "section"])
+                    a = parent_box.find("a", href=True) if parent_box else None
+                if not a:
+                    continue
+                link = urllib.parse.urljoin(page_url, a["href"])
+                if link.startswith(("tel:", "mailto:", "javascript:", "#")) or _registered_domain(link) != _registered_domain(page_url):
+                    continue
+                if any(k in link.lower() for k in ["/career", "/karriere", "/jobb", "/stilling", "/vacanc"]):
+                    continue
+                seen_titles.add(title.casefold())
+                items.append({
+                    "title": title,
+                    "url": page_url.rstrip("/") if "/aktuelt" in page_url.lower() else link,
+                    "article_url": link,
+                    "source_url": page_url.rstrip("/"),
+                    "published_at": extract_date_from_text(link) or fallback_date,
+                    "excerpt": title,
+                    "content_sha256": real_page_sha,
+                })
+                if len(items) >= 6:
+                    break
 
     if not items and is_news_page:
         h1 = soup.find("h1")
         raw_title = h1.get_text(" ", strip=True) if h1 else (soup.title.get_text(" ", strip=True) if soup.title else "")
         if len(raw_title) >= 5 and not any(skip in raw_title.casefold() for skip in ["om oss", "kontakt", "cookie", "personvern", "meny", "forside"]):
             title = raw_title.split(" - ")[0].split(" | ")[0].strip()
-            pub_date = extract_date_from_text(raw_html[:3000]) or time.strftime("%Y-%m-%d", time.gmtime())
-            digest = hashlib.sha256(f"{title}|{page_url}".encode("utf-8")).hexdigest()
-            items.append({
-                "title": title[:200],
-                "url": page_url,
-                "published_at": pub_date,
-                "excerpt": (soup.find("main") or soup.find("article") or soup).get_text(" ", strip=True)[:300],
-                "content_sha256": digest,
-            })
+            pub_date = page_meta_date or extract_date_from_text(raw_html[:3000])
+            if pub_date and title.casefold() not in {"nyheter", "aktuelt", "news", "presse", "pressemeldinger", "siste nytt"}:
+                items.append({
+                    "title": title[:200],
+                    "url": page_url,
+                    "source_url": page_url,
+                    "published_at": pub_date,
+                    "excerpt": (soup.find("main") or soup.find("article") or soup).get_text(" ", strip=True)[:300],
+                    "content_sha256": real_page_sha,
+                })
 
     return items
 
 
-def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> list[dict[str, Any]]:
+def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page_sha256: str | None = None) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
     is_career_page = any(k in page_url.lower() for k in ["stilling", "karriere", "jobb", "career", "vacanc", "work-with-us", "bli-med", "open-position", "rekruttering", "jobbe-hos-oss"])
+    real_page_sha = page_sha256 or hashlib.sha256(raw_html.encode("utf-8", errors="replace")).hexdigest()
 
     selectors = [
-        "[class*='job']", "[class*='stilling']", "[class*='career']", "[class*='vacancy']",
-        ".position", ".opening", "article",
+        "[class*='job']", "[class*='stilling']", "[class*='vacancy']",
+        ".position", ".opening",
     ]
     candidate_elements = soup.select(", ".join(selectors)) if is_career_page else []
+    generic_job_titles = {
+        "vacancies", "offene stellen", "jobb hos oss", "jobbe hos oss", "ledige stillinger",
+        "karriere", "careers", "careers in", "work with us", "join our team", "our purpose",
+        "contact us about careers", "meet the summer interns", "discover the stories",
+        "åpen søknad", "open application",
+    }
 
     for container in candidate_elements:
         h = container.find(["h2", "h3", "h4", "h5", "a"])
@@ -336,39 +422,33 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
         title = h.get_text(" ", strip=True)
         if len(title) < 5 or len(title) > 150 or title.casefold() in seen_titles:
             continue
-        if any(skip in title.casefold() for skip in ["meny", "kontakt", "om oss", "cookie", "personvern", "vis alle", "hopp til", "skip to", "hovedinnhold"]):
+        lower_t = title.casefold()
+        if lower_t in generic_job_titles or any(
+            skip in lower_t
+            for skip in [
+                "meny", "kontakt", "om oss", "cookie", "personvern", "vis alle",
+                "hopp til", "skip to", "hovedinnhold", "our purpose", "contact us",
+                "discover the stories", "about us",
+            ]
+        ):
             continue
         a = container.find("a", href=True) or (h if h.name == "a" and h.get("href") else None)
         link = urllib.parse.urljoin(page_url, a["href"]) if a else page_url
         if link.startswith(("tel:", "mailto:", "javascript:", "#")):
             continue
-        seen_titles.add(title.casefold())
-        digest = hashlib.sha256(f"{title}|{link}".encode("utf-8")).hexdigest()
+        if any(bad in link.lower() for bad in ["/about-us", "/magazine", "/contact", "/kontakt", "/om-oss"]):
+            continue
+        seen_titles.add(lower_t)
         jobs.append({
             "title": title,
             "url": link,
-            "published_at": time.strftime("%Y-%m-%d", time.gmtime()),
+            "source_url": page_url,
+            "published_at": extract_date_from_text(container.get_text(" ", strip=True)) or None,
             "excerpt": container.get_text(" ", strip=True)[:300],
-            "content_sha256": digest,
+            "content_sha256": real_page_sha,
         })
         if len(jobs) >= 8:
             break
-
-    # If career page but no individual job cards, treat general recruitment page as active job vacancy
-    if not jobs and is_career_page:
-        h1 = soup.find("h1")
-        raw_title = h1.get_text(" ", strip=True) if h1 else (soup.title.get_text(" ", strip=True) if soup.title else "Ledige stillinger")
-        if any(skip in raw_title.casefold() for skip in ["hopp til", "skip to", "hovedinnhold"]):
-            raw_title = soup.title.get_text(" ", strip=True) if soup.title else "Jobb og karriere"
-        title = raw_title.split(" - ")[0].split(" | ")[0].strip() or "Ledige stillinger"
-        digest = hashlib.sha256(raw_html.encode("utf-8", errors="replace")).hexdigest()
-        jobs.append({
-            "title": title[:100],
-            "url": page_url,
-            "published_at": time.strftime("%Y-%m-%d", time.gmtime()),
-            "excerpt": soup.get_text(" ", strip=True)[:400],
-            "content_sha256": digest,
-        })
 
     # Detect Norwegian and international ATS portals (Webcruiter, Jobbnorge, Teamtailor, Recman, Easycruit, Finn, ReachMee, Talentech, etc.)
     ats_domains = (
@@ -401,13 +481,13 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
 
             if a_text.casefold() not in seen_titles:
                 seen_titles.add(a_text.casefold())
-                digest = hashlib.sha256(f"{a_text}|{clean_href}".encode("utf-8")).hexdigest()
                 jobs.append({
                     "title": a_text[:120],
                     "url": clean_href,
+                    "source_url": page_url,
                     "published_at": time.strftime("%Y-%m-%d", time.gmtime()),
                     "excerpt": f"External recruitment ATS posting at {clean_href}",
-                    "content_sha256": digest,
+                    "content_sha256": real_page_sha,
                 })
                 if len(jobs) >= 8:
                     break
@@ -415,7 +495,7 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str) -> l
     return jobs
 
 
-def _jsonld_jobs(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]]:
+def _jsonld_jobs(metadata: dict[str, Any], page_url: str, page_sha256: str | None = None) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
 
     def walk(node: Any) -> None:
@@ -428,10 +508,11 @@ def _jsonld_jobs(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]
                 pub_iso = extract_date_from_text(pub) or (pub[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", pub) else None)
                 url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
                 excerpt = str(node.get("description") or node.get("responsibilities") or "")[:300]
-                digest = hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
+                digest = page_sha256 or hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
                 jobs.append({
                     "title": title,
                     "url": url,
+                    "source_url": page_url,
                     "published_at": pub_iso or time.strftime("%Y-%m-%d", time.gmtime()),
                     "excerpt": excerpt,
                     "content_sha256": digest,
@@ -447,7 +528,7 @@ def _jsonld_jobs(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]
     return jobs
 
 
-def _jsonld_news(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]]:
+def _jsonld_news(metadata: dict[str, Any], page_url: str, page_sha256: str | None = None) -> list[dict[str, Any]]:
     articles: list[dict[str, Any]] = []
 
     def walk(node: Any) -> None:
@@ -460,10 +541,11 @@ def _jsonld_news(metadata: dict[str, Any], page_url: str) -> list[dict[str, Any]
                 pub_iso = extract_date_from_text(pub) or (pub[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", pub) else None)
                 url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
                 excerpt = str(node.get("description") or node.get("articleBody") or "")[:300]
-                digest = hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
+                digest = page_sha256 or hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
                 articles.append({
                     "title": title,
                     "url": url,
+                    "source_url": page_url,
                     "published_at": pub_iso or time.strftime("%Y-%m-%d", time.gmtime()),
                     "excerpt": excerpt,
                     "content_sha256": digest,
@@ -526,9 +608,9 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
 
 
 def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_sitemap: bool = False) -> list[str]:
-    base = urllib.parse.urlparse(base_url)
+    base_reg_domain = _registered_domain(base_url)
     career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
-    news_terms = ("news", "press", "aktuelt", "nyheter", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "media", "presse", "artikler", "siste-nytt", "blogg", "publikasjoner")
+    news_terms = ("aktuelt", "nyheter", "siste-nytt", "news", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "artikler", "blogg", "press", "presse", "media", "publikasjoner")
     about_terms = ("om-oss", "om_oss", "about", "kontakt", "contact", "ledelse", "management", "team", "people", "locations", "lokasjoner", "avdelinger", "butikker")
 
     career_cands: dict[str, int] = {}
@@ -539,27 +621,32 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
         href = str(anchor.get("href") or "").strip()
         url = urllib.parse.urljoin(base_url, href)
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() != base.netloc.lower():
+        if parsed.scheme not in {"http", "https"} or _registered_domain(url) != base_reg_domain:
             continue
         clean = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", "", "", ""))
         if clean.rstrip("/") == base_url.rstrip("/"):
             continue
 
-        haystack = (parsed.path + " " + anchor.get_text(" ", strip=True)).casefold()
+        path_lower = parsed.path.casefold()
+        lang_penalty = 50 if any(path_lower.startswith(f"/{lg}/") for lg in ("de", "fr", "es", "it", "pl", "nl", "ru", "zh", "ja")) else 0
+        haystack = (path_lower + " " + anchor.get_text(" ", strip=True)).casefold()
 
         c_rank = next((i for i, t in enumerate(career_terms) if t in haystack), None)
-        if c_rank is not None:
-            career_cands[clean] = min(c_rank, career_cands.get(clean, c_rank))
+        if c_rank is not None and not any(bad in haystack for bad in ("pa-jobb", "paa-jobb", "på-jobb", "på jobb")):
+            score = c_rank + lang_penalty
+            career_cands[clean] = min(score, career_cands.get(clean, score))
             continue
 
         n_rank = next((i for i, t in enumerate(news_terms) if t in haystack), None)
         if n_rank is not None:
-            news_cands[clean] = min(n_rank, news_cands.get(clean, n_rank))
+            score = n_rank + lang_penalty
+            news_cands[clean] = min(score, news_cands.get(clean, score))
             continue
 
         o_rank = next((i for i, t in enumerate(about_terms) if t in haystack), None)
         if o_rank is not None:
-            other_cands[clean] = min(o_rank, other_cands.get(clean, o_rank))
+            score = o_rank + lang_penalty
+            other_cands[clean] = min(score, other_cands.get(clean, score))
 
     # If fewer than 2 news links or fewer than 2 career links found in HTML and sitemap check enabled
     if check_sitemap and (len(news_cands) < 2 or len(career_cands) < 2):
@@ -571,20 +658,22 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
             if u not in news_cands:
                 news_cands[u] = 5
 
+    sorted_careers = [u for u, _ in sorted(career_cands.items(), key=lambda x: x[1])]
+    sorted_news = [u for u, _ in sorted(news_cands.items(), key=lambda x: x[1])]
+    sorted_others = [u for u, _ in sorted(other_cands.items(), key=lambda x: x[1])]
+
     selected: list[str] = []
-    # Up to 2 career links guaranteed
-    for u, _ in sorted(career_cands.items(), key=lambda x: x[1])[:2]:
-        selected.append(u)
-    # Up to 2 news links guaranteed
-    for u, _ in sorted(news_cands.items(), key=lambda x: x[1])[:2]:
-        if u not in selected:
-            selected.append(u)
-    # Fill remaining slots up to limit with other priority links
-    for u, _ in sorted(other_cands.items(), key=lambda x: x[1]):
-        if len(selected) >= limit:
-            break
-        if u not in selected:
-            selected.append(u)
+    for bucket in (
+        sorted_careers[:1],
+        sorted_news[:1],
+        sorted_others[:1],
+        sorted_news[1:2],
+        sorted_careers[1:2],
+        sorted_others[1:],
+    ):
+        for u in bucket:
+            if u not in selected and len(selected) < limit:
+                selected.append(u)
 
     return selected[:limit]
 
@@ -606,13 +695,20 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
         page_html = raw.decode("utf-8", errors="replace")
         page_soup = BeautifulSoup(page_html, "lxml")
         page_text = trafilatura.extract(page_html, url=final_url, include_links=False, include_tables=False, favor_precision=True) or ""
+        if not page_text.strip() or (page_text.strip().startswith("{") and '"fr":' in page_text):
+            clean_soup = BeautifulSoup(page_html, "lxml")
+            for tag in clean_soup(["script", "style", "noscript", "svg"]):
+                tag.decompose()
+            lines = [ln.strip() for ln in clean_soup.get_text("\n").splitlines() if ln.strip() and not (ln.strip().startswith("{") and '"fr":' in ln)]
+            page_text = "\n".join(lines)
+        page_sha = hashlib.sha256(raw).hexdigest()
         page = {
             "url": final_url,
             "title": page_soup.title.get_text(" ", strip=True)[:500] if page_soup.title else "",
             "main_text_excerpt": page_text[:5000],
-            "content_sha256": hashlib.sha256(raw).hexdigest(),
-            "news_items": extract_website_news(final_url, page_soup, page_html),
-            "job_postings": extract_website_jobs(final_url, page_soup, page_html),
+            "content_sha256": page_sha,
+            "news_items": extract_website_news(final_url, page_soup, page_html, page_sha256=page_sha),
+            "job_postings": extract_website_jobs(final_url, page_soup, page_html, page_sha256=page_sha),
         }
         return page, _social_links(final_url, page_soup), 2, len(raw), elapsed, None
     except Exception as exc:
@@ -685,6 +781,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
                 seen_soc.add(k)
                 dedup_soc.append(s)
 
+        homepage_sha = __import__("hashlib").sha256(raw).hexdigest()
         value = {
             "requested_url": normalized,
             "final_url": final_url,
@@ -694,11 +791,11 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
             "main_text_excerpt": text[:5000],
             "social_links": dedup_soc,
             "structured_organisations": _jsonld_organisations(structured),
-            "content_sha256": __import__("hashlib").sha256(raw).hexdigest(),
+            "content_sha256": homepage_sha,
             "extraction_state": _extraction_state(text, soup),
         }
-        homepage_news = _jsonld_news(structured, final_url) + extract_website_news(final_url, soup, html)
-        homepage_jobs = _jsonld_jobs(structured, final_url) + extract_website_jobs(final_url, soup, html)
+        homepage_news = _jsonld_news(structured, final_url, page_sha256=homepage_sha) + extract_website_news(final_url, soup, html, page_sha256=homepage_sha)
+        homepage_jobs = _jsonld_jobs(structured, final_url, page_sha256=homepage_sha) + extract_website_jobs(final_url, soup, html, page_sha256=homepage_sha)
         all_news_items = list(homepage_news)
         all_job_postings = list(homepage_jobs)
 
@@ -740,14 +837,22 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         value["pages"] = pages
         value["social_links"] = list({(item["platform"], item["url"]): item for item in social}.values())
 
-        # Deduplicate news items by title
+        # Deduplicate news items by title and prioritize specific dated articles over index pages
         seen_news: set[str] = set()
         dedup_news: list[dict[str, Any]] = []
         for n in all_news_items:
+            if not n.get("published_at"):
+                continue
             k = n["title"].casefold()
             if k not in seen_news:
                 seen_news.add(k)
                 dedup_news.append(n)
+        dedup_news.sort(
+            key=lambda x: (
+                0 if len(str(x.get("url") or "").strip("/").split("/")) > 4 else 1,
+                0 if not str(x.get("title") or "").casefold().startswith(("nyheter", "aktuelt", "siste nytt", "news", "press")) else 1,
+            )
+        )
 
         # Deduplicate job postings by title
         seen_jobs: set[str] = set()
@@ -761,6 +866,12 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         value["news_items"] = dedup_news
         value["job_postings"] = dedup_jobs
         value["crawl_errors"] = crawl_errors
+        for pg in pages[1:]:
+            pu = str(pg.get("url") or "")
+            pul = pu.lower()
+            if any(k in pul for k in ("/karriere", "/career", "/vacanc", "/stilling", "/jobber", "jobb-hos-oss", "jobbe-hos-oss", "ledige-stillinger")) and not any(b in pul for b in ("pa-jobb", "paa-jobb", "på-jobb")):
+                value["careers_url"] = pu
+                break
         return evidence("website", "available", "registry_linked_company_website", final_url, value=value, note="Company-controlled claim layer; not an official registry fact", content_sha256=value["content_sha256"]), {"requests": requests, "bytes": bytes_received, "latencies_ms": page_latencies}
     except urllib.error.HTTPError as exc:
         elapsed = int((time.monotonic() - started) * 1000)

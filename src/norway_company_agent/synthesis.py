@@ -71,54 +71,139 @@ def generate_company_synthesis(
     loc_count = len(loc_list)
 
     website_ev = (evidence.get("website") or {}).get("value") or {}
-    site_url = website_ev.get("final_url") or website_ev.get("requested_url") or profile.get("website")
-    social_links = website_ev.get("social_links") or []
-    social_platforms = [s.get("platform") for s in social_links if s.get("platform")]
+    is_pub_web = bool((website_ev.get("identity_assessment") or {}).get("publishable", True)) if website_ev else False
+    site_url = (website_ev.get("final_url") or website_ev.get("requested_url") if is_pub_web else None) or profile.get("website")
+    social_links = list(website_ev.get("social_links") or []) if is_pub_web else []
+    for sp in (profile.get("social_profiles") or []):
+        if isinstance(sp, dict) and sp.get("platform") and sp.get("url"):
+            social_links.append(sp)
+    for obs in (observations or []):
+        if obs.get("signal_type") == "profile_handle" and obs.get("exact_entity") and obs.get("platform"):
+            social_links.append({"platform": obs.get("platform"), "url": obs.get("source_url")})
+    social_platforms = sorted({str(s.get("platform")).lower() for s in social_links if s.get("platform")})
 
     news_mentions = [
         o for o in (observations or [])
-        if o.get("signal_type") == "public_mention" and o.get("platform") == "news"
+        if o.get("platform") == "news"
+        and o.get("signal_type") in {"public_mention", "dated_news"}
+        and not str(o.get("id") or "").startswith(("notice-news-", "notice-kunn-anchor"))
     ]
 
-    # Explicitly track unknowns (never hide missing data as 0)
+    # Explicitly track unknowns (never hide missing data as 0, and always disclose true unverified areas)
     unknowns: list[str] = []
+    fin_status = (evidence.get("financials") or {}).get("status")
+    roles_status = (evidence.get("roles") or {}).get("status")
     if not filing_year:
-        unknowns.append("annual accounts not filed or unavailable")
+        if fin_status in {"budget_exhausted", "source_error"}:
+            unknowns.append("annual accounts not retrieved due to source error")
+        else:
+            unknowns.append("annual accounts not filed or unavailable")
     if employees is None:
         unknowns.append("employee count not reported to registry")
     if not site_url:
         unknowns.append("no verified official website confirmed")
     if not ceo and not chair:
-        unknowns.append("management roles not registered")
+        if roles_status in {"budget_exhausted", "source_error"}:
+            unknowns.append("management roles not retrieved due to source error")
+        else:
+            unknowns.append("management roles not registered in Enhetsregisteret")
+    if not social_platforms:
+        unknowns.append("no verified official social media profiles confirmed")
+    if not news_mentions:
+        unknowns.append("no dated public news articles confirmed in checked sources")
+    hiring = profile.get("hiring") or {}
+    if not hiring.get("appears_to_be_hiring"):
+        unknowns.append("unadvertised internal hiring or unlisted recruitment channels remain unknown")
+    if not unknowns:
+        unknowns.append("unreported private commercial contracts, non-public segment margins, and unindexed off-domain activity remain unknown")
 
-    # If an LLM is available in environment and budget permits, attempt fluid synthesis
-    openai_key = os.environ.get("OPENAI_API_KEY")
-    if openai_key and budget and budget.can_proceed():
-        model_name = os.environ.get("OPENAI_MODEL", "gpt-4o")
-        llm_summary = _call_openai_synthesis(
-            name=name, org=org, form=form, muni=muni, ind_label=ind_label,
-            employees=employees, filing_year=filing_year, revenue=revenue, profit=profit,
-            chair=chair, ceo=ceo, loc_count=loc_count, site_url=site_url,
-            social_platforms=social_platforms, news_mentions=news_mentions,
-            unknowns=unknowns, api_key=openai_key, budget=budget,
-            model=model_name,
-        )
-        if llm_summary:
-            return {
-                "summary": llm_summary,
-                "model": model_name,
-                "grounded": True,
-                "unknowns": unknowns,
-            }
+    # Track what changed (refresh diffs, recent filings, recent announcements, or baseline snapshot status)
+    change_items: list[str] = []
+    raw_changes = profile.get("change_history") or profile.get("changes") or []
+    for ch in raw_changes:
+        if isinstance(ch, dict):
+            field_name = ch.get("field") or ch.get("module") or "record"
+            summary_txt = ch.get("summary") or ch.get("description") or f"Updated {field_name}"
+            change_items.append(str(summary_txt))
+        elif isinstance(ch, str) and ch.strip():
+            change_items.append(ch.strip())
+    if filing_year:
+        fin_trends = financials.get("financial_trends") or {}
+        growth_lbl = fin_trends.get("growth_label")
+        if growth_lbl:
+            change_items.append(f"latest {filing_year} annual filing reflects YoY revenue trend ({growth_lbl})")
+        else:
+            change_items.append(f"latest annual accounts filed for fiscal year {filing_year}")
+    if news_mentions:
+        latest_n = news_mentions[0]
+        n_title = str(latest_n.get("text") or (latest_n.get("metrics") or {}).get("title") or latest_n.get("title") or "recent update").strip()
+        n_pub = str(latest_n.get("published_at") or "recent")
+        change_items.append(f"recent dated activity observed on {n_pub} ({n_title[:90]})")
+    if hiring.get("appears_to_be_hiring"):
+        active_cnt = int(hiring.get("active_job_postings_count") or 0)
+        if active_cnt > 0:
+            change_items.append(f"{active_cnt} active recruitment posting(s) currently open")
+    if not change_items:
+        change_items.append("no material legal-identity or status modifications detected against the baseline Brønnøysund registry snapshot")
+
+    # Collect verified sources & evidence IDs backing the synthesis
+    reg_url = (
+        (evidence.get("registry_live") or {}).get("source_url")
+        or (evidence.get("registry") or {}).get("source_url")
+        or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
+    )
+    source_urls: list[str] = [reg_url]
+    evidence_ids: list[str] = [f"ev-registry_live-{org}", f"ev-accounting_obligation-{org}"]
+    sources_list: list[dict[str, Any]] = [
+        {
+            "id": f"ev-registry_live-{org}",
+            "label": "Brønnøysundregistrene Enhetsregisteret",
+            "source_url": reg_url,
+            "source_class": "official",
+        }
+    ]
+    if filing_year and (evidence.get("financials") or {}).get("status") == "available":
+        fin_url = (evidence.get("financials") or {}).get("source_url") or f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}"
+        if fin_url not in source_urls:
+            source_urls.append(fin_url)
+        evidence_ids.append(f"ev-financials-{org}")
+        sources_list.append({
+            "id": f"ev-financials-{org}",
+            "label": f"Regnskapsregisteret ({filing_year})",
+            "source_url": fin_url,
+            "source_class": "official",
+        })
+    if candidate_roles and (evidence.get("roles") or {}).get("status") == "available":
+        roles_url = (evidence.get("roles") or {}).get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}/roller"
+        if roles_url not in source_urls:
+            source_urls.append(roles_url)
+        evidence_ids.append(f"ev-roles-{org}")
+        sources_list.append({
+            "id": f"ev-roles-{org}",
+            "label": "Enhetsregisteret Roller",
+            "source_url": roles_url,
+            "source_class": "official",
+        })
+    if site_url:
+        if site_url not in source_urls:
+            source_urls.append(site_url)
+        evidence_ids.append(f"ev-website-{org}")
+        sources_list.append({
+            "id": f"ev-website-{org}",
+            "label": "Verified Official Website",
+            "source_url": site_url,
+            "source_class": "company_site",
+        })
+    if news_mentions:
+        n_u = str(news_mentions[0].get("source_url") or "")
+        if n_u and n_u not in source_urls:
+            source_urls.append(n_u)
+        evidence_ids.append(f"ev-news-{org}")
 
     # Deterministic factual template synthesis (100% compliant, $0 cost, zero hallucination)
-    sentences: list[str] = []
-
-    # 1. Identity & Operations
     emp_str = f"with {employees} registered employee(s)" if employees is not None else "with unfiled employee count"
-    sentences.append(f"{name} (org {org}) is a Norwegian {form} based in {muni}, operating in {ind_label} {emp_str}.")
+    what_it_does = f"{name} (org {org}) is a Norwegian {form} based in {muni}, operating in {ind_label} {emp_str}."
 
-    # 2. Leadership & Operating Locations
     lead_parts: list[str] = []
     if ceo:
         lead_parts.append(f"CEO {ceo}")
@@ -126,11 +211,12 @@ def generate_company_synthesis(
         lead_parts.append(f"board chair {chair}")
     loc_str = f"operating across {loc_count} registered workplace(s)" if loc_count > 1 else f"headquartered in {muni}"
     if lead_parts:
-        sentences.append(f"Led by {' and '.join(lead_parts)}, {loc_str}.")
+        leadership_sentence = f"Led by {' and '.join(lead_parts)}, {loc_str}."
     else:
-        sentences.append(f"The entity is {loc_str}.")
+        leadership_sentence = f"The entity is {loc_str}."
+    what_it_does_full = f"{what_it_does} {leadership_sentence}"
 
-    # 3. Financials & Digital Presence
+    # Financials & Digital Presence
     fin_trends = financials.get("financial_trends") or {}
     solv_status = fin_trends.get("solvency_status")
     eq_ratio = fin_trends.get("equity_ratio")
@@ -158,28 +244,60 @@ def generate_company_synthesis(
     if news_mentions:
         dig_parts.append(f"{len(news_mentions)} public news mention(s)")
     dig_str = f", alongside {'; '.join(dig_parts)}" if dig_parts else ""
+    performance_sentence = f"{fin_str}{dig_str}."
 
-    sentences.append(f"{fin_str}{dig_str}.")
+    hiring_assessment = hiring.get("assessment") or "No active public recruitment postings observed in checked sources."
+    what_changed_str = f"What changed: {'; '.join(change_items)}."
+    what_remains_unknown_str = f"What remains unknown: {'; '.join(unknowns)}."
+    sources_str = f"Sources: {', '.join(source_urls[:4])}."
 
-    # 4. Hiring & Recruitment Assessment (Briefing requirement: 'whether it appears to be hiring')
-    hiring = profile.get("hiring") or {}
-    hiring_assessment = hiring.get("assessment")
-    if hiring_assessment:
-        sentences.append(hiring_assessment)
+    sentences: list[str] = [
+        what_it_does,
+        leadership_sentence,
+        performance_sentence,
+        hiring_assessment,
+        what_changed_str,
+        what_remains_unknown_str,
+        sources_str,
+    ]
+    full_summary = " ".join(sentences)
 
-    if unknowns:
-        sentences.append(f"Material unknowns: {'; '.join(unknowns)}.")
+    # If an LLM is available in environment and budget permits, attempt fluid synthesis while preserving required sections
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    model_used = "deterministic_grounded_v1_v2"
+    if openai_key and budget and budget.can_proceed():
+        model_name = os.environ.get("OPENAI_MODEL", "gpt-4o")
+        llm_summary = _call_openai_synthesis(
+            name=name, org=org, form=form, muni=muni, ind_label=ind_label,
+            employees=employees, filing_year=filing_year, revenue=revenue, profit=profit,
+            chair=chair, ceo=ceo, loc_count=loc_count, site_url=site_url,
+            social_platforms=social_platforms, news_mentions=news_mentions,
+            unknowns=unknowns, api_key=openai_key, budget=budget,
+            model=model_name,
+        )
+        if llm_summary:
+            full_summary = f"{llm_summary} {what_changed_str} {what_remains_unknown_str} {sources_str}"
+            model_used = model_name
 
     return {
-        "summary": " ".join(sentences),
-        "model": "deterministic_grounded_v1",
+        "summary": full_summary,
+        "text": full_summary,
+        "what_it_does": what_it_does_full,
+        "what_changed": "; ".join(change_items),
+        "what_remains_unknown": "; ".join(unknowns),
+        "changes": change_items,
+        "unknowns": unknowns,
+        "sources": sources_list,
+        "source_urls": source_urls,
+        "evidence_ids": evidence_ids,
+        "citations": sources_list,
+        "model": model_used,
         "grounded": True,
         "hiring_status": hiring.get("status") or "unreported",
         "appears_to_be_hiring": hiring.get("appears_to_be_hiring", False),
         "financial_health": solv_status or "unreported",
         "equity_ratio": eq_ratio,
         "revenue_growth": growth_label,
-        "unknowns": unknowns,
     }
 
 

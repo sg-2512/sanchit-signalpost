@@ -17,7 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from filelock import FileLock
+try:
+    from filelock import FileLock
+except ImportError:  # pragma: no cover
+    FileLock = None  # type: ignore
 
 # Ensure project root and src/ are importable
 ROOT = Path(__file__).resolve().parents[1]
@@ -222,7 +225,7 @@ class AttemptStorage:
             self.attempts_dir.mkdir(parents=True, exist_ok=True)
 
         self._thread_lock = threading.RLock()
-        self._global_filelock = FileLock(str(self.global_log) + ".lock", timeout=self.lock_timeout)
+        self._global_filelock = FileLock(str(self.global_log) + ".lock", timeout=self.lock_timeout) if FileLock else None
 
     def write_attempt(self, record: StrategyAttemptRecord) -> None:
         """Persist a single strategy attempt record under dual-lock protection."""
@@ -236,7 +239,12 @@ class AttemptStorage:
 
         # 1. Write to global unified log
         with self._thread_lock:
-            with self._global_filelock:
+            if self._global_filelock:
+                with self._global_filelock:
+                    with open(self.global_log, "ab") as f:
+                        f.write(data_bytes)
+                        f.flush()
+            else:
                 with open(self.global_log, "ab") as f:
                     f.write(data_bytes)
                     f.flush()
@@ -244,9 +252,14 @@ class AttemptStorage:
         # 2. Write to partitioned company log
         if self.partition_by_company and record.organisation_number:
             company_log = self.attempts_dir / f"{record.organisation_number}.jsonl"
-            company_lock = FileLock(str(company_log) + ".lock", timeout=self.lock_timeout)
             with self._thread_lock:
-                with company_lock:
+                if FileLock:
+                    company_lock = FileLock(str(company_log) + ".lock", timeout=self.lock_timeout)
+                    with company_lock:
+                        with open(company_log, "ab") as f:
+                            f.write(data_bytes)
+                            f.flush()
+                else:
                     with open(company_log, "ab") as f:
                         f.write(data_bytes)
                         f.flush()

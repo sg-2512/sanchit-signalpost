@@ -623,7 +623,422 @@ class AdvancedLearningsTests(unittest.TestCase):
         self.assertEqual(fte_signal["count"], 14)
         self.assertEqual(fte_signal["source"], "regnskapsregisteret_annual_accounts")
 
+    def test_v4_social_profiles_and_synthesis_in_envelope(self):
+        from norway_company_agent.batch import terminal_envelope
+        from norway_company_agent.official import normalize_entity
+
+        norm = normalize_entity({
+            "organisasjonsnummer": "985589003",
+            "navn": "ARKITEKTFIRMA JON VIKØREN AS",
+            "epostadresse": "post@arkjv.no",
+            "telefon": "57 69 89 50",
+        })
+        self.assertEqual(norm["epostadresse"], "post@arkjv.no")
+        self.assertEqual(norm["telefon"], "57 69 89 50")
+
+        profile = {
+            "organisation_number": "985589003",
+            "name": "ARKITEKTFIRMA JON VIKØREN AS",
+            "legal_form": "AS",
+            "municipality": "VIK",
+            "social_profiles": [
+                {
+                    "platform": "linkedin",
+                    "url": "https://www.linkedin.com/company/arkitektfirma-jon-vikoren-as",
+                    "content_sha256": "a" * 64,
+                    "evidence_span": "Verified LinkedIn company profile",
+                }
+            ],
+            "evidence": {
+                "registry": {
+                    "field": "registry",
+                    "status": "available",
+                    "source_type": "official_registry_bulk",
+                    "source_url": "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv",
+                    "retrieved_at": "2026-10-17T00:00:00Z",
+                    "content_sha256": "b" * 64,
+                    "value": {"organisasjonsnummer": "985589003", "navn": "ARKITEKTFIRMA JON VIKØREN AS"},
+                },
+                "website": {
+                    "field": "website",
+                    "status": "not_found",
+                    "source_type": "registry_linked_company_website",
+                    "source_url": "https://data.brreg.no/enhetsregisteret/api/enheter",
+                    "retrieved_at": "2026-10-17T00:00:00Z",
+                    "content_sha256": None,
+                    "value": None,
+                },
+            },
+        }
+        env = terminal_envelope(
+            profile,
+            run_id="test-v4",
+            modules=["registry", "website"],
+            started_at="2026-10-17T00:00:00Z",
+            completed_at="2026-10-17T00:00:01Z",
+        )
+        self.assertIn("synthesis", env)
+        self.assertTrue(env["synthesis"]["summary"])
+        claims_by_field = {c["field"]: c for c in env["claims"]}
+        self.assertEqual(claims_by_field["social_profile"]["availability"], "available")
+        self.assertEqual(
+            claims_by_field["social_profile"]["value"],
+            "https://www.linkedin.com/company/arkitektfirma-jon-vikoren-as",
+        )
+        self.assertEqual(claims_by_field["social_profiles"]["availability"], "available")
+
+
+class NewNorwegianConnectorsTests(unittest.TestCase):
+    def test_doffin_procurement_connector(self):
+        from norway_company_agent.connectors.doffin import fetch_doffin_procurement
+
+        mock_payload = {
+            "items": [{
+                "id": "2026-123456",
+                "title": "IKT-driftstjenester rammeavtale",
+                "publicationDate": "2026-03-01",
+                "url": "https://doffin.no/Notice/Details/2026-123456",
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_doffin_procurement("985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "doffin")
+            self.assertEqual(obs[0]["signal_type"], "public_procurement_award")
+            self.assertTrue(obs[0]["exact_entity"])
+            self.assertIn("IKT-driftstjenester", obs[0]["evidence_span"])
+
+    def test_kartverket_cadastre_connector(self):
+        from norway_company_agent.connectors.kartverket import geocode_address_kartverket
+
+        mock_payload = {
+            "adresser": [{
+                "representasjonspunkt": {"lat": 61.215, "lon": 6.582},
+                "adressetekst": "Sentrumsvegen 12",
+                "postnummer": "6899",
+                "poststed": "VIK I SOGN",
+                "kommunenavn": "VIK",
+                "gardsnummer": 14,
+                "bruksnummer": 2,
+                "seksjonsnummer": 1,
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            res = geocode_address_kartverket("Sentrumsvegen 12", "VIK", "6899")
+            self.assertIsNotNone(res)
+            self.assertEqual(res["source"], "Kartverket Geonorge")
+            self.assertEqual(res["gardsnummer"], 14)
+            self.assertEqual(res["bruksnummer"], 2)
+            self.assertEqual(res["latitude"], 61.215)
+            self.assertIn("Gnr 14, Bnr 2", res["cadastral_id"])
+
+    def test_mattilsynet_smilefjes_connector(self):
+        from norway_company_agent.connectors.mattilsynet import fetch_mattilsynet_inspections
+
+        mock_payload = {
+            "entries": [{
+                "tilsynid": "12345",
+                "dato": "20260215",
+                "total_karakter": "0",
+                "navn": "Bakehuset AS",
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_mattilsynet_inspections("985589003", "Bakehuset AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "mattilsynet")
+            self.assertEqual(obs[0]["signal_type"], "food_safety_inspection")
+            self.assertEqual(obs[0]["metrics"]["grade"], "0")
+
+    def test_regulatory_licenses_connector(self):
+        from norway_company_agent.connectors.regulatory_licenses import fetch_regulatory_licenses
+
+        mock_payload = {
+            "status": "Godkjent",
+            "godkjenningsstatus": "Godkjent renholdsvirksomhet",
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_regulatory_licenses("985589003", "VIK RENHOLD AS", industry_code="81.210")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "arbeidstilsynet")
+            self.assertEqual(obs[0]["signal_type"], "regulatory_license_record")
+            self.assertEqual(obs[0]["metrics"]["status"], "Godkjent")
+
+    def test_esg_miljofyrtarn_connector(self):
+        from norway_company_agent.connectors.esg_certifications import fetch_esg_certifications
+
+        mock_esg_html = """
+        <div class="certified-company">
+          <h4>VIK ENERGI AS (985589003)</h4>
+          <span class="cert-status">Gyldig sertifikat</span>
+        </div>
+        """
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = mock_esg_html.encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_esg_certifications("985589003", "VIK ENERGI AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "miljofyrtarn")
+            self.assertEqual(obs[0]["signal_type"], "esg_certification_record")
+            self.assertIn("Sertifisert", obs[0]["metrics"]["status"])
+
+    def test_proff_directory_connector(self):
+        from norway_company_agent.connectors.proff_directory import resolve_commercial_directory_presence
+
+        mock_proff_html = """
+        <div class="company-details">
+          <a class="official-url" href="https://www.arkjv.no">Besøk hjemmeside</a>
+          <span class="phone-link">57 69 89 50</span>
+        </div>
+        """
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = mock_proff_html.encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            site, obs = resolve_commercial_directory_presence("985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+            self.assertEqual(site, "https://www.arkjv.no")
+            self.assertGreaterEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "proff")
+
+    def test_lovdata_insolvency_connector(self):
+        from norway_company_agent.connectors.lovdata import fetch_insolvency_legal_notices
+
+        mock_gazette_html = """
+        <div class="announcement">
+          <span class="title">Kunngjøring om åpning av konkurs</span>
+          <span class="date">12.01.2026</span>
+          <span class="orgnr">985589003</span>
+        </div>
+        """
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = mock_gazette_html.encode("iso-8859-1")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_insolvency_legal_notices("985589003", "VIK HANDEL AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "lovdata_konkursregisteret")
+            self.assertEqual(obs[0]["signal_type"], "legal_gazette_notice")
+
+    def test_norid_domain_ownership(self):
+        from norway_company_agent.connectors.norid import verify_norid_domain_ownership
+
+        mock_rdap = {
+            "entities": [{
+                "roles": ["registrant"],
+                "publicIds": [{"type": "orgno", "identifier": "985589003"}],
+                "vcardArray": ["vcard", [["fn", {}, "text", "ARKITEKTFIRMA JON VIKØREN AS"]]],
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_rdap).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = verify_norid_domain_ownership("arkjv.no", "985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+            self.assertIsNotNone(obs)
+            self.assertEqual(obs["platform"], "norid")
+            self.assertEqual(obs["signal_type"], "legal_domain_ownership")
+            self.assertTrue(obs["exact_entity"])
+            self.assertTrue(obs["metrics"]["verified_ownership"])
+
+    def test_losoreregisteret_liens(self):
+        from norway_company_agent.connectors.losoreregisteret import fetch_losoreregisteret_liens
+
+        mock_payload = {
+            "heftelser": [{
+                "dokumentnummer": "2026123456",
+                "pantetype": "Driftstilbehørpant",
+                "belop": 5000000,
+                "valuta": "NOK",
+                "tinglystDato": "2026-01-20",
+                "panthaver": "DNB Bank ASA",
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_losoreregisteret_liens("985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "losoreregisteret")
+            self.assertEqual(obs[0]["signal_type"], "registered_mortgage_lien")
+            self.assertEqual(obs[0]["metrics"]["amount"], 5000000)
+            self.assertEqual(obs[0]["metrics"]["secured_party"], "DNB Bank ASA")
+
+    def test_forskningsradet_grants(self):
+        from norway_company_agent.connectors.forskningsradet import fetch_forskningsradet_grants
+
+        mock_payload = {
+            "projects": [{
+                "projectNumber": "320145",
+                "title": "Bærekraftig trearkitektur i fjordlandskap",
+                "fundingScheme": "BIA",
+                "allocatedAmount": 4200000,
+                "startYear": "2025",
+                "endYear": "2027",
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_forskningsradet_grants("985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "forskningsradet")
+            self.assertEqual(obs[0]["signal_type"], "public_rnd_grant")
+            self.assertEqual(obs[0]["metrics"]["amount_nok"], 4200000)
+
+    def test_innovasjon_norge_grants(self):
+        from norway_company_agent.connectors.innovasjon_norge import fetch_innovasjon_norge_grants
+
+        mock_payload = {
+            "tildelinger": [{
+                "id": "IN-2025-9988",
+                "prosjektnavn": "Eksportinitiativ Vestland",
+                "ordning": "Miljøteknologiordningen",
+                "tilsagn": 1500000,
+                "ar": "2025",
+                "fylke": "Vestland",
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_innovasjon_norge_grants("985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "innovasjon_norge")
+            self.assertEqual(obs[0]["signal_type"], "innovation_grant_award")
+            self.assertEqual(obs[0]["metrics"]["amount_nok"], 1500000)
+
+    def test_oslo_bors_disclosures(self):
+        from norway_company_agent.connectors.oslo_bors import fetch_oslo_bors_disclosures
+
+        mock_payload = {
+            "data": [{
+                "messageId": "654321",
+                "title": "Årsrapport 2025 godkjent av styret",
+                "issuerSign": "VIK",
+                "market": "Oslo Børs",
+                "publishedTime": "2026-03-15T08:00:00Z",
+                "categoryName": "Årsrapport",
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_oslo_bors_disclosures("985589003", "VIK ASA")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "oslo_bors")
+            self.assertEqual(obs[0]["signal_type"], "stock_exchange_disclosure")
+            self.assertEqual(obs[0]["metrics"]["ticker"], "VIK")
+
+    def test_ssb_industry_benchmark(self):
+        from norway_company_agent.connectors.ssb_benchmarks import fetch_ssb_industry_benchmark
+
+        obs = fetch_ssb_industry_benchmark("71.112", "985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+        self.assertIsNotNone(obs)
+        self.assertEqual(obs["platform"], "ssb")
+        self.assertEqual(obs["signal_type"], "industry_macro_benchmark")
+        self.assertEqual(obs["metrics"]["avg_operating_margin_pct"], 7.6)
+        self.assertEqual(obs["metrics"]["median_monthly_salary_nok"], 69100)
+
+    def test_gleif_identifier(self):
+        from norway_company_agent.connectors.gleif import fetch_gleif_identifier
+
+        mock_payload = {
+            "data": [{
+                "id": "5493001KJTIIGC8Y1R12",
+                "attributes": {
+                    "lei": "5493001KJTIIGC8Y1R12",
+                    "registration": {
+                        "status": "ISSUED",
+                        "managingLou": "Nordic Trustee",
+                        "initialRegistrationDate": "2020-05-12T00:00:00Z",
+                    },
+                    "entity": {
+                        "legalName": {"name": "ARKITEKTFIRMA JON VIKØREN AS"},
+                    },
+                },
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_gleif_identifier("985589003", "ARKITEKTFIRMA JON VIKØREN AS")
+            self.assertIsNotNone(obs)
+            self.assertEqual(obs["platform"], "gleif")
+            self.assertEqual(obs["signal_type"], "global_legal_entity_identifier")
+            self.assertEqual(obs["metrics"]["lei"], "5493001KJTIIGC8Y1R12")
+
+    def test_miljodirektoratet_permits(self):
+        from norway_company_agent.connectors.miljodirektoratet import fetch_miljodirektoratet_permits
+
+        mock_payload = {
+            "tillatelser": [{
+                "tillatelseId": "MD-2024-554",
+                "anleggsnavn": "Vik Pukkverk og Asfalt",
+                "tillatelsestype": "Utslippstillatelse",
+                "status": "Gjeldende",
+                "vedtaksdato": "2024-08-10",
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            obs = fetch_miljodirektoratet_permits("985589003", "VIK PUKK AS")
+            self.assertEqual(len(obs), 1)
+            self.assertEqual(obs[0]["platform"], "miljodirektoratet")
+            self.assertEqual(obs[0]["signal_type"], "environmental_permit_record")
+            self.assertEqual(obs[0]["metrics"]["status"], "Gjeldende")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
 

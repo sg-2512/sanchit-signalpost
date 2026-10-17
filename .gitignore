@@ -19,7 +19,11 @@ out/smoke-*/
 out/fresh-*/
 out/eval-report.json
 out/eval-*/
+out/c12-*/
+out/eval-4-*/
+out/universe-batches/
 out/refresh-test.json
+out/deep-analysis.json
 dev-5-*.jsonl
 *.egg-info/
 .coverage

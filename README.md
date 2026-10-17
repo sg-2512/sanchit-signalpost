@@ -68,16 +68,21 @@ uv run python select_entry_batch.py \
 # Start with ten companies before the full 1,000-company run.
 head -n 10 entry-companies.jsonl > smoke-companies.jsonl
 
-uv run python scripts/run_competition_batch.py \
-  --organisations smoke-companies.jsonl \
+# Primary evaluation entrypoint (processes any JSONL batch of 10, 100, 300, or 1,000+ companies):
+uv run python run_agent.py \
+  --organisations dev-100-companies.jsonl \
   --bulk brreg-enheter.csv \
-  --profiles-output out/smoke-profiles.jsonl \
-  --output out/smoke-envelopes.jsonl \
-  --report out/smoke-report.json \
-  --run-id smoke-001 \
-  --expected-count 10
+  --output-dir out/eval-run \
+  --expected-count 100
 
-# When the smoke output looks right, run your full entry.
+# Master 6-pillar pipeline orchestrator:
+uv run python run_pipeline.py \
+  --organisations dev-100-companies.jsonl \
+  --bulk brreg-enheter.csv \
+  --output-dir out/eval-run \
+  --expected-count 100
+
+# Batch contract runner:
 uv run python scripts/run_competition_batch.py \
   --organisations entry-companies.jsonl \
   --bulk brreg-enheter.csv \

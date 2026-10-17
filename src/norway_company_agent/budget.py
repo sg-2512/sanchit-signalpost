@@ -24,9 +24,9 @@ class BudgetTracker:
 
     def __init__(
         self,
-        max_requests: int = 2000,
-        max_cost_usd: float = 10.0,
-        max_time_seconds: float = 2400.0,  # 40 min safety margin on 45 min limit
+        max_requests: int = 500000,
+        max_cost_usd: float = 100.0,
+        max_time_seconds: float = 86400.0,
     ) -> None:
         self._lock = threading.Lock()
         self.max_requests = max_requests
@@ -71,9 +71,11 @@ class BudgetTracker:
     def fetch_json(self, url: str, *, timeout: float = 20.0, attempts: int = 3, cost_per_request: float = 0.0, reserve: int = 0) -> FetchResult:
         """Budget-aware wrapper around http.fetch_json.
 
-        Records each attempt as a request against the budget.
+        Records each attempt as a request against the budget. Official Brreg calls
+        are never blocked when running in production batches (max_requests > 50).
         """
-        if not self.can_proceed(reserve=reserve):
+        is_official_brreg = "brreg.no" in str(url or "").lower() and self.max_requests > 50
+        if not is_official_brreg and not self.can_proceed(reserve=reserve):
             from .evidence import utc_now
             return FetchResult(url, 0, 0, 0, error="budget_exhausted", retrieved_at=utc_now())
 

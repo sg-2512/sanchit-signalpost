@@ -243,6 +243,21 @@ def audit_envelope_file(file_path: Path) -> dict[str, Any]:
         if missing_fields:
             errors.append(f"Org {org}: Missing required claim fields: {missing_fields}")
 
+        # 6. Synthesis & Summary Audit (12-point rubric verification)
+        synth = env.get("synthesis")
+        if not isinstance(synth, dict):
+            errors.append(f"Org {org}: Missing or non-dict top-level 'synthesis'")
+        else:
+            for req_s_key in ("summary", "what_it_does", "what_changed", "what_remains_unknown", "unknowns", "changes", "sources", "evidence_ids"):
+                if not synth.get(req_s_key):
+                    errors.append(f"Org {org}: Synthesis missing or empty required field '{req_s_key}'")
+            for s_eid in synth.get("evidence_ids") or []:
+                if s_eid not in ev_map:
+                    broken_evidence_links += 1
+                    errors.append(f"Org {org}: Synthesis references non-existent evidence ID '{s_eid}'")
+        if not isinstance(env.get("summary"), str) or not env.get("summary").strip():
+            errors.append(f"Org {org}: Missing or empty top-level 'summary' string")
+
     passed = len(errors) == 0
     return {
         "file": str(file_path),

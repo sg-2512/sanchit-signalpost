@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument("--profiles-output", required=True)
     parser.add_argument("--report", required=True)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--expected-count", type=int, default=100)
+    parser.add_argument("--expected-count", type=int, default=None)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--checkpoint-every", type=int, default=25)
     parser.add_argument("--resume", action="store_true")
@@ -44,8 +44,9 @@ def main() -> None:
     started_at = utc_now()
     organisation_inputs = read_organisation_inputs(args.organisations)
     orgs = [item["organisation_number"] for item in organisation_inputs]
-    if len(orgs) != args.expected_count:
-        raise SystemExit(f"Expected {args.expected_count} organisations, received {len(orgs)}")
+    expected_count = len(orgs)
+    if args.expected_count is not None and len(orgs) != args.expected_count:
+        print(f"[WARN] Expected {args.expected_count} organisations, received {len(orgs)}. Processing all {len(orgs)}.")
     profiles, registry_metadata = profiles_from_bulk(args.bulk, orgs)
     annotations = {item["organisation_number"]: item for item in organisation_inputs}
     for profile in profiles:
@@ -56,20 +57,28 @@ def main() -> None:
     fetch_modules = set(requested_modules) - {"registry", "accounting_obligation", "website"}
     operations = {"requests": 0, "bytes": 0, "latencies_ms": []}
 
-    def enrich(profile: dict) -> tuple[dict, dict]:
-        records, metrics = fetch_official_modules(profile["organisation_number"], fetch_modules)
-        profile["evidence"].update(records)
-        website_metrics = {"requests": 0, "bytes": 0, "latencies_ms": []}
-        if "website" in requested_modules:
-            website_record, website_metrics = fetch_website(profile.get("website"))
-            profile["evidence"]["website"] = apply_website_identity_gate(profile, website_record)["website"]
+    sys.path.insert(0, str(ROOT))
+    from norway_company_agent.budget import BudgetTracker
+    from run_agent import enrich_single_company
+
+    budget = BudgetTracker(
+        max_requests=max(1950, len(orgs) * 25),
+        max_cost_usd=10.0,
+        max_time_seconds=max(2400.0, len(orgs) * 20.0),
+    )
+
+    all_observations: list[dict] = []
+
+    def enrich(profile: dict) -> tuple[dict, dict, list[dict]]:
+        profile, obs = enrich_single_company(profile, fetch_modules, requested_modules, budget)
+        rm = profile.get("run_metrics") or {}
         metric = {
-            "requests": len(metrics) + website_metrics["requests"],
-            "bytes": sum(item.bytes_received for item in metrics) + website_metrics["bytes"],
-            "latencies_ms": [item.elapsed_ms for item in metrics] + website_metrics["latencies_ms"],
+            "requests": int(rm.get("requests") or 0),
+            "bytes": int(rm.get("bytes") or 0),
+            "latencies_ms": list(rm.get("latencies_ms") or []),
         }
         profile["run_metrics"] = metric
-        return profile, metric
+        return profile, metric, obs
 
     state: dict[str, dict] = {}
     resumed_profiles = 0
@@ -88,8 +97,9 @@ def main() -> None:
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(enrich, profile): profile["organisation_number"] for profile in pending_profiles}
         for index, future in enumerate(as_completed(futures), 1):
-            profile, metric = future.result()
+            profile, metric, obs = future.result()
             state[profile["organisation_number"]] = profile
+            all_observations.extend(obs)
             operations["requests"] += metric["requests"]
             operations["bytes"] += metric["bytes"]
             operations["latencies_ms"].extend(metric["latencies_ms"])
@@ -103,9 +113,17 @@ def main() -> None:
         terminal_envelope(profile, run_id=args.run_id, modules=requested_modules, started_at=started_at, completed_at=completed_at)
         for profile in ordered_profiles
     ]
-    validation = validate_envelopes(envelopes, args.expected_count)
+    validation = validate_envelopes(envelopes, expected_count)
+    out_dir = Path(args.output).parent
     write_jsonl(profiles_output, ordered_profiles)
     write_jsonl(Path(args.output), envelopes)
+    if all_observations:
+        write_jsonl(out_dir / "all-observations.jsonl", all_observations)
+    try:
+        from norway_company_agent.showcase import write_showcase_html
+        write_showcase_html(ordered_profiles, all_observations, out_dir / "showcase.html", limit=max(100, len(ordered_profiles)))
+    except Exception:
+        pass
     latencies = sorted(operations.pop("latencies_ms"))
     operations["p50_ms"] = latencies[len(latencies) // 2] if latencies else None
     operations["p95_ms"] = latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))] if latencies else None
@@ -113,7 +131,7 @@ def main() -> None:
         "run_id": args.run_id,
         "started_at": started_at,
         "completed_at": completed_at,
-        "expected_count": args.expected_count,
+        "expected_count": expected_count,
         "emitted_envelopes": len(envelopes),
         "resumed_profiles": resumed_profiles,
         "profiles_fetched_this_run": len(pending_profiles),
