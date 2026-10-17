@@ -128,6 +128,24 @@ class ShowcaseTests(unittest.TestCase):
             self.assertIn("Ask Signalpost", html)
             self.assertIn("Company directory", html)
             self.assertIn("const DATA =", html)
+            # R3 Showcase Visual Decision Intelligence assertions
+            self.assertIn("https://cdn.jsdelivr.net/npm/chart.js", html)
+            self.assertIn('id="financialChart"', html)
+            self.assertIn('id="financial-chart-container"', html)
+            self.assertIn("[Verified]", html)
+            self.assertIn("[Quarantined]", html)
+            self.assertIn("[Missing]", html)
+            self.assertIn("[Blocked]", html)
+            self.assertIn("trust-chip", html)
+            self.assertIn("filter-chip", html)
+            self.assertIn("has:patents", html)
+            self.assertIn("has:grants", html)
+            self.assertIn("has:jobs", html)
+            self.assertIn("status:verified", html)
+            self.assertIn('id="theme-toggle"', html)
+            self.assertIn("signalpost-theme", html)
+            self.assertIn('data-theme="dark"', html)
+            self.assertIn("@media print", html)
 
 
 if __name__ == "__main__":

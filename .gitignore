@@ -24,6 +24,7 @@ out/eval-4-*/
 out/universe-batches/
 out/refresh-test.json
 out/deep-analysis.json
+out/victory_audit_score_report.json
 dev-5-*.jsonl
 *.egg-info/
 .coverage
