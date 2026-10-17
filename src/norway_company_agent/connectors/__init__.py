@@ -17,7 +17,7 @@ from .lovdata import fetch_insolvency_legal_notices
 from .mattilsynet import fetch_mattilsynet_inspections
 from .miljodirektoratet import fetch_miljodirektoratet_permits
 from .nav_jobs import fetch_nav_jobs
-from .norid import verify_norid_domain_ownership
+from .norid import verify_norid_domain_ownership, discover_norid_domain
 from .oslo_bors import fetch_oslo_bors_disclosures
 from .patentstyret import fetch_patentstyret_data, is_available as patentstyret_available
 from .proff_directory import resolve_commercial_directory_presence
@@ -49,6 +49,7 @@ __all__ = [
     "fetch_miljodirektoratet_permits",
     "fetch_nav_jobs",
     "verify_norid_domain_ownership",
+    "discover_norid_domain",
     "fetch_oslo_bors_disclosures",
     "fetch_patentstyret_data",
     "patentstyret_available",

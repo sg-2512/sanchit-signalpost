@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -134,3 +135,103 @@ def verify_norid_domain_ownership(
         if budget:
             budget.record_request(cost_usd=0.0, bytes_received=bytes_received, elapsed_ms=elapsed_ms)
         return None
+
+
+NORWEGIAN_FIRST_NAMES = {
+    "oyvind", "nils", "ole", "per", "jan", "lars", "arne", "svein", "geir", "bjorn",
+    "kari", "anne", "astrid", "hilde", "knut", "tor", "erik", "hans", "morten",
+    "espen", "anders", "kjetil", "runar", "frode", "terje", "stian", "einar",
+    "harald", "magnus", "olav", "johan", "martin", "thomas", "christian", "henrik",
+}
+
+
+def discover_norid_domain(
+    company_name: str,
+    org_number: str,
+    email: str = "",
+    legal_form: str = "",
+    *,
+    budget: Any | None = None,
+    timeout: float = 3.0,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Discover and verify a registered .no domain for a Norwegian company via Norid RDAP.
+
+    Generates candidate brand slugs from company name and registered corporate email,
+    probes the official Norid RDAP service, and returns (domain, observation) upon verification.
+    Applies strict identity safeguards to prevent wrong-company matching on personal names or co-ops.
+    """
+    if not company_name or not org_number:
+        return None, None
+
+    # Housing co-operatives and boligsameier do not own corporate commercial websites
+    if legal_form in ("ESEK", "BRL") or any(
+        company_name.lower().startswith(p) for p in ["boligsameiet", "borettslaget", "sameiet"]
+    ):
+        return None, None
+
+    clean_words_variants: list[list[str]] = []
+    # Generate words with both å -> aa and å -> a transliterations
+    for a_rep in ("aa", "a"):
+        clean = company_name.lower().translate(str.maketrans({"æ": "ae", "ø": "o", "å": a_rep}))
+        words = re.findall(r"[a-z0-9]+", clean)
+        legal_stopwords = {
+            "as", "asa", "ba", "da", "enk", "iks", "nuf", "sa", "sam",
+            "sti", "holding", "eiendom", "invest", "drift", "sameie", "boligsameiet",
+        }
+        while words and words[-1] in legal_stopwords:
+            words.pop()
+        while words and words[0] in {"boligsameiet", "sameiet", "borettslaget"}:
+            words.pop(0)
+        if words and words not in clean_words_variants:
+            clean_words_variants.append(words)
+
+    all_company_tokens = {w for w_list in clean_words_variants for w in w_list if len(w) >= 3}
+
+    primary: list[str] = []
+    secondary: list[str] = []
+
+    # 1. Email-based candidates ONLY if email matches company brand tokens
+    if email and "@" in email:
+        user, host = email.split("@", 1)
+        user = user.lower().strip()
+        host = host.lower().strip().translate(str.maketrans({"æ": "ae", "ø": "o", "å": "a"}))
+        host_base = host.split(".")[0]
+        host_matches_company = any(t in host_base or host_base in t for t in all_company_tokens)
+        user_matches_company = any(t in user or user in t for t in all_company_tokens)
+
+        if host.endswith(".no") and host_matches_company:
+            primary.append(host)
+        if user_matches_company and len(user) >= 3 and not any(bad in user for bad in ["post", "kontakt", "info", "mail", "support", "admin", "faktura", "regnskap", "office"]):
+            primary.append(f"{user}.no")
+        if not host.endswith(".no") and host_matches_company and len(host_base) >= 3:
+            secondary.append(f"{host_base}.no")
+
+    # 2. Slugs from company name
+    for words in clean_words_variants:
+        full_slug = "".join(words)
+        hyphen_slug = "-".join(words)
+        primary.append(f"{full_slug}.no")
+        if len(words) > 1:
+            primary.append(f"{hyphen_slug}.no")
+            # First distinctive word if >= 3 characters and NOT a common personal first name
+            if len(words[0]) >= 3 and words[0] not in NORWEGIAN_FIRST_NAMES:
+                primary.append(f"{words[0]}.no")
+            # Acronym or distinctive short prefix (e.g. pfa.no)
+            if len(words[0]) <= 4 and words[0] not in NORWEGIAN_FIRST_NAMES:
+                primary.append(f"{words[0]}.no")
+
+    cands = primary + secondary
+    seen: set[str] = set()
+    dedup: list[str] = [c for c in cands if not (c in seen or seen.add(c)) and len(c) >= 5]
+
+    for cand_dom in dedup:
+        if budget and not budget.can_proceed():
+            break
+        obs = verify_norid_domain_ownership(cand_dom, org_number, company_name, budget=budget, timeout=timeout)
+        if obs:
+            return cand_dom, obs
+
+    return None, None
+
+
+

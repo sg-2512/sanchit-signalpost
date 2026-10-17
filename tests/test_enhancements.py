@@ -869,6 +869,27 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
             self.assertTrue(obs["exact_entity"])
             self.assertTrue(obs["metrics"]["verified_ownership"])
 
+    def test_discover_norid_domain(self):
+        from norway_company_agent.connectors.norid import discover_norid_domain
+
+        mock_rdap = {
+            "entities": [{
+                "roles": ["registrant"],
+                "publicIds": [{"identifier": "999668623"}],
+                "vcardArray": ["vcard", [["fn", {}, "text", "LØVIKNES SERVICESENTER AS"]]],
+            }]
+        }
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_rdap).encode("utf-8")
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+
+            dom, obs = discover_norid_domain("LØVIKNES SERVICESENTER AS", "999668623", email="loviknes@bobiler.net")
+            self.assertIsNotNone(dom)
+            self.assertIsNotNone(obs)
+            self.assertEqual(obs["platform"], "norid")
+
     def test_losoreregisteret_liens(self):
         from norway_company_agent.connectors.losoreregisteret import fetch_losoreregisteret_liens
 

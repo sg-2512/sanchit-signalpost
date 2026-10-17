@@ -39,6 +39,7 @@ def normalize_row(row: dict[str, str]) -> dict[str, Any]:
         "industry_code": _first(row, "naeringskode1.kode", "Næringskode1.kode"),
         "industry_label": _first(row, "naeringskode1.beskrivelse", "Næringskode1.beskrivelse"),
         "website": _first(row, "hjemmeside", "Hjemmeside"),
+        "email": _first(row, "epostadresse", "Epostadresse"),
         "latest_submitted_accounts": _first(row, "sisteInnsendteAarsregnskap", "Siste innsendte årsregnskap"),
         "raw": row,
     }
