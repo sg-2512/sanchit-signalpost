@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -73,6 +74,7 @@ from norway_company_agent.external_footprint import (
 from norway_company_agent.identity import apply_website_identity_gate
 from norway_company_agent.official import fetch_official_modules
 from norway_company_agent.website import fetch_website
+from norway_company_agent.verified_items import validate_job_item, validate_news_item
 from norway_company_agent.discovery import extract_email_domain_candidate, probe_heuristic_domain
 
 # External connectors (activate based on env vars)
@@ -154,9 +156,11 @@ def extract_social_observations(profile: dict[str, Any]) -> list[dict[str, Any]]
         if key in seen:
             continue
         seen.add(key)
-        digest = hashlib.sha256(f"{org}|{platform}|{url}".encode()).hexdigest()
+        site_sha = str((value or {}).get("content_sha256") or website.get("content_sha256") or "")
+        digest = site_sha or hashlib.sha256(b"").hexdigest()
+        obs_id = f"social-{platform}-{org}-{hashlib.sha256(url.encode()).hexdigest()[:16]}"
         observations.append({
-            "id": f"social-{platform}-{org}-{digest[:16]}",
+            "id": obs_id,
             "organisation_number": org,
             "platform": platform,
             "signal_type": "profile_handle",
@@ -213,8 +217,8 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
         seen.add(key)
 
         published_at = item.get("published_at")
-        digest = item.get("content_sha256") or hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()
-        obs_id = "news-web-" + hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()[:24]
+        digest = item.get("content_sha256") or str((website.get("value") or {}).get("content_sha256") or website.get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+        obs_id = "news-web-" + hashlib.sha256(f"{org}|{url}|{title}".encode()).hexdigest()[:24]
 
         observations.append({
             "id": obs_id,
@@ -274,8 +278,8 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
         seen.add(key)
 
         published_at = item.get("published_at")
-        digest = item.get("content_sha256") or hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()
-        obs_id = "jobs-web-" + hashlib.sha256(f"{org}|{title}|{url}".encode()).hexdigest()[:24]
+        digest = item.get("content_sha256") or str((website.get("value") or {}).get("content_sha256") or website.get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+        obs_id = "jobs-web-" + hashlib.sha256(f"{org}|{url}|{title}".encode()).hexdigest()[:24]
 
         observations.append({
             "id": obs_id,
@@ -318,10 +322,11 @@ def extract_workforce_observation(profile: dict[str, Any]) -> list[dict[str, Any
 
     source_url = f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
     retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or ""
-    digest = hashlib.sha256(f"{org}|workforce|{count}|{source_url}".encode()).hexdigest()
+    digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+    obs_id = f"workforce-brreg-{org}-{hashlib.sha256(str(count).encode()).hexdigest()[:16]}"
 
     return [{
-        "id": f"workforce-brreg-{org}-{digest[:16]}",
+        "id": obs_id,
         "organisation_number": org,
         "platform": "brreg",
         "signal_type": "workforce_snapshot",
@@ -351,10 +356,11 @@ def extract_profile_metrics_observation(profile: dict[str, Any]) -> list[dict[st
 
     source_url = f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
     retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or ""
-    digest = hashlib.sha256(f"{org}|profile_metrics|{form}|{latest}".encode()).hexdigest()
+    digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+    obs_id = f"metrics-brreg-{org}-{hashlib.sha256(f'{form}|{latest}'.encode()).hexdigest()[:16]}"
 
     return [{
-        "id": f"metrics-brreg-{org}-{digest[:16]}",
+        "id": obs_id,
         "organisation_number": org,
         "platform": "brreg",
         "signal_type": "profile_metrics",
@@ -391,11 +397,12 @@ def extract_place_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
         loc_name = str(profile.get("name") or reg_val.get("navn") or f"Organisation {org}")
         source_url = (ev.get("registry_live") or {}).get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
         retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or utc_now()
-        digest = hashlib.sha256(f"{org}|place|hq|{kommune}|{street}".encode()).hexdigest()
+        digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+        obs_id = f"place-brreg-hq-{org}-{hashlib.sha256(street.encode()).hexdigest()[:16]}"
         span_parts = [p for p in (loc_name, street, f"{poststed} ({kommune})" if poststed and kommune else (kommune or poststed)) if p]
         span_str = f"Official registered operating location: {', '.join(span_parts)}"
         return [{
-            "id": f"place-brreg-hq-{org}-{digest[:16]}",
+            "id": obs_id,
             "organisation_number": org,
             "platform": "brreg",
             "signal_type": "place_summary",
@@ -421,9 +428,10 @@ def extract_place_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
         addr = loc.get("address") or {}
         kommune = addr.get("kommune") or ""
         poststed = addr.get("poststed") or ""
-        digest = hashlib.sha256(f"{org}|place|{loc_org}|{kommune}".encode()).hexdigest()
+        digest = str((ev.get("locations") or {}).get("content_sha256") or (ev.get("registry_live") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+        obs_id = f"place-brreg-{org}-{hashlib.sha256(str(loc_org).encode()).hexdigest()[:16]}"
         observations.append({
-            "id": f"place-brreg-{org}-{digest[:16]}",
+            "id": obs_id,
             "organisation_number": org,
             "platform": "brreg",
             "signal_type": "place_summary",
@@ -452,13 +460,13 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
     reg_date = str(reg.get("registreringsdatoenhetsregisteret") or "2024-01-01")
     source_url = f"https://w2.brreg.no/kunngjoring/hent_enhet.jsp?orgnr={org}"
     retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or ""
-    digest = hashlib.sha256(f"{org}|notice|{reg_date}|{source_url}".encode()).hexdigest()
+    digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
 
     obs_list = [{
         "id": f"notice-news-{org}-{digest[:16]}",
         "organisation_number": org,
-        "platform": "news",
-        "signal_type": "public_mention",
+        "platform": "brreg",
+        "signal_type": "official_notice",
         "text": f"Offisiell registrering i Enhetsregisteret: {name} ({reg_date})",
         "published_at": reg_date,
         "source_url": source_url,
@@ -468,7 +476,7 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
         "identity_proof": [{"type": "official_registration_announcement", "organisation_number": org, "name": name}],
         "acquisition_mode": "official_api",
         "rights_status": "approved",
-        "source_class": "public_news",
+        "source_class": "official_notice",
         "sentiment_label": "neutral",
         "sentiment_model_version": "NOSIBLE/financial-sentiment-v1.2-base",
         "evidence_span": f"Official Norwegian registration publication for {name} (org {org}) in Enhetsregisteret, registered {reg_date}",
@@ -481,12 +489,12 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
         acc_year = str(latest_acc)[:4] if str(latest_acc)[:4].isdigit() else "2024"
         acc_url = f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}"
         acc_date = f"{acc_year}-07-01"
-        acc_digest = hashlib.sha256(f"{org}|notice|acc|{acc_year}|{acc_url}".encode()).hexdigest()
+        acc_digest = str((ev.get("financials") or {}).get("content_sha256") or digest)
         obs_list.append({
             "id": f"notice-acc-{org}-{acc_digest[:16]}",
             "organisation_number": org,
-            "platform": "news",
-            "signal_type": "public_mention",
+            "platform": "brreg",
+            "signal_type": "official_notice",
             "text": f"Offisiell kunngjøring: Innsendt årsregnskap for regnskapsåret {acc_year}: {name}",
             "published_at": acc_date,
             "source_url": acc_url,
@@ -496,8 +504,8 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
             "identity_proof": [{"type": "official_accounts_announcement", "organisation_number": org, "name": name}],
             "acquisition_mode": "official_api",
             "rights_status": "approved",
-            "source_class": "public_news",
-            "sentiment_label": "positive",
+            "source_class": "official_notice",
+            "sentiment_label": "neutral",
             "sentiment_model_version": "NOSIBLE/financial-sentiment-v1.2-base",
             "evidence_span": f"Official annual accounts filing announcement for {name} (org {org}) for fiscal year {acc_year}",
             "metrics": {"notice_type": "annual_accounts_announcement", "filing_year": acc_year, "title": f"Innsendt årsregnskap for {acc_year}: {name}"},
@@ -530,7 +538,7 @@ def enrich_single_company(
     reg_bulk_rec = profile.get("evidence", {}).get("registry", {})
     reg_bulk_val = reg_bulk_rec.get("value") or {}
     now_ts = reg_bulk_rec.get("retrieved_at") or utc_now()
-    reg_sha = reg_bulk_rec.get("content_sha256") or hashlib.sha256(f"brreg|{org}".encode()).hexdigest()
+    reg_sha = reg_bulk_rec.get("content_sha256") or hashlib.sha256(b"").hexdigest()
 
     reg_live_rec = profile.get("evidence", {}).get("registry_live", {}) or {}
     if reg_live_rec.get("status") != "available" and reg_bulk_rec.get("status") == "available":
@@ -555,94 +563,8 @@ def enrich_single_company(
         )
         reg_live_rec = profile["evidence"]["registry_live"]
 
-    # Fallback for locations
-    loc_rec = profile.get("evidence", {}).get("locations", {})
-    if loc_rec.get("status") != "available" or not (loc_rec.get("value") or {}).get("locations"):
-        muni = profile.get("municipality") or reg_bulk_val.get("forretningsadresse.kommune") or "Norge"
-        raw_addr = profile.get("address") or reg_bulk_val.get("forretningsadresse") or {}
-        postnr = raw_addr.get("postnummer") if isinstance(raw_addr, dict) else ""
-        poststed = raw_addr.get("poststed") if isinstance(raw_addr, dict) else muni
-        loc_obj = {
-            "organisation_number": org,
-            "name": name,
-            "address": {"adresse": [], "postnummer": postnr, "poststed": poststed, "kommune": muni},
-            "employees": profile.get("employees"),
-        }
-        from norway_company_agent.evidence import evidence as make_ev
-        profile["evidence"]["locations"] = make_ev(
-            "locations",
-            "available",
-            "official_subunits",
-            f"https://data.brreg.no/enhetsregisteret/api/underenheter?overordnetEnhet={org}&size=1000",
-            value={"locations": [loc_obj]},
-            content_sha256=hashlib.sha256(f"{org}|loc|{muni}".encode()).hexdigest(),
-            retrieved_at=now_ts,
-        )
-
-    # Fallback for financials
-    fin_rec = profile.get("evidence", {}).get("financials", {})
-    if fin_rec.get("status") != "available" or not (fin_rec.get("value") or {}).get("records"):
-        latest_acc = profile.get("latest_submitted_accounts") or reg_bulk_val.get("sisteInnsendteAarsregnskap")
-        if latest_acc:
-            acc_year = int(str(latest_acc)[:4]) if str(latest_acc)[:4].isdigit() else 2024
-            acc_sha = hashlib.sha256(f"{org}|financials|{acc_year}".encode()).hexdigest()
-            from norway_company_agent.evidence import evidence as make_ev
-            profile["evidence"]["financials"] = make_ev(
-                "financials",
-                "available",
-                "official_annual_accounts",
-                f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}",
-                value={
-                    "filing_year": acc_year,
-                    "records": [{
-                        "filing_year": acc_year,
-                        "account_type": "SELSKAP",
-                        "currency": "NOK",
-                        "filing_status": "submitted",
-                        "source": "official_regnskapsregisteret_filing",
-                    }],
-                    "latest": {
-                        "filing_year": acc_year,
-                        "filing_status": "submitted",
-                    },
-                },
-                content_sha256=acc_sha,
-                retrieved_at=now_ts,
-            )
-
-    # Fallback for roles
-    roles_rec = profile.get("evidence", {}).get("roles", {})
-    if roles_rec.get("status") != "available" or not (roles_rec.get("value") or {}).get("roles"):
-        form = str(profile.get("legal_form") or reg_bulk_val.get("organisasjonsform.kode") or "AS").upper()
-        if form == "ENK":
-            r_type = "Innehaver"
-            r_name = name.split(" AS")[0].split(" ENK")[0].strip()
-        elif form in {"AS", "ASA"}:
-            r_type = "Styreleder / Daglig leder"
-            r_name = f"Ledelse ({name})"
-        elif form == "BRL":
-            r_type = "Styreleder"
-            r_name = f"Styret ({name})"
-        else:
-            r_type = "Kontaktperson"
-            r_name = f"Representant ({name})"
-        role_obj = {
-            "role_type": r_type,
-            "name": r_name,
-            "organisation_number": org,
-            "source": "official_enhetsregisteret_statutory_leadership",
-        }
-        role_sha = hashlib.sha256(f"{org}|roles|{r_type}|{r_name}".encode()).hexdigest()
-        from norway_company_agent.evidence import evidence as make_ev
-        profile["evidence"]["roles"] = make_ev(
-            "roles",
-            "available",
-            "official_roles",
-            f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}/roller",
-            value={"roles": [role_obj]},
-            content_sha256=role_sha,
-            retrieved_at=now_ts,
-        )
+    # No synthetic fallbacks: a module the live registry did not return keeps its terminal
+    # classified state (not_found / source_error) and is published as not_available / failed.
 
     # Hydrate profile from live registry when bulk snapshot or minimal input omitted fields
     reg_live_val = reg_live_rec.get("value") or {}
@@ -724,42 +646,7 @@ def enrich_single_company(
                 if val.get("identity_assessment", {}).get("publishable"):
                     profile["website"] = val.get("final_url") or target_site
                     verified_website = True
-            elif target_site and "." in target_site and not any(bad in target_site.lower() for bad in ["error=true", "login", "facebook.com"]):
-                raw_u = target_site if target_site.startswith(("http://", "https://")) else f"https://{target_site}"
-                w_sha = hashlib.sha256(f"{org}|web|{raw_u}".encode()).hexdigest()
-                dom_host = raw_u.split("://")[-1].split("/")[0].replace("www.", "")
-                slug = dom_host.split(".")[0]
-                social_list = [
-                    {"platform": "linkedin", "url": f"https://www.linkedin.com/company/{slug}"},
-                    {"platform": "facebook", "url": f"https://www.facebook.com/{slug}"},
-                ]
-                from norway_company_agent.evidence import evidence as make_ev
-                profile["evidence"]["website"] = make_ev(
-                    "website",
-                    "available",
-                    "company_site",
-                    raw_u,
-                    value={
-                        "requested_url": raw_u,
-                        "final_url": raw_u,
-                        "title": name,
-                        "description": f"Official registered website for {name} ({org}).",
-                        "social_links": social_list,
-                        "pages": [{"url": raw_u, "content_sha256": w_sha}],
-                        "identity_assessment": {
-                            "status": "exact_entity",
-                            "publishable": True,
-                            "score": 0.9,
-                            "method": "official_registry_declared_website",
-                            "reasons": ["Declared in official Brønnøysund Enhetsregisteret record"],
-                        },
-                    },
-                    content_sha256=w_sha,
-                    retrieved_at=utc_now(),
-                )
-                profile["website"] = raw_u
-                profile["social_profiles"] = social_list
-                verified_website = True
+            # A declared site that could not be fetched keeps its classified state; no placeholder evidence.
 
         # Level 2: Official registry corporate email domain (post@firmanavn.no -> firmanavn.no)
         if not verified_website and budget.can_proceed():
@@ -908,43 +795,6 @@ def enrich_single_company(
                 except Exception:
                     pass
 
-                # If fetch_website was blocked by sandbox network barrier, Norid RDAP registration itself proves legal ownership
-                if not verified_website:
-                    norid_sha = hashlib.sha256(f"{org}|norid_domain|{norid_dom}".encode()).hexdigest()
-                    slug = norid_dom.split(".")[0]
-                    norid_socials = [
-                        {"platform": "linkedin", "url": f"https://www.linkedin.com/company/{slug}"},
-                        {"platform": "facebook", "url": f"https://www.facebook.com/{slug}"},
-                    ]
-                    from norway_company_agent.evidence import evidence as make_ev
-                    profile["evidence"]["website"] = make_ev(
-                        "website",
-                        "available",
-                        "norid_national_domain_registry",
-                        f"https://rdap.norid.no/domain/{norid_dom}",
-                        value={
-                            "requested_url": norid_url,
-                            "final_url": norid_url,
-                            "title": name,
-                            "description": f"Officially registered .no domain {norid_dom} in Norid for {name} ({org}).",
-                            "social_links": norid_socials,
-                            "pages": [{"url": norid_url, "content_sha256": norid_sha}],
-                            "identity_assessment": {
-                                "status": "exact_entity",
-                                "publishable": True,
-                                "score": 0.95,
-                                "method": "norid_national_registry_rdap",
-                                "reasons": [f"Domain {norid_dom} legally verified in Norid .no registry for org {org}"],
-                            },
-                        },
-                        content_sha256=norid_sha,
-                        retrieved_at=utc_now(),
-                    )
-                    profile["website"] = norid_url
-                    profile["official_website"] = norid_url
-                    profile["social_profiles"] = norid_socials
-                    verified_website = True
-
         # Level 5: Commercial search API (Brave Search) if key configured
         if not verified_website and brave_available() and budget.can_proceed():
             search_site = discover_company_website(profile, budget=budget)
@@ -1069,15 +919,30 @@ def enrich_single_company(
         observations.extend(kunn_obs)
 
     # 9. Populate evidence records for news, jobs, and hiring
-    all_news_obs = list(web_news_obs) + list(news_obs)
-    if not all_news_obs and kunn_obs:
-        dated_kunn = [o for o in kunn_obs if o.get("published_at") and not str(o.get("id") or "").startswith("notice-kunn-anchor")]
-        all_news_obs = dated_kunn[:5]
-    if not all_news_obs and notice_obs:
-        all_news_obs = list(notice_obs)
+    # Only real editorial or company-website news observations count as news
+    raw_news = list(web_news_obs) + list(news_obs)
+    c_name = profile.get("name") or ""
+    site_url = str(profile.get("website") or "")
+    all_news_obs = []
+    for o in raw_news:
+        t = str(o.get("text") or (o.get("metrics") or {}).get("title") or "").strip()
+        u = str(o.get("source_url") or "").strip()
+        sha = str(o.get("content_sha256") or "")
+        cand = {
+            "title": t,
+            "url": u,
+            "content_sha256": sha,
+            "published_at": o.get("published_at"),
+            "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
+            "name_in_article": o.get("name_in_article") or bool(o.get("exact_entity")),
+        }
+        ok, _ = validate_news_item(cand, company_name=c_name, site_url=site_url)
+        if ok:
+            all_news_obs.append(o)
 
     if all_news_obs:
         primary_n = all_news_obs[0]
+        n_sha = str(primary_n.get("content_sha256") or "")
         profile.setdefault("evidence", {})["news"] = {
             "field": "news",
             "status": "available",
@@ -1085,7 +950,7 @@ def enrich_single_company(
             "source_class": primary_n.get("source_class", "company_site"),
             "source_url": primary_n.get("source_url") or profile.get("website") or "",
             "retrieved_at": primary_n.get("retrieved_at") or utc_now(),
-            "content_sha256": primary_n.get("content_sha256") or hashlib.sha256(f"{org}|news".encode()).hexdigest(),
+            "content_sha256": n_sha,
             "value": {
                 "items": [
                     {
@@ -1112,21 +977,31 @@ def enrich_single_company(
             "note": "No active dated news articles found across checked sources",
         }
 
-    all_job_obs = [o for o in hiring_obs if o.get("signal_type") == "job_posting"] + list(web_jobs_obs)
-    if not all_job_obs and (profile.get("employees") and int(profile.get("employees")) > 0):
-        nav_job_url = f"https://arbeidsplassen.nav.no/stillinger?q={org}"
-        nav_job_sha = hashlib.sha256(f"{org}|nav_job|{nav_job_url}".encode()).hexdigest()
-        all_job_obs.append({
-            "job_title": f"Karriere og rekruttering: {name}",
-            "source_url": nav_job_url,
-            "source_class": "job_board",
-            "published_at": utc_now()[:10],
-            "content_sha256": nav_job_sha,
-            "retrieved_at": utc_now(),
-        })
+    # Only verified single job postings are populated into jobs
+    raw_jobs = [o for o in hiring_obs if o.get("signal_type") == "job_posting"] + list(web_jobs_obs)
+    all_job_obs = []
+    for o in raw_jobs:
+        t = str(o.get("job_title") or o.get("text") or (o.get("metrics") or {}).get("job_title") or "").strip()
+        u = str(o.get("source_url") or "").strip()
+        sha = str(o.get("content_sha256") or "")
+        cand = {
+            "title": t,
+            "url": u,
+            "content_sha256": sha,
+            "published_at": o.get("published_at"),
+            "kind": o.get("kind") or ("nav_ad" if "arbeidsplassen.nav.no" in u else ""),
+            "employer_org": o.get("employer_org") or "",
+            "employer_name": o.get("employer_name") or "",
+            "match_type": o.get("match_type") or "",
+            "hiring_org_match": o.get("hiring_org_match"),
+        }
+        ok, _ = validate_job_item(cand, org=org, company_name=c_name, site_url=site_url, site_publishable=verified_website)
+        if ok:
+            all_job_obs.append(o)
 
     if all_job_obs:
         primary_j = all_job_obs[0]
+        j_sha = str(primary_j.get("content_sha256") or "")
         profile.setdefault("evidence", {})["jobs"] = {
             "field": "jobs",
             "status": "available",
@@ -1134,7 +1009,7 @@ def enrich_single_company(
             "source_class": primary_j.get("source_class", "job_board"),
             "source_url": primary_j.get("source_url") or profile.get("website") or "",
             "retrieved_at": primary_j.get("retrieved_at") or utc_now(),
-            "content_sha256": primary_j.get("content_sha256") or hashlib.sha256(f"{org}|jobs".encode()).hexdigest(),
+            "content_sha256": j_sha,
             "value": {
                 "items": [
                     {
@@ -1154,7 +1029,7 @@ def enrich_single_company(
             "status": "not_available",
             "source_type": "public_recruitment_registries",
             "source_class": "public_recruitment_registries",
-            "source_url": profile.get("website") or "https://arbeidsplassen.nav.no/stillinger",
+            "source_url": profile.get("website") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
             "retrieved_at": utc_now(),
             "content_sha256": "",
             "value": None,
@@ -1184,9 +1059,10 @@ def enrich_single_company(
             sub_addr = unit.get("address") or {}
             sub_kom = str(sub_addr.get("kommune") or "")
             if sub_emp is not None and sub_emp > 0:
-                wf_digest = hashlib.sha256(f"{org}|subunit-wf|{sub_org}|{sub_emp}".encode()).hexdigest()
+                wf_digest = str(loc_rec.get("content_sha256") or hashlib.sha256(b"").hexdigest())
+                obs_id = f"subunit-wf-{org}-{hashlib.sha256(str(sub_org).encode()).hexdigest()[:16]}"
                 observations.append({
-                    "id": f"subunit-wf-{org}-{wf_digest[:16]}",
+                    "id": obs_id,
                     "organisation_number": org,
                     "platform": "brreg",
                     "signal_type": "workforce_snapshot",
@@ -1314,252 +1190,6 @@ def enrich_single_company(
     return profile, observations
 
 
-def enrich_fast_bulk_company(
-    profile: dict[str, Any],
-    fetch_modules: set[str],
-    requested_modules: list[str],
-    budget: BudgetTracker,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """High-throughput enrichment grounded in the official Brønnøysund registry snapshot."""
-    from norway_company_agent.evidence import evidence as make_ev
-
-    org = str(profile["organisation_number"])
-    name = str(profile.get("name") or f"Organisation {org}")
-    ev = profile.setdefault("evidence", {})
-    reg_rec = ev.get("registry") or {}
-    reg_val = reg_rec.get("value") or {}
-    reg_sha = str(reg_rec.get("content_sha256") or hashlib.sha256(f"brreg|{org}|{name}".encode()).hexdigest())
-    now_ts = reg_rec.get("retrieved_at") or utc_now()
-    entity_url = f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
-
-    if "registry_live" in fetch_modules and "registry_live" not in ev:
-        ev["registry_live"] = make_ev(
-            "registry_live",
-            "available" if reg_rec.get("status") == "available" else "not_found",
-            "official_registry_live",
-            entity_url,
-            value={
-                **reg_val,
-                "organisation_number": org,
-                "name": name,
-                "legal_form": profile.get("legal_form"),
-                "employees": profile.get("employees"),
-                "website": profile.get("website"),
-                "municipality": profile.get("municipality"),
-                "latest_submitted_accounts": profile.get("latest_submitted_accounts"),
-            },
-            content_sha256=reg_sha,
-            retrieved_at=now_ts,
-        )
-
-    if "locations" in fetch_modules and "locations" not in ev:
-        muni = profile.get("municipality") or reg_val.get("forretningsadresse.kommune") or "Norge"
-        poststed = reg_val.get("forretningsadresse.poststed") or muni
-        postnr = reg_val.get("forretningsadresse.postnummer") or ""
-        raw_addr = profile.get("address") or reg_val.get("forretningsadresse.adresse") or ""
-        addr_list = raw_addr if isinstance(raw_addr, list) else ([str(raw_addr)] if raw_addr else [])
-        loc_obj = {
-            "organisation_number": org,
-            "name": name,
-            "address": {
-                "adresse": addr_list,
-                "postnummer": postnr,
-                "poststed": poststed,
-                "kommune": muni,
-            },
-            "employees": profile.get("employees"),
-        }
-        ev["locations"] = make_ev(
-            "locations",
-            "available",
-            "official_subunits",
-            f"https://data.brreg.no/enhetsregisteret/api/underenheter?overordnetEnhet={org}&size=1000",
-            value={"locations": [loc_obj]},
-            content_sha256=hashlib.sha256(f"{org}|loc|{muni}|{postnr}".encode()).hexdigest(),
-            retrieved_at=now_ts,
-        )
-
-    if "financials" in fetch_modules and "financials" not in ev:
-        latest_acc = profile.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap")
-        if latest_acc:
-            acc_year = int(str(latest_acc)[:4]) if str(latest_acc)[:4].isdigit() else 2024
-            acc_sha = hashlib.sha256(f"{org}|financials|{acc_year}".encode()).hexdigest()
-            ev["financials"] = make_ev(
-                "financials",
-                "available",
-                "official_annual_accounts",
-                f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}",
-                value={
-                    "filing_year": acc_year,
-                    "records": [{
-                        "filing_year": acc_year,
-                        "account_type": "SELSKAP",
-                        "currency": "NOK",
-                        "filing_status": "submitted",
-                        "source": "official_regnskapsregisteret_filing",
-                    }],
-                    "latest": {
-                        "filing_year": acc_year,
-                        "filing_status": "submitted",
-                    },
-                },
-                content_sha256=acc_sha,
-                retrieved_at=now_ts,
-            )
-        else:
-            ev["financials"] = make_ev(
-                "financials",
-                "not_found",
-                "official_annual_accounts",
-                f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}",
-                note="No annual accounts registered in Regnskapsregisteret",
-                content_sha256=reg_sha,
-                retrieved_at=now_ts,
-            )
-
-    if "roles" in fetch_modules and "roles" not in ev:
-        form = str(profile.get("legal_form") or reg_val.get("organisasjonsform.kode") or "AS").upper()
-        if form == "ENK":
-            r_type = "Innehaver"
-            r_name = name.split(" AS")[0].split(" ENK")[0].strip()
-        elif form in {"AS", "ASA"}:
-            r_type = "Styreleder / Daglig leder"
-            r_name = f"Ledelse ({name})"
-        elif form == "BRL":
-            r_type = "Styreleder"
-            r_name = f"Styret ({name})"
-        else:
-            r_type = "Kontaktperson"
-            r_name = f"Representant ({name})"
-
-        role_obj = {
-            "role_type": r_type,
-            "name": r_name,
-            "organisation_number": org,
-            "source": "official_enhetsregisteret_statutory_leadership",
-        }
-        role_sha = hashlib.sha256(f"{org}|roles|{r_type}|{r_name}".encode()).hexdigest()
-        ev["roles"] = make_ev(
-            "roles",
-            "available",
-            "official_roles",
-            f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}/roller",
-            value={"roles": [role_obj]},
-            content_sha256=role_sha,
-            retrieved_at=now_ts,
-        )
-
-    if "group" in fetch_modules and "group" not in ev:
-        ev["group"] = make_ev(
-            "group",
-            "not_found",
-            "official_group_structure",
-            f"https://data.brreg.no/enhetsregisteret/api/konsernstruktur/{org}",
-            content_sha256=reg_sha,
-            retrieved_at=now_ts,
-        )
-
-    if "website" in requested_modules and "website" not in ev:
-        raw_site = str(profile.get("website") or "").strip()
-        if not raw_site:
-            email = str(reg_val.get("epost") or profile.get("email") or "").strip()
-            if "@" in email:
-                dom = email.split("@")[-1].strip().lower()
-                generic_hosts = {"gmail.com", "hotmail.com", "yahoo.com", "online.no", "outlook.com", "icloud.com"}
-                if "." in dom and dom not in generic_hosts:
-                    raw_site = f"https://www.{dom}"
-        if raw_site and not raw_site.startswith(("http://", "https://")):
-            raw_site = f"https://{raw_site}"
-        if raw_site and "." in raw_site and not any(bad in raw_site.lower() for bad in ["error=true", "login", "facebook.com"]):
-            w_sha = hashlib.sha256(f"{org}|web|{raw_site}".encode()).hexdigest()
-            dom_host = raw_site.split("://")[-1].split("/")[0].replace("www.", "")
-            slug = dom_host.split(".")[0]
-            social_list = [
-                {"platform": "linkedin", "url": f"https://www.linkedin.com/company/{slug}"},
-                {"platform": "facebook", "url": f"https://www.facebook.com/{slug}"},
-            ]
-            ev["website"] = make_ev(
-                "website",
-                "available",
-                "company_site",
-                raw_site,
-                value={
-                    "requested_url": raw_site,
-                    "final_url": raw_site,
-                    "title": name,
-                    "description": f"Official registered website for {name} ({org}).",
-                    "social_links": social_list,
-                    "pages": [{"url": raw_site, "content_sha256": w_sha}],
-                    "identity_assessment": {
-                        "status": "exact_entity",
-                        "publishable": True,
-                        "score": 0.9,
-                        "method": "official_registry_declared_website",
-                        "reasons": ["Declared in official Brønnøysund Enhetsregisteret record"],
-                    },
-                },
-                content_sha256=w_sha,
-                retrieved_at=now_ts,
-            )
-            profile["website"] = raw_site
-            profile["social_profiles"] = social_list
-        else:
-            w_rec, _ = fetch_website(None)
-            ev["website"] = w_rec
-            profile["website"] = None
-
-    observations: list[dict[str, Any]] = []
-    observations.extend(extract_workforce_observation(profile))
-    observations.extend(extract_profile_metrics_observation(profile))
-    observations.extend(extract_place_observations(profile))
-    observations.extend(extract_notice_observation(profile))
-
-    profile["social_profiles"] = profile.get("social_profiles") or []
-    hiring_block = {
-        "status": "no_active_postings_observed",
-        "appears_to_be_hiring": False,
-        "confidence": 0.85,
-        "active_job_postings_count": 0,
-        "career_page_url": None,
-        "signals": [],
-        "assessment": f"No active job postings observed for {name} across checked sources.",
-    }
-    profile["hiring"] = hiring_block
-    ev["news"] = {
-        "field": "news",
-        "status": "not_available",
-        "source_type": "editorial_and_company_news",
-        "source_class": "editorial_and_company_news",
-        "source_url": profile.get("website") or entity_url,
-        "retrieved_at": now_ts,
-        "content_sha256": reg_sha,
-        "value": None,
-    }
-    ev["jobs"] = {
-        "field": "jobs",
-        "status": "not_available",
-        "source_type": "public_recruitment_registries",
-        "source_class": "public_recruitment_registries",
-        "source_url": profile.get("website") or "https://arbeidsplassen.nav.no/stillinger",
-        "retrieved_at": now_ts,
-        "content_sha256": reg_sha,
-        "value": None,
-    }
-    ev["hiring"] = {
-        "field": "hiring",
-        "status": "available",
-        "source_type": "multi_source_hiring_engine",
-        "source_class": "synthesis",
-        "source_url": profile.get("website") or entity_url,
-        "retrieved_at": now_ts,
-        "content_sha256": hashlib.sha256(json.dumps(hiring_block, sort_keys=True).encode()).hexdigest(),
-        "value": hiring_block,
-    }
-    profile["run_metrics"] = {"requests": 1, "bytes": 1024}
-    profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
-    return profile, observations
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="SignalPost Live Agent — Daily Evaluation")
     parser.add_argument("--organisations", "--input", "--company-file", dest="organisations", default="smoke-companies.jsonl", help="JSONL batch of organisation numbers")
@@ -1592,9 +1222,11 @@ def main() -> int:
         print(f"[WARN] Expected {args.expected_count} orgs, got {len(orgs)}. Continuing anyway.")
 
     # Never allow a low CLI --max-requests or --max-time threshold to block official or external discovery
-    effective_max_requests = max(args.max_requests, len(orgs) * 50, 500_000)
-    effective_max_time = max(args.max_time, len(orgs) * 60.0, 86_400.0)
-    effective_max_cost = max(args.max_cost, 100.0)
+    # 2,000 requests per 100 companies with 150-request safety buffer margin (rule §4)
+    # 45 minutes wall-clock limit with safety margin (40 min / 2,400s)
+    effective_max_requests = min(args.max_requests, int(len(orgs) * 18.5)) if args.max_requests == 500000 else args.max_requests
+    effective_max_time = min(args.max_time, 2400.0) if args.max_time == 86400.0 else args.max_time
+    effective_max_cost = min(args.max_cost, 10.0)
 
     # Initialize budget tracker
     budget = BudgetTracker(
@@ -1686,8 +1318,7 @@ def main() -> int:
     all_observations: list[dict[str, Any]] = list(resumed_observations)
     pending_profiles = [profile for profile in profiles if profile["organisation_number"] not in state]
     completed = len(state)
-    use_fast_bulk = bool(args.fast_bulk or len(orgs) >= 5000)
-    worker_fn = enrich_fast_bulk_company if use_fast_bulk else enrich_single_company
+    worker_fn = enrich_single_company
     progress_step = 500 if len(profiles) >= 2000 else 10
 
     # Enrich pending companies in parallel

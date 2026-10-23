@@ -316,25 +316,19 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
         if not pub_date:
             pub_date = extract_date_from_text(container.get_text(" ", strip=True))
         if not pub_date:
-            img = container.find("img", src=True)
-        if not pub_date:
-            from_meta = True
+            # Only a date carried by the item itself (or its URL) counts; a hub page's
+            # modified/published meta tag is not the article's publication date.
             pub_date = extract_date_from_text(link)
-            if not pub_date:
-                pub_date = page_meta_date
-            else:
-                from_meta = False
-        else:
-            from_meta = False
 
-        if not pub_date:
+        if not pub_date or link.rstrip("/") == page_url.rstrip("/"):
             continue
 
-        item_url = page_url.rstrip("/") if ("/aktuelt" in page_url.lower() and from_meta) else link
+        item_url = link
         seen_titles.add(title.casefold())
         items.append({
             "title": title,
             "url": item_url,
+            "verification": "site_listing",
             "article_url": link,
             "source_url": page_url.rstrip("/"),
             "published_at": pub_date,
@@ -346,8 +340,8 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
 
     # Fallback for news hub pages (/aktuelt, /nyheter) where headings are direct h2/h3 links
     if not items and is_news_page:
-        fallback_date = page_meta_date or extract_date_from_text(raw_html[:10000])
-        if fallback_date:
+        fallback_date = None  # hub-level dates are not per-article dates
+        if False:
             for h in soup.find_all(["h2", "h3"]):
                 title = h.get_text(" ", strip=True)
                 if len(title) < 8 or len(title) > 200 or title.casefold() in seen_titles:
@@ -368,7 +362,8 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
                 seen_titles.add(title.casefold())
                 items.append({
                     "title": title,
-                    "url": page_url.rstrip("/") if "/aktuelt" in page_url.lower() else link,
+                    "url": link,
+                    "verification": "site_listing",
                     "article_url": link,
                     "source_url": page_url.rstrip("/"),
                     "published_at": extract_date_from_text(link) or fallback_date,
@@ -390,6 +385,7 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
                     "url": page_url,
                     "source_url": page_url,
                     "published_at": pub_date,
+                    "verification": "site_listing",
                     "excerpt": (soup.find("main") or soup.find("article") or soup).get_text(" ", strip=True)[:300],
                     "content_sha256": real_page_sha,
                 })
@@ -446,6 +442,7 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
             "published_at": extract_date_from_text(container.get_text(" ", strip=True)) or None,
             "excerpt": container.get_text(" ", strip=True)[:300],
             "content_sha256": real_page_sha,
+            "kind": "listing_card",
         })
         if len(jobs) >= 8:
             break
@@ -485,9 +482,10 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
                     "title": a_text[:120],
                     "url": clean_href,
                     "source_url": page_url,
-                    "published_at": time.strftime("%Y-%m-%d", time.gmtime()),
-                    "excerpt": f"External recruitment ATS posting at {clean_href}",
+                    "published_at": None,
+                    "excerpt": f"Link to recruitment ATS page {clean_href} found on {page_url}",
                     "content_sha256": real_page_sha,
+                    "kind": "ats_ad",
                 })
                 if len(jobs) >= 8:
                     break
@@ -509,13 +507,17 @@ def _jsonld_jobs(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
                 url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
                 excerpt = str(node.get("description") or node.get("responsibilities") or "")[:300]
                 digest = page_sha256 or hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
+                hiring = node.get("hiringOrganization")
+                hiring_name = str(hiring.get("name") or "") if isinstance(hiring, dict) else str(hiring or "")
                 jobs.append({
                     "title": title,
                     "url": url,
                     "source_url": page_url,
-                    "published_at": pub_iso or time.strftime("%Y-%m-%d", time.gmtime()),
+                    "published_at": pub_iso,
                     "excerpt": excerpt,
                     "content_sha256": digest,
+                    "kind": "jsonld_job",
+                    "hiring_org": hiring_name,
                 })
             for child in node.values():
                 walk(child)
@@ -542,14 +544,16 @@ def _jsonld_news(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
                 url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
                 excerpt = str(node.get("description") or node.get("articleBody") or "")[:300]
                 digest = page_sha256 or hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
-                articles.append({
-                    "title": title,
-                    "url": url,
-                    "source_url": page_url,
-                    "published_at": pub_iso or time.strftime("%Y-%m-%d", time.gmtime()),
-                    "excerpt": excerpt,
-                    "content_sha256": digest,
-                })
+                if pub_iso:
+                    articles.append({
+                        "title": title,
+                        "url": url,
+                        "source_url": page_url,
+                        "published_at": pub_iso,
+                        "excerpt": excerpt,
+                        "content_sha256": digest,
+                        "verification": "site_listing",
+                    })
             for child in node.values():
                 walk(child)
         elif isinstance(node, list):

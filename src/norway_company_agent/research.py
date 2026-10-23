@@ -41,7 +41,8 @@ def answer_profile(row: dict[str, Any], question: str) -> dict[str, Any]:
     if all_topics or any(term in q for term in financial_terms):
         records = (financial.get("value") or {}).get("records") or []
         if records:
-            latest = records[0]
+            from .official import latest_account
+            latest = latest_account(records)
             for label, key in (
                 ("Reporting period", "period"),
                 ("Revenue", "revenue"),
@@ -110,7 +111,8 @@ UNSUPPORTED_SCREEN_TERMS = {
 
 def _latest_financial(row: dict[str, Any]) -> dict[str, Any]:
     records = ((row.get("evidence", {}).get("financials", {}).get("value") or {}).get("records") or [])
-    return records[0] if records else {}
+    from .official import latest_account
+    return latest_account(records) if records else {}
 
 
 def _numeric_operator(phrase: str) -> str:

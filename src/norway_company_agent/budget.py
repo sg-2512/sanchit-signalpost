@@ -74,8 +74,9 @@ class BudgetTracker:
         Records each attempt as a request against the budget. Official Brreg calls
         are never blocked when running in production batches (max_requests > 50).
         """
-        is_official_brreg = "brreg.no" in str(url or "").lower() and self.max_requests > 50
-        if not is_official_brreg and not self.can_proceed(reserve=reserve):
+        is_official_brreg = "brreg.no" in str(url or "").lower()
+        effective_reserve = 0 if is_official_brreg else reserve
+        if not self.can_proceed(reserve=effective_reserve):
             from .evidence import utc_now
             return FetchResult(url, 0, 0, 0, error="budget_exhausted", retrieved_at=utc_now())
 

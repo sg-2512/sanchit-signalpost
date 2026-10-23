@@ -47,8 +47,8 @@ class OptimizationsVerificationTests(unittest.TestCase):
         notices = extract_notice_observation(profile)
         self.assertEqual(len(notices), 1)
         notice = notices[0]
-        self.assertEqual(notice["platform"], "news")
-        self.assertEqual(notice["signal_type"], "public_mention")
+        self.assertEqual(notice["platform"], "brreg")
+        self.assertEqual(notice["signal_type"], "official_notice")
         self.assertEqual(notice["published_at"], "2018-05-14")
         self.assertIn("2018-05-14", notice["text"])
         self.assertTrue(notice["exact_entity"])

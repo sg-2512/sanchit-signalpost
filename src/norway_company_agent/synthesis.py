@@ -37,9 +37,10 @@ def generate_company_synthesis(
     financials = (evidence.get("financials") or {}).get("value") or {}
     latest_fin = financials.get("latest") or {}
     recs = financials.get("records") or []
-    latest_rec = recs[0] if recs else {}
+    from .official import latest_account, fiscal_year_of
+    latest_rec = latest_account(recs) if recs else {}
 
-    filing_year = latest_fin.get("filing_year") or str(latest_rec.get("period", {}).get("tilDato", ""))[:4] or profile.get("latest_submitted_accounts")
+    filing_year = fiscal_year_of(latest_rec) or latest_fin.get("filing_year") or profile.get("latest_submitted_accounts")
     raw_rev = latest_fin.get("revenue") if latest_fin.get("revenue") is not None else latest_rec.get("revenue")
     raw_profit = latest_fin.get("profit") if latest_fin.get("profit") is not None else (latest_rec.get("annual_result") if latest_rec.get("annual_result") is not None else latest_rec.get("operating_result"))
     try:

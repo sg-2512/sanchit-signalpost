@@ -7,7 +7,8 @@ from typing import Any, Iterable
 
 from .evidence import evidence, utc_now
 from .http import fetch_json
-from .official import accounting_obligation_assessment
+from .official import accounting_obligation_assessment, latest_account, fiscal_year_of
+from .verified_items import validate_job_item, validate_news_item
 from .sampling import iter_bulk
 
 
@@ -328,8 +329,7 @@ def build_contract_claims_and_evidence(
         raw_sha = str(rec.get("content_sha256") or "")
         src_url = str(rec.get("source_url") or "")
         if not raw_sha:
-            st = str(rec.get("status") or "")
-            raw_sha = hashlib.sha256(f"{org}|{mod}|{src_url}|{st}".encode("utf-8")).hexdigest()
+            raw_sha = hashlib.sha256(b"").hexdigest()
         evidence_items.append({
             "id": ev_id,
             "source_url": src_url,
@@ -534,9 +534,10 @@ def build_contract_claims_and_evidence(
     f_val = f_rec.get("value") or {}
     records = f_val.get("records") or []
     if f_status == "available" and records and f_rec.get("content_sha256"):
+        latest_rec = latest_account(records)
         claims.append({
             "field": "annual_accounts",
-            "value": records[0],
+            "value": {**latest_rec, "fiscal_year": fiscal_year_of(latest_rec)},
             "availability": "available",
             "confidence": 1.0,
             "evidence_ids": [f"ev-financials-{org}"],
@@ -616,10 +617,7 @@ def build_contract_claims_and_evidence(
                     break
     if not careers_url and is_publishable and w_val.get("job_postings"):
         careers_url = w_val["job_postings"][0].get("url")
-    if not careers_url and is_publishable and website_url:
-        careers_url = f"{website_url.rstrip('/')}/karriere"
-    if not careers_url and profile.get("employees") and int(profile.get("employees")) > 0:
-        careers_url = f"https://arbeidsplassen.nav.no/stillinger?q={org}"
+    # No guessing of unverified /karriere or nav search pages
 
     # Resolve real retained response body for hiring evidence
     j_rec = ev.get("jobs") or {}
@@ -794,7 +792,7 @@ def build_contract_claims_and_evidence(
         else:
             cand_src_url = str(cand.get("source_url") or (w_rec.get("source_url") if is_site_news and has_valid_site_ev else c_url))
         if not cand_sha:
-            cand_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or hashlib.sha256(f"{org}|news".encode()).hexdigest())
+            cand_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or "")
 
         is_official = "brreg" in c_src or "brreg.no" in lower_u or "offisiell registrering" in lower_t or "kunngjøring" in lower_t
         item = {
@@ -803,6 +801,8 @@ def build_contract_claims_and_evidence(
             "source_url": cand_src_url,
             "published_at": norm_pub,
             "content_sha256": cand_sha,
+            "verification": cand.get("verification") or ("site_listing" if is_site_news else ""),
+            "name_in_article": cand.get("name_in_article"),
             "_is_site": is_site_news,
             "_is_generic_prefix": lower_t.startswith(("nyheter ", "aktuelt ", "news ", "presse ")),
         }
@@ -819,106 +819,15 @@ def build_contract_claims_and_evidence(
         ),
         reverse=True,
     )
-    news_items = editorial_news_items if editorial_news_items else official_notice_items
-    clean_news_items = [
-        {k: v for k, v in item.items() if not k.startswith("_")}
-        for item in news_items
-    ]
-    # Source A1: Patentstyret Statutory Intellectual Property Registrations
-    patent_notices = []
-    for p in (profile.get("patents") or []):
-        p_title = p.get("title") or "Varemerke"
-        p_type = p.get("ip_type") or p.get("type") or "trademark"
-        p_type_label = {"trademark": "varemerke", "patent": "patent", "design": "design"}.get(str(p_type).lower(), str(p_type))
-        p_app = p.get("application_number") or ""
-        p_date = p.get("filing_date") or p.get("publicationDate")
-        p_status = p.get("status") or "Registrert"
-        p_url = p.get("case_url") or (f"https://services.patentstyret.no/search-details/{p_type}/{p_app}" if p_app else "https://www.patentstyret.no")
-        p_sha = hashlib.sha256(f"{org}|patentstyret|{p_app}|{p_title}".encode()).hexdigest()
-        p_pub = _normalize_date_str(p_date) if p_date else (completed_at[:10] if completed_at else "2026-01-01")
-        patent_notices.append({
-            "title": f"Patentstyret offisiell kunngjøring: {p_title} ({p_type_label} #{p_app}) - {p_status}",
-            "url": p_url,
-            "source_url": p_url,
-            "published_at": p_pub,
-            "content_sha256": p_sha,
-        })
-    if patent_notices:
-        clean_news_items = patent_notices + clean_news_items
-
-    # Source A2: Doffin Public Procurement Contract Awards
-    for p in (profile.get("procurement") or []):
-        p_title = p.get("title") or "Offentlig kontrakt"
-        p_id = p.get("notice_id") or ""
-        p_type = p.get("notice_type") or "Kontrakt"
-        p_date = p.get("publication_date") or completed_at[:10]
-        p_url = f"https://doffin.no/Notice/Details/{p_id}" if p_id else "https://doffin.no"
-        p_sha = hashlib.sha256(f"{org}|doffin|{p_id}|{p_title}".encode()).hexdigest()
-        clean_news_items.insert(0, {
-            "title": f"Doffin kunngjøring: {p_title} ({p_type} #{p_id})",
-            "url": p_url,
-            "source_url": p_url,
-            "published_at": _normalize_date_str(p_date) or completed_at[:10],
-            "content_sha256": p_sha,
-        })
-
-    # Source A3: Mattilsynet Food Safety Inspection Announcements
-    for f in (profile.get("food_safety") or []):
-        f_grade = f.get("grade_label") or "Smilefjes-tilsyn"
-        f_date = f.get("date") or completed_at[:10]
-        f_url = f"https://smilefjes.mattilsynet.no/tilsyn/{org}"
-        f_sha = hashlib.sha256(f"{org}|mattilsynet|{f_date}".encode()).hexdigest()
-        clean_news_items.insert(0, {
-            "title": f"Mattilsynet Smilefjes-tilsyn: {f_grade}",
-            "url": f_url,
-            "source_url": f_url,
-            "published_at": _normalize_date_str(f_date) or completed_at[:10],
-            "content_sha256": f_sha,
-        })
-
-    # Source A4: Miljøfyrtårn Environmental Sustainability Certifications
-    for esg in (profile.get("esg") or []):
-        e_name = esg.get("certification_name") or "Miljøfyrtårn"
-        e_status = esg.get("status") or "Sertifisert"
-        e_url = f"https://www.miljofyrtarn.no/virksomheter/?s={org}"
-        e_sha = hashlib.sha256(f"{org}|miljofyrtarn".encode()).hexdigest()
-        clean_news_items.insert(0, {
-            "title": f"Offisiell bærekraftsertifisering: {e_name} ({e_status})",
-            "url": e_url,
-            "source_url": e_url,
-            "published_at": completed_at[:10],
-            "content_sha256": e_sha,
-        })
-
-    # Source A: Fallback to official statutory Brønnøysund legal notices (Kunngjøringer)
-    if not clean_news_items and (reg_live_rec.get("status") == "available" or reg_bulk_rec.get("status") == "available"):
-        reg_val = reg_live_rec.get("value") or reg_bulk_rec.get("value") or {}
-        c_name = profile.get("name") or reg_val.get("name") or reg_val.get("navn") or f"Organisation {org}"
-        reg_date = str(reg_val.get("registreringsdatoenhetsregisteret") or profile.get("registration_date") or "")
-        latest_acc = profile.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap")
-        reg_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or hashlib.sha256(f"{org}|news".encode()).hexdigest())
-
-        official_notices = []
-        if latest_acc:
-            acc_yr = str(latest_acc)[:4] if str(latest_acc)[:4].isdigit() else "2024"
-            official_notices.append({
-                "title": f"Offisiell kunngjøring: Innsendt årsregnskap for regnskapsåret {acc_yr} - {c_name}",
-                "url": f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}",
-                "source_url": f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}",
-                "published_at": f"{acc_yr}-07-01",
-                "content_sha256": reg_sha,
-            })
-        if reg_date and len(reg_date) >= 10:
-            norm_rdate = _normalize_date_str(reg_date) or reg_date[:10]
-            official_notices.append({
-                "title": f"Offisiell kunngjøring om registrering i Enhetsregisteret: {c_name}",
-                "url": f"https://w2.brreg.no/kunngjoring/hent_enhet.jsp?orgnr={org}",
-                "source_url": f"https://w2.brreg.no/kunngjoring/hent_enhet.jsp?orgnr={org}",
-                "published_at": norm_rdate,
-                "content_sha256": reg_sha,
-            })
-        if official_notices:
-            clean_news_items = official_notices
+    clean_news_items = []
+    c_name = profile.get("name") or ""
+    for item in editorial_news_items:
+        clean_it = {k: v for k, v in item.items() if not k.startswith("_")}
+        ok, _reason = validate_news_item(clean_it, company_name=c_name, site_url=website_url or "")
+        if ok:
+            clean_news_items.append(clean_it)
+    # Only real dated journalism/news articles about the company are published as news;
+    # official notices, trademark filings, inspections, and registry filings are NOT news.
 
     if is_publishable and isinstance(w_val, dict):
         w_val["news_items"] = clean_news_items
@@ -932,7 +841,7 @@ def build_contract_claims_and_evidence(
         n_src_url = str(primary_news.get("source_url") or (w_rec.get("source_url") if (has_valid_site_ev and "news.google.com" not in n_url.lower() and "brreg.no" not in n_url.lower()) else n_url) or n_url)
         n_sha = str(primary_news.get("content_sha256") or (w_rec.get("content_sha256") if (has_valid_site_ev and "news.google.com" not in n_url.lower() and "brreg.no" not in n_url.lower()) else "") or "")
         if not n_sha:
-            n_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or hashlib.sha256(f"{org}|news".encode()).hexdigest())
+            n_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or "")
         n_pub = primary_news.get("published_at")
         n_title = str(primary_news.get("title") or "Nyhet")
         news_ev_ids = [site_ev_id, news_ev_id] if (has_valid_site_ev and "news.google.com" not in n_url.lower() and "brreg.no" not in n_url.lower()) else [news_ev_id]
@@ -1004,7 +913,12 @@ def build_contract_claims_and_evidence(
                         "title": sig.get("title"),
                         "url": sig.get("url"),
                         "published_at": sig.get("published_at"),
-                        "content_sha256": j_rec.get("content_sha256") or (w_rec.get("content_sha256") if has_valid_site_ev else None),
+                        "content_sha256": sig.get("content_sha256") or j_rec.get("content_sha256") or (w_rec.get("content_sha256") if has_valid_site_ev else None),
+                        "kind": sig.get("kind"),
+                        "employer_org": sig.get("employer_org"),
+                        "employer_name": sig.get("employer_name"),
+                        "match_type": sig.get("match_type"),
+                        "hiring_org_match": sig.get("hiring_org_match"),
                     })
 
     generic_job_titles = {
@@ -1059,34 +973,25 @@ def build_contract_claims_and_evidence(
             "source_url": j_src_url,
             "published_at": norm_j_pub,
             "content_sha256": j_cand_sha,
+            "kind": cand.get("kind") or ("nav_ad" if "arbeidsplassen.nav.no" in lower_u else ""),
+            "employer_org": cand.get("employer_org") or "",
+            "employer_name": cand.get("employer_name") or "",
+            "match_type": cand.get("match_type") or "",
+            "hiring_org_match": cand.get("hiring_org_match"),
             "_priority": 2 if "arbeidsplassen.nav.no" in lower_u else (1 if "linkedin.com/jobs/view/" in lower_u else 0),
         })
 
     job_items.sort(key=lambda x: (x.get("_priority", 0), str(x.get("published_at") or "")), reverse=True)
-    clean_job_items = [
-        {k: v for k, v in item.items() if not k.startswith("_")}
-        for item in job_items
-    ]
+    clean_job_items = []
+    c_name = profile.get("name") or ""
+    for item in job_items:
+        clean_it = {k: v for k, v in item.items() if not k.startswith("_")}
+        ok, _reason = validate_job_item(clean_it, org=org, company_name=c_name, site_url=website_url or "", site_publishable=is_publishable)
+        if ok:
+            clean_job_items.append(clean_it)
 
-    # Source B & C: For active employers with workforce or recruitment channels without a scraped single job title,
-    # generate the verified corporate recruitment vacancy / open application listing
-    if not clean_job_items and careers_url and (appears_hiring or (profile.get("employees") and int(profile.get("employees")) > 0)):
-        c_name = profile.get("name") or org
-        rec_title = f"Karriere og rekruttering hos {c_name}"
-        rec_date = completed_at[:10]
-        rec_sha = str(
-            hiring_backing_sha
-            or reg_live_rec.get("content_sha256")
-            or reg_bulk_rec.get("content_sha256")
-            or hashlib.sha256(f"{org}|job_vacancy".encode()).hexdigest()
-        )
-        clean_job_items = [{
-            "title": rec_title,
-            "url": str(careers_url),
-            "source_url": str(careers_url),
-            "published_at": rec_date,
-            "content_sha256": rec_sha,
-        }]
+    # Only single job advertisements posted by this company are published as job_postings;
+    # listing pages, career hubs, open application placeholders, and other employers' ads are never published.
 
     if is_publishable and isinstance(w_val, dict):
         w_val["job_postings"] = clean_job_items

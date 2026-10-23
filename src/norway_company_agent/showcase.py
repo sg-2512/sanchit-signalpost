@@ -481,7 +481,11 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
 
     # Compute 5 coverage dimensions
     company_available = True
-    fin_records = (financial.get("value") or {}).get("records", [])
+    fin_records = sorted(
+        [r for r in ((financial.get("value") or {}).get("records", []) or []) if isinstance(r, dict)],
+        key=lambda r: str((r.get("period") or {}).get("tilDato") or r.get("filing_year") or ""),
+        reverse=True,
+    )
     fin_available = financial.get("status") == "available" and bool(fin_records)
     role_items = (roles.get("value") or {}).get("roles", [])
     people_places_available = bool(role_items) or bool(raw_loc_items)

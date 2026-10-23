@@ -3,7 +3,7 @@
 Answers the competition briefing requirement: 'whether it appears to be hiring'.
 Synthesizes 4 distinct, permitted evidence layers:
 1. NAV Arbeidsplassen (Norway's official public employment service)
-2. LinkedIn Guest Jobs (open corporate job postings in Norway)
+2. Company Website Career Sections & verified single job ads (LinkedIn is never scraped)
 3. Company Website Career Sections & Norwegian recruitment keywords
 4. Brønnøysund Official Registry registered workforce snapshot
 """
@@ -13,7 +13,7 @@ import re
 from typing import Any
 
 from .connectors.nav_jobs import fetch_nav_jobs
-from .connectors.linkedin_jobs import fetch_linkedin_jobs
+from .verified_items import validate_job_item
 
 NORWEGIAN_HIRING_PATTERNS = [
     re.compile(r"\bvi\s+s[øo]ker\b", re.I),
@@ -189,37 +189,38 @@ def evaluate_company_hiring(
             signals.append({
                 "source": "nav_arbeidsplassen",
                 "type": "official_job_posting",
-                "title": job.get("job_title"),
-                "url": job.get("source_url"),
+                "title": job.get("job_title") or job.get("title"),
+                "url": job.get("source_url") or job.get("url"),
                 "published_at": job.get("published_at"),
+                "content_sha256": job.get("content_sha256"),
+                "employer_org": job.get("employer_org"),
+                "employer_name": job.get("employer_name"),
+                "kind": "nav_ad",
             })
         new_obs.extend(nav_jobs)
 
-    # 4. LinkedIn Guest Jobs Search
-    li_jobs: list[dict[str, Any]] = []
-    if budget and budget.can_proceed(reserve=50):
-        li_jobs = fetch_linkedin_jobs(name, org, budget=budget)
-        for job in li_jobs:
-            signals.append({
-                "source": "linkedin_jobs",
-                "type": "corporate_job_posting",
-                "title": job.get("job_title"),
-                "url": job.get("source_url"),
-                "published_at": job.get("published_at"),
-            })
-        new_obs.extend(li_jobs)
-
-    # 4b. Discovered ATS and Website Job Vacancies
-    web_jobs = (website_val.get("job_postings") or []) if isinstance(website_val, dict) else []
-    for wj in web_jobs:
-        if isinstance(wj, dict) and wj.get("title"):
-            signals.append({
-                "source": "company_website_job_posting",
-                "type": "corporate_job_posting",
-                "title": wj.get("title"),
-                "url": wj.get("url"),
-                "published_at": wj.get("published_at"),
-            })
+    # 4. Verified single job ads discovered on the company's verified website / ATS tenant.
+    #    Listing pages, career hubs and other employers' ads are rejected by validate_job_item.
+    li_jobs: list[dict[str, Any]] = []  # LinkedIn is not used as a job source (platform policy).
+    site_url = str((website_val or {}).get("final_url") or profile.get("website") or "") if isinstance(website_val, dict) else ""
+    web_jobs: list[dict[str, Any]] = []
+    for wj in ((website_val.get("job_postings") or []) if isinstance(website_val, dict) else []):
+        if not isinstance(wj, dict) or not wj.get("title"):
+            continue
+        ok, _reason = validate_job_item(wj, org=org, company_name=name, site_url=site_url, site_publishable=is_site_publishable)
+        if not ok:
+            continue
+        web_jobs.append(wj)
+        signals.append({
+            "source": "company_website_job_posting",
+            "type": "corporate_job_posting",
+            "title": wj.get("title"),
+            "url": wj.get("url"),
+            "published_at": wj.get("published_at"),
+            "content_sha256": wj.get("content_sha256"),
+            "kind": wj.get("kind"),
+            "hiring_org_match": wj.get("hiring_org_match"),
+        })
 
     # Determine overall hiring status
     active_postings_count = len(nav_jobs) + len(li_jobs) + len(web_jobs)
@@ -229,7 +230,7 @@ def evaluate_company_hiring(
         appears_to_be_hiring = True
         status_code = "actively_recruiting"
         titles = [s.get("title") for s in signals if s.get("title")][:3]
-        summary_note = f"Actively hiring: {active_postings_count} open vacancy posting(s) confirmed on NAV/LinkedIn/Website ({', '.join(filter(None, titles))})."
+        summary_note = f"Actively hiring: {active_postings_count} open vacancy posting(s) confirmed on NAV/company website ({', '.join(filter(None, titles))})."
     elif has_web_hiring:
         appears_to_be_hiring = True
         status_code = "website_recruitment_open"
@@ -256,7 +257,6 @@ def evaluate_company_hiring(
         "registered_employees": employees,
         "sources_checked": [
             "nav_arbeidsplassen",
-            "linkedin_jobs",
             "company_website",
             "brreg_workforce",
         ],

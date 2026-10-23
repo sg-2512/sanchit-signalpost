@@ -85,12 +85,66 @@ def _get(value: Any, *path: str) -> Any:
     return value
 
 
+def _period_end(item: Any) -> str:
+    period = item.get("regnskapsperiode") if isinstance(item, dict) else None
+    return str((period or {}).get("tilDato") or "") if isinstance(period, dict) else ""
+
+
+def select_annual_records(body: Any, limit: int = 5) -> list[dict[str, Any]]:
+    """Return one record per fiscal year, newest first.
+
+    Regnskapsregisteret lists accounts oldest-first, so callers must never rely on list order.
+    Records without a period end date are dropped. Per year the company's own accounts
+    (SELSKAP) win over group accounts (KONSERN), then the highest record id.
+    """
+    best: dict[str, dict[str, Any]] = {}
+    for item in body if isinstance(body, list) else []:
+        end = _period_end(item)
+        if not isinstance(item, dict) or len(end) < 4 or not end[:4].isdigit():
+            continue
+        year = end[:4]
+        rank = (1 if str(item.get("regnskapstype") or "").upper() == "SELSKAP" else 0, int(item.get("id") or 0))
+        current = best.get(year)
+        if current is None or rank > (
+            1 if str(current.get("regnskapstype") or "").upper() == "SELSKAP" else 0,
+            int(current.get("id") or 0),
+        ):
+            best[year] = item
+    ordered = sorted(best.values(), key=_period_end, reverse=True)
+    return ordered[:limit]
+
+
+def latest_account(records: Any) -> dict[str, Any]:
+    """Newest fiscal-year record from normalised records (any input order)."""
+    rows = [r for r in (records or []) if isinstance(r, dict)]
+    if not rows:
+        return {}
+
+    def _key(row: dict[str, Any]) -> str:
+        period = row.get("period")
+        end = str((period or {}).get("tilDato") or "") if isinstance(period, dict) else ""
+        return end or str(row.get("filing_year") or "")
+
+    return max(rows, key=_key)
+
+
+def fiscal_year_of(record: Any) -> str | None:
+    if not isinstance(record, dict):
+        return None
+    period = record.get("period")
+    end = str((period or {}).get("tilDato") or "") if isinstance(period, dict) else ""
+    if len(end) >= 4 and end[:4].isdigit():
+        return end[:4]
+    year = str(record.get("filing_year") or "")
+    return year if year.isdigit() else None
+
+
 def normalize_financials(body: Any) -> dict[str, Any]:
-    records = body if isinstance(body, list) else []
+    records = select_annual_records(body)
     if not records:
         return {"records": [], "financial_trends": {}}
     normalized = []
-    for item in records[:3]:
+    for item in records:
         rev = _get(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "sumDriftsinntekter")
         op_res = _get(item, "resultatregnskapResultat", "driftsresultat", "driftsresultat")
         assets = _get(item, "eiendeler", "sumEiendeler")
@@ -148,7 +202,11 @@ def normalize_financials(body: Any) -> dict[str, Any]:
         trends["solvency_status"] = normalized[0]["solvency_status"]
         trends["equity_ratio"] = normalized[0]["equity_ratio"]
 
-    return {"records": normalized, "financial_trends": trends}
+    return {
+        "records": normalized,
+        "financial_trends": trends,
+        "latest_fiscal_year": fiscal_year_of(normalized[0]),
+    }
 
 
 def normalize_financial_history(body: Any, org: str) -> dict[str, Any]:
