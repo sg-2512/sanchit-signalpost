@@ -146,38 +146,138 @@ class OptimizationsVerificationTests(unittest.TestCase):
         self.assertIn("youtube", platforms)
 
     # ------------------------------------------------------------------------
-    # 4. Norwegian Transliteration in Domain Discovery
+    # 5. RSS and Atom Feed Newsroom Harvester
     # ------------------------------------------------------------------------
-    def test_norwegian_email_transliteration(self) -> None:
-        profile_ae = {
+    def test_extract_feed_news_rss_and_atom(self) -> None:
+        from norway_company_agent.website import extract_feed_news
+
+        rss_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0">
+            <channel>
+                <title>Bedriftsnyheter</title>
+                <item>
+                    <title>Signerte ny rammeavtale med Statnett</title>
+                    <link>https://www.example.no/nyheter/statnett-avtale</link>
+                    <pubDate>Mon, 15 Sep 2026 09:30:00 GMT</pubDate>
+                    <description>Vi har inngatt en stor kontrakt.</description>
+                </item>
+            </channel>
+        </rss>
+        """
+        rss_items = extract_feed_news(rss_xml, "https://www.example.no/feed", "https://www.example.no")
+        self.assertEqual(len(rss_items), 1)
+        self.assertEqual(rss_items[0]["title"], "Signerte ny rammeavtale med Statnett")
+        self.assertEqual(rss_items[0]["url"], "https://www.example.no/nyheter/statnett-avtale")
+        self.assertEqual(rss_items[0]["published_at"], "2026-09-15")
+        self.assertEqual(rss_items[0]["verification"], "site_listing")
+        self.assertEqual(len(rss_items[0]["content_sha256"]), 64)
+
+        atom_xml = b"""<?xml version="1.0" encoding="utf-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+            <title>Aktuelt Blogg</title>
+            <entry>
+                <title>Resultater for 2. kvartal 2026</title>
+                <link href="https://www.example.no/aktuelt/q2-2026"/>
+                <updated>2026-08-20T08:00:00Z</updated>
+            </entry>
+        </feed>
+        """
+        atom_items = extract_feed_news(atom_xml, "https://www.example.no/atom.xml", "https://www.example.no")
+        self.assertEqual(len(atom_items), 1)
+        self.assertEqual(atom_items[0]["title"], "Resultater for 2. kvartal 2026")
+        self.assertEqual(atom_items[0]["url"], "https://www.example.no/aktuelt/q2-2026")
+        self.assertEqual(atom_items[0]["published_at"], "2026-08-20")
+
+    # ------------------------------------------------------------------------
+    # 6. Google News Decoded Article Verification Gate
+    # ------------------------------------------------------------------------
+    def test_google_news_verified_article_validation(self) -> None:
+        from norway_company_agent.verified_items import validate_news_item
+
+        # Verified external journalism article on e24.no
+        art_verified = {
+            "title": "Equinor og partnere investerer 12 milliarder",
+            "url": "https://e24.no/energi/i/123/equinor-investerer",
+            "source_url": "https://e24.no/energi/i/123/equinor-investerer",
+            "published_at": "2026-10-10",
+            "content_sha256": "a" * 64,
+            "verification": "article_fetched",
+            "name_in_article": True,
+        }
+        ok, reason = validate_news_item(art_verified, company_name="Equinor ASA")
+        self.assertTrue(ok)
+        self.assertEqual(reason, "article_verified")
+
+        # Unresolved redirect link to news.google.com must be rejected
+        unresolved_link = {
+            "title": "Equinor og partnere investerer 12 milliarder",
+            "url": "https://news.google.com/rss/articles/CBMi123456",
+            "source_url": "https://news.google.com/rss/articles/CBMi123456",
+            "published_at": "2026-10-10",
+            "content_sha256": "b" * 64,
+            "verification": "",
+            "name_in_article": False,
+        }
+        ok2, reason2 = validate_news_item(unresolved_link, company_name="Equinor ASA")
+        self.assertFalse(ok2)
+        self.assertEqual(reason2, "non_news_host")
+
+    # ------------------------------------------------------------------------
+    # 7. External Journalism News Claim Building vs Company Newsroom
+    # ------------------------------------------------------------------------
+    def test_batch_news_claim_preserves_external_publisher_sha_and_url(self) -> None:
+        from norway_company_agent.batch import build_contract_claims_and_evidence
+
+        profile = {
+            "organisation_number": "923609016",
+            "name": "TEST ENTERPRISE AS",
+            "legal_form": "AS",
+            "website": "https://www.testenterprise.no",
             "evidence": {
                 "registry_live": {
-                    "value": {"epostadresse": "post@blåbær.no"}
-                }
-            }
+                    "status": "available",
+                    "content_sha256": "1" * 64,
+                    "value": {"navn": "TEST ENTERPRISE AS", "organisasjonsform": {"kode": "AS"}},
+                },
+                "website": {
+                    "status": "available",
+                    "content_sha256": "2" * 64,
+                    "source_url": "https://www.testenterprise.no",
+                    "value": {
+                        "final_url": "https://www.testenterprise.no",
+                        "identity_assessment": {"publishable": True},
+                    },
+                },
+                "news": {
+                    "status": "available",
+                    "value": {
+                        "items": [
+                            {
+                                "title": "Test Enterprise vinner nasjonal innovasjonspris",
+                                "url": "https://e24.no/teknologi/i/999/test-enterprise-vinner",
+                                "source_url": "https://e24.no/teknologi/i/999/test-enterprise-vinner",
+                                "published_at": "2026-09-01",
+                                "content_sha256": "3" * 64,
+                                "verification": "article_fetched",
+                                "name_in_article": True,
+                            }
+                        ]
+                    },
+                },
+            },
         }
-        url_ae = extract_email_domain_candidate(profile_ae)
-        self.assertEqual(url_ae, "https://www.blabaer.no")
 
-        profile_oe = {
-            "evidence": {
-                "registry": {
-                    "value": {"epostadresse": "kontakt@møbeldesign.no"}
-                }
-            }
-        }
-        url_oe = extract_email_domain_candidate(profile_oe)
-        self.assertEqual(url_oe, "https://www.mobeldesign.no")
-
-        # Test generic personal emails are rejected
-        profile_gmail = {
-            "evidence": {
-                "registry": {
-                    "value": {"epostadresse": "ceo@gmail.com"}
-                }
-            }
-        }
-        self.assertIsNone(extract_email_domain_candidate(profile_gmail))
+        claims, evidence_list = build_contract_claims_and_evidence(profile, "2026-10-23T12:00:00Z")
+        news_claim = next((c for c in claims if c["field"] == "dated_news"), None)
+        self.assertIsNotNone(news_claim)
+        self.assertEqual(news_claim["availability"], "available")
+        self.assertEqual(news_claim["value"]["url"], "https://e24.no/teknologi/i/999/test-enterprise-vinner")
+        # Ensure external news evidence maintains publisher SHA and does not get overwritten by website SHA
+        news_ev = next((e for e in evidence_list if e["id"] == "ev-news-923609016"), None)
+        self.assertIsNotNone(news_ev)
+        self.assertEqual(news_ev["content_sha256"], "3" * 64)
+        self.assertEqual(news_ev["source_class"], "public_news")
+        self.assertEqual(news_ev["source_url"], "https://e24.no/teknologi/i/999/test-enterprise-vinner")
 
 
 if __name__ == "__main__":

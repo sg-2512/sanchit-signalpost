@@ -92,12 +92,12 @@ def _looks_like_leaf(segment: str) -> bool:
     seg = segment.casefold().strip()
     if not seg or seg in _PATH_HUB_TOKENS:
         return False
-    if _UUID_RE.fullmatch(seg) or seg.isdigit() and len(seg) >= 4:
+    if _UUID_RE.fullmatch(seg) or (seg.isdigit() and len(seg) >= 4):
         return True
     if re.search(r"\d{4,}", seg):
         return True
-    # slug with at least 2 words, e.g. "vi-soker-prosjektleder"
-    return seg.count("-") >= 2 and len(seg) >= 12
+    # slug with at least 2 words, e.g. "vi-soker-prosjektleder" or "equinor-investerer"
+    return (seg.count("-") >= 2 and len(seg) >= 12) or (seg.count("-") >= 1 and len(seg) >= 16)
 
 
 def is_hub_url(url: str) -> bool:
@@ -107,6 +107,9 @@ def is_hub_url(url: str) -> bool:
         return True
     if parsed.query and re.search(r"(^|&)(q|query|search|s|keyword|keywords|sok)=", parsed.query, re.I):
         return True
+    # Schibsted / E24 news article pattern (e.g. /category/i/{article_id}/{slug})
+    if len(segs) >= 2 and segs[-2] == "i":
+        return False
     return not _looks_like_leaf(segs[-1])
 
 

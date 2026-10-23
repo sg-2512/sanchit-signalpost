@@ -13,6 +13,9 @@ import urllib.request
 import urllib.robotparser
 from dataclasses import dataclass
 from typing import Any
+import xml.etree.ElementTree as ET
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
 import extruct
@@ -257,6 +260,90 @@ def extract_date_from_text(text: str) -> str | None:
     if m:
         return f"{m.group(1)}-{m.group(2)}-01"
     return None
+
+
+def extract_feed_news(feed_bytes: bytes, feed_url: str, base_url: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    feed_sha = hashlib.sha256(feed_bytes).hexdigest()
+    try:
+        root = ET.fromstring(feed_bytes)
+    except Exception:
+        return []
+
+    # RSS 2.0 (<channel><item>)
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        pub = (item.findtext("pubDate") or "").strip()
+        if not title or not link or len(title) < 8:
+            continue
+        abs_link = urllib.parse.urljoin(base_url, link)
+        norm_date = None
+        if pub:
+            try:
+                norm_date = parsedate_to_datetime(pub).astimezone(timezone.utc).date().isoformat()
+            except Exception:
+                pass
+        if not norm_date:
+            norm_date = extract_date_from_text(abs_link) or extract_date_from_text(pub)
+        if not norm_date:
+            continue
+
+        items.append({
+            "title": title[:200],
+            "url": abs_link,
+            "verification": "site_listing",
+            "article_url": abs_link,
+            "source_url": feed_url,
+            "published_at": norm_date,
+            "excerpt": (item.findtext("description") or title)[:300],
+            "content_sha256": feed_sha,
+        })
+
+    # Atom (<feed><entry>)
+    atom_entries = root.findall(".//{http://www.w3.org/2005/Atom}entry") or root.findall(".//entry")
+    for entry in atom_entries:
+        title = (
+            entry.findtext("{http://www.w3.org/2005/Atom}title")
+            or entry.findtext("title")
+            or ""
+        ).strip()
+        link_el = entry.find("{http://www.w3.org/2005/Atom}link")
+        if link_el is None:
+            link_el = entry.find("link")
+        link = link_el.get("href") if link_el is not None else ""
+        pub = (
+            entry.findtext("{http://www.w3.org/2005/Atom}published")
+            or entry.findtext("published")
+            or entry.findtext("{http://www.w3.org/2005/Atom}updated")
+            or entry.findtext("updated")
+            or ""
+        ).strip()
+        if not title or not link or len(title) < 8:
+            continue
+        abs_link = urllib.parse.urljoin(base_url, link)
+        norm_date = None
+        if pub:
+            m = re.match(r"^(\d{4}-\d{2}-\d{2})", pub)
+            if m:
+                norm_date = m.group(1)
+        if not norm_date:
+            norm_date = extract_date_from_text(abs_link) or extract_date_from_text(pub)
+        if not norm_date:
+            continue
+
+        items.append({
+            "title": title[:200],
+            "url": abs_link,
+            "verification": "site_listing",
+            "article_url": abs_link,
+            "source_url": feed_url,
+            "published_at": norm_date,
+            "excerpt": title[:300],
+            "content_sha256": feed_sha,
+        })
+
+    return items
 
 
 def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page_sha256: str | None = None) -> list[dict[str, Any]]:
@@ -621,6 +708,15 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
     news_cands: dict[str, int] = {}
     other_cands: dict[str, int] = {}
 
+    for link_tag in soup.find_all("link", rel=lambda r: r and "alternate" in r):
+        t = (link_tag.get("type") or "").lower()
+        if "rss" in t or "atom" in t or "xml" in t:
+            href = link_tag.get("href")
+            if href:
+                abs_feed = urllib.parse.urljoin(base_url, href)
+                if abs_feed.startswith(("http://", "https://")) and _registered_domain(abs_feed) == base_reg_domain:
+                    news_cands[abs_feed] = -1
+
     for anchor in soup.select("a[href]"):
         href = str(anchor.get("href") or "").strip()
         url = urllib.parse.urljoin(base_url, href)
@@ -692,10 +788,24 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
             raw = response.read(max_bytes + 1)
             elapsed = int((time.monotonic() - started) * 1000)
             final_url = response.geturl()
-            if len(raw) > max_bytes or "html" not in response.headers.get("content-type", "").lower():
+            ctype = response.headers.get("content-type", "").lower()
+            is_feed = ("xml" in ctype or "rss" in ctype or "atom" in ctype) and "html" not in ctype
+            if len(raw) > max_bytes or (not is_feed and "html" not in ctype):
                 return None, [], 2, len(raw), elapsed, "unsupported or oversized page"
             if _registered_domain(final_url) != homepage_domain:
                 return None, [], 2, len(raw), elapsed, "redirected outside registered domain"
+        page_sha = hashlib.sha256(raw).hexdigest()
+        if is_feed:
+            feed_news = extract_feed_news(raw, final_url, final_url)
+            page = {
+                "url": final_url,
+                "title": "RSS News Feed",
+                "main_text_excerpt": "",
+                "content_sha256": page_sha,
+                "news_items": feed_news,
+                "job_postings": [],
+            }
+            return page, [], 2, len(raw), elapsed, None
         page_html = raw.decode("utf-8", errors="replace")
         page_soup = BeautifulSoup(page_html, "lxml")
         page_text = trafilatura.extract(page_html, url=final_url, include_links=False, include_tables=False, favor_precision=True) or ""

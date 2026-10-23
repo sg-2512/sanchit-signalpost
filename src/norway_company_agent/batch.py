@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from .evidence import evidence, utc_now
 from .http import fetch_json
 from .official import accounting_obligation_assessment, latest_account, fiscal_year_of
-from .verified_items import validate_job_item, validate_news_item
+from .verified_items import registered_domain, validate_job_item, validate_news_item
 from .sampling import iter_bulk
 
 
@@ -785,12 +785,17 @@ def build_contract_claims_and_evidence(
         seen_news_keys.add(dedup_k)
 
         cand_sha = str(cand.get("content_sha256") or "")
-        is_site_news = "news.google.com" not in lower_u and "brreg.no" not in lower_u
-        if is_site_news and has_valid_site_ev and cand_sha not in valid_page_sha_set:
-            cand_sha = str(w_rec.get("content_sha256"))
-            cand_src_url = str(w_rec.get("source_url") or website_url)
+        site_reg_dom = registered_domain(website_url) if website_url else ""
+        cand_reg_dom = registered_domain(c_url)
+        is_site_news = bool(site_reg_dom) and (cand_reg_dom == site_reg_dom)
+        if is_site_news:
+            if has_valid_site_ev and cand_sha not in valid_page_sha_set:
+                cand_sha = str(w_rec.get("content_sha256"))
+                cand_src_url = str(w_rec.get("source_url") or website_url)
+            else:
+                cand_src_url = str(cand.get("source_url") or (w_rec.get("source_url") if has_valid_site_ev else c_url))
         else:
-            cand_src_url = str(cand.get("source_url") or (w_rec.get("source_url") if is_site_news and has_valid_site_ev else c_url))
+            cand_src_url = str(cand.get("source_url") or c_url)
         if not cand_sha:
             cand_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or "")
 
@@ -838,13 +843,24 @@ def build_contract_claims_and_evidence(
     if clean_news_items:
         primary_news = clean_news_items[0]
         n_url = str(primary_news.get("url") or website_url or "")
-        n_src_url = str(primary_news.get("source_url") or (w_rec.get("source_url") if (has_valid_site_ev and "news.google.com" not in n_url.lower() and "brreg.no" not in n_url.lower()) else n_url) or n_url)
-        n_sha = str(primary_news.get("content_sha256") or (w_rec.get("content_sha256") if (has_valid_site_ev and "news.google.com" not in n_url.lower() and "brreg.no" not in n_url.lower()) else "") or "")
+        site_reg_dom = registered_domain(website_url) if website_url else ""
+        is_primary_site = bool(site_reg_dom) and (registered_domain(n_url) == site_reg_dom)
+
+        if is_primary_site and has_valid_site_ev:
+            n_src_url = str(primary_news.get("source_url") or w_rec.get("source_url") or website_url)
+            n_sha = str(primary_news.get("content_sha256") or w_rec.get("content_sha256") or "")
+            news_ev_ids = [site_ev_id, news_ev_id]
+            news_source_class = "company_site"
+        else:
+            n_src_url = str(primary_news.get("source_url") or n_url)
+            n_sha = str(primary_news.get("content_sha256") or "")
+            news_ev_ids = [news_ev_id]
+            news_source_class = "public_news"
+
         if not n_sha:
             n_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or "")
         n_pub = primary_news.get("published_at")
         n_title = str(primary_news.get("title") or "Nyhet")
-        news_ev_ids = [site_ev_id, news_ev_id] if (has_valid_site_ev and "news.google.com" not in n_url.lower() and "brreg.no" not in n_url.lower()) else [news_ev_id]
         news_claim_val = {
             "title": n_title,
             "published_at": n_pub,
@@ -871,11 +887,12 @@ def build_contract_claims_and_evidence(
         if existing_news:
             existing_news["content_sha256"] = n_sha
             existing_news["source_url"] = n_src_url
+            existing_news["source_class"] = news_source_class
         else:
             evidence_items.append({
                 "id": news_ev_id,
                 "source_url": n_src_url,
-                "source_class": "company_site" if (has_valid_site_ev and "news.google.com" not in n_url.lower() and "brreg.no" not in n_url.lower() and "patentstyret" not in n_url.lower()) else ("official_announcement" if ("brreg" in n_src_url.lower() or "patentstyret" in n_src_url.lower()) else "public_news"),
+                "source_class": news_source_class,
                 "retrieved_at": completed_at,
                 "content_sha256": n_sha,
                 "claim_span": f"Dated news: {n_title} (published {n_pub})",

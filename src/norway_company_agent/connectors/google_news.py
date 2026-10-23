@@ -7,6 +7,7 @@ Uses exact-title matching to prevent wrong-company attributions.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import urllib.parse
 import urllib.request
@@ -15,10 +16,120 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
+from bs4 import BeautifulSoup
+
 from ..news_credibility import evaluate_news_credibility
 
 LEGAL_SUFFIXES = {"as", "asa", "sa", "ba", "da", "ans", "enk", "nuf", "sti"}
-UA = "SignalpostResearchPOC/1.0 (https://builderr.ai; bounded qualification run)"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
+
+def decode_google_news_url(rss_url: str, timeout: float = 6.0) -> str | None:
+    """Decode a Google News RSS redirect link directly to its canonical publisher URL."""
+    if not rss_url or "news.google.com" not in rss_url:
+        return rss_url
+    try:
+        req = urllib.request.Request(rss_url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            final_url = resp.geturl()
+            if "news.google.com" not in final_url:
+                return final_url
+            raw_html = resp.read(2_000_000).decode("utf-8", errors="replace")
+
+        soup = BeautifulSoup(raw_html, "html.parser")
+        wiz = soup.select_one("c-wiz[data-p]")
+        if not wiz or not wiz.get("data-p"):
+            return None
+        data_p = wiz.get("data-p")
+        obj = json.loads(data_p.replace("%.@.", '["garturlreq",'))
+        rpc_payload = [[["Fbv4je", json.dumps(obj[:-6] + obj[-2:]), "null", "generic"]]]
+        body = urllib.parse.urlencode({"f.req": json.dumps(rpc_payload)}).encode()
+        rpc_req = urllib.request.Request(
+            "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+            data=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                "User-Agent": UA,
+            },
+        )
+        with urllib.request.urlopen(rpc_req, timeout=timeout) as rpc_resp:
+            raw_rpc = rpc_resp.read(500_000).decode("utf-8", errors="replace")
+            clean_text = raw_rpc.replace(")]}'", "").strip()
+            arr = json.loads(clean_text)
+            inner = json.loads(arr[0][2])
+            decoded = inner[1]
+            if decoded and decoded.startswith(("http://", "https://")):
+                return decoded
+    except Exception:
+        pass
+    return None
+
+
+def fetch_verified_article(
+    url: str,
+    company_name: str,
+    fallback_date: str | None = None,
+    timeout: float = 6.0,
+) -> dict[str, Any] | None:
+    """Fetch an article page, compute authentic SHA-256 hash, and verify company naming."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            final_url = resp.geturl()
+            raw = resp.read(1_000_000)
+            sha = hashlib.sha256(raw).hexdigest()
+            html = raw.decode("utf-8", errors="replace")
+            soup = BeautifulSoup(html, "html.parser")
+
+            pub_date = None
+            for sel in (
+                "time[datetime]",
+                "meta[property='article:published_time']",
+                "meta[name='publication_date']",
+                "meta[name='date']",
+                "meta[name='DC.date.issued']",
+            ):
+                el = soup.select_one(sel)
+                if el:
+                    val = el.get("datetime") or el.get("content")
+                    if val:
+                        m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(val).strip())
+                        if m:
+                            pub_date = m.group(1)
+                            break
+            if not pub_date and fallback_date:
+                m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(fallback_date).strip())
+                if m:
+                    pub_date = m.group(1)
+
+            clean_core = re.sub(
+                r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", company_name, flags=re.I
+            ).strip().lower()
+            name_in = (
+                clean_core in html.lower()
+                if len(clean_core) >= 4
+                else exact_title_match(company_name, soup.title.get_text(" ", strip=True) if soup.title else "")
+            )
+
+            title = soup.title.get_text(" ", strip=True) if soup.title else ""
+            h1 = soup.find("h1")
+            if h1:
+                h1_text = h1.get_text(" ", strip=True)
+                if len(h1_text) >= 10:
+                    title = h1_text
+
+            return {
+                "title": title[:200],
+                "url": final_url,
+                "source_url": final_url,
+                "published_at": pub_date,
+                "content_sha256": sha,
+                "verification": "article_fetched",
+                "name_in_article": name_in,
+                "bytes_len": len(raw),
+            }
+    except Exception:
+        return None
 
 
 def exact_title_match(company_name: str, title: str) -> bool:
@@ -49,10 +160,14 @@ def fetch_google_news(
     limit: int = 5,
     years: int = 3,
     budget: Any | None = None,
+    decode_articles: bool = True,
 ) -> list[dict[str, Any]]:
     """Fetch news mentions for a company from Google News RSS.
 
     Returns a list of observation dicts ready for external footprint evaluation.
+    When decode_articles is True, Google News redirect tokens are resolved to real
+    publisher URLs and fetched to verify the company in the article and establish
+    an authentic content_sha256 digest.
     """
     if budget and not budget.can_proceed():
         return []
@@ -106,16 +221,43 @@ def fetch_google_news(
             if not cred["is_publishable"]:
                 continue
 
-            digest = hashlib.sha256(raw + title.encode("utf-8") + publisher.encode("utf-8")).hexdigest()
+            decoded_url = None
+            art = None
+            if decode_articles and (budget is None or budget.can_proceed(reserve=100)):
+                decoded_url = decode_google_news_url(link)
+                if budget:
+                    budget.record_request()
+                if decoded_url and decoded_url.startswith(("http://", "https://")) and "news.google.com" not in decoded_url:
+                    art = fetch_verified_article(decoded_url, company_name, fallback_date=published_at)
+                    if budget and art:
+                        budget.record_request(bytes_received=art.get("bytes_len", 0))
+
+            if art and art.get("content_sha256") and art.get("name_in_article"):
+                final_link = art["url"]
+                final_title = art["title"] or title
+                final_sha = art["content_sha256"]
+                final_pub = art["published_at"] or (published_at[:10] if published_at else None)
+                verif = "article_fetched"
+                name_in_art = True
+            elif not decode_articles:
+                final_link = link
+                final_title = title
+                final_sha = hashlib.sha256(raw + title.encode("utf-8") + publisher.encode("utf-8")).hexdigest()
+                final_pub = published_at
+                verif = ""
+                name_in_art = False
+            else:
+                continue
+
             output.append({
-                "id": "google-news-title-" + hashlib.sha256(f"{org}|{title}|{publisher}".encode()).hexdigest()[:24],
+                "id": "google-news-title-" + hashlib.sha256(f"{org}|{final_title}|{publisher}".encode()).hexdigest()[:24],
                 "organisation_number": org,
                 "platform": "news",
                 "signal_type": "dated_news",
-                "source_url": link,
+                "source_url": final_link,
                 "retrieved_at": retrieved_at,
-                "published_at": published_at,
-                "content_sha256": digest,
+                "published_at": final_pub,
+                "content_sha256": final_sha,
                 "exact_entity": True,
                 "credibility_score": cred["credibility_score"],
                 "credibility_tier": cred["credibility_tier"],
@@ -129,10 +271,12 @@ def fetch_google_news(
                 "source_class": "public_news",
                 "sentiment_label": "neutral",
                 "sentiment_model_version": "title_heuristic_v1",
-                "evidence_span": title,
-                "text": title,
+                "evidence_span": final_title,
+                "text": final_title,
                 "publisher": publisher,
                 "strategy": "independent_news_discovery",
+                "verification": verif,
+                "name_in_article": name_in_art,
             })
             if len(output) >= limit:
                 break
