@@ -195,7 +195,19 @@ def fetch_google_news(
             link = str(item.findtext("link") or "").strip()
             publisher = str(item.findtext("source") or "").strip()
 
-            if not link or not exact_title_match(company_name, title):
+            if not link:
+                continue
+
+            lower_t = title.casefold()
+            if any(bad in lower_t for bad in ["dødsfall", "gravferd", "minneord", "bisettelse", "død:"]):
+                continue
+
+            from ..verified_items import brand_tokens
+            tokens = brand_tokens(company_name)
+            has_brand_in_title = any(tok in lower_t for tok in tokens if len(tok) >= 4)
+            has_title_match = exact_title_match(company_name, title)
+
+            if not (has_title_match or has_brand_in_title or len(output) < 3):
                 continue
 
             key = (title.casefold(), publisher.casefold())
@@ -218,12 +230,17 @@ def fetch_google_news(
                 published_at=published_at,
                 company_name=company_name,
             )
-            if not cred["is_publishable"]:
-                continue
+            if decode_articles:
+                if cred.get("credibility_tier") == "rejected" or cred.get("fatal_flags"):
+                    continue
+            else:
+                if not cred.get("is_publishable"):
+                    continue
 
             decoded_url = None
             art = None
-            if decode_articles and (budget is None or budget.can_proceed(reserve=100)):
+            reserve_needed = min(10, max(2, int((budget.max_requests if budget else 1000) * 0.02)))
+            if decode_articles and (budget is None or budget.can_proceed(reserve=reserve_needed)):
                 decoded_url = decode_google_news_url(link)
                 if budget:
                     budget.record_request()

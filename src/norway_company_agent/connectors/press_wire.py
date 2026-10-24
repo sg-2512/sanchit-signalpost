@@ -36,7 +36,7 @@ def fetch_press_wire_news(
     """Fetch dated corporate press releases for a company from Norwegian wire services."""
     if not company_name:
         return []
-    if budget and not budget.can_proceed(reserve=50):
+    if budget and not budget.can_proceed(reserve=5):
         return []
 
     clean_name = re.sub(r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", str(company_name or ""), flags=re.I).strip()
