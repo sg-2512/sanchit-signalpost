@@ -222,6 +222,10 @@ def main() -> int:
     out_dir = Path(args.output_dir)
     passed, results = audit_run_output(out_dir, strict=args.strict)
 
+    if "error" in results:
+        print(f"Error: {results['error']}")
+        return 1
+
     print("=" * 80)
     print(f"SIGNALPOST OUTPUT SELF-AUDIT REPORT: {out_dir}")
     print("=" * 80)
