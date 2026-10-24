@@ -244,11 +244,13 @@ def validate_job_item(
                 return False, "nav_employer_orgnr_mismatch"
             return True, "nav_single_ad_exact_orgnr" if emp_org == str(org) else "nav_single_ad_subunit_orgnr"
         match_type = str(item.get("match_type") or "")
+        emp_name = str(item.get("employer_name") or item.get("businessName") or "")
+        if emp_name:
+            if name_in_text(company_name, emp_name):
+                return True, match_type if match_type in {"nav_employer_orgnr_match", "nav_company_core_match", "nav_company_subunit_match"} else "nav_company_name_match"
+            return False, "nav_employer_name_mismatch"
         if match_type in {"nav_employer_orgnr_match", "nav_company_core_match", "nav_company_subunit_match"}:
             return True, match_type
-        emp_name = str(item.get("employer_name") or item.get("businessName") or "")
-        if emp_name and name_in_text(company_name, emp_name):
-            return True, "nav_company_name_match"
         if not emp_name and item.get("exact_entity"):
             return True, "nav_single_ad_exact_entity"
         return False, "nav_employer_unverified"

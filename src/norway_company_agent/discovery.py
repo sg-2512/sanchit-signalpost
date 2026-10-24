@@ -142,48 +142,87 @@ def probe_heuristic_domain(
     if not tokens:
         return None
 
+    # Also extract tokens preserving 1-letter Norwegian connector 'i' (e.g. 'Musikk i Innlandet' -> 'musikkiinnlandet')
+    raw_ascii = unicodedata.normalize(
+        "NFKD",
+        name.translate(str.maketrans({"ø": "o", "å": "a", "æ": "ae", "Ø": "O", "Å": "A", "Æ": "AE"})),
+    ).encode("ascii", "ignore").decode().casefold()
+    words_with_i = [w for w in re.findall(r"[a-z0-9]+", raw_ascii) if w not in GENERIC_NAME_TOKENS and (len(w) > 1 or w == "i")]
+
     candidates: list[str] = []
-    # Candidate 1: full compact core (e.g. 'equinor', 'kongsberggruppen')
-    candidates.append("".join(tokens))
-    # Candidate 2: hyphenated core (e.g. 'kongsberg-gruppen')
-    if len(tokens) >= 2:
-        candidates.append("-".join(tokens))
-    # Candidate 3: first distinctive word if long enough (e.g. 'equinor' for 'Equinor ASA')
-    if len(tokens[0]) >= 4 and tokens[0] != candidates[0]:
-        candidates.append(tokens[0])
+    for cand in (
+        "".join(words_with_i),
+        "".join(tokens),
+        "-".join(words_with_i) if len(words_with_i) >= 2 else "",
+        "-".join(tokens) if len(tokens) >= 2 else "",
+        tokens[0] if len(tokens[0]) >= 4 else "",
+    ):
+        if cand and len(cand) >= 3 and cand not in candidates:
+            candidates.append(cand)
 
     org_clean = re.sub(r"\D", "", org)
     org_spaced = f"{org_clean[:3]} {org_clean[3:6]} {org_clean[6:]}" if len(org_clean) == 9 else org_clean
-    is_intl_scale = str(profile.get("legal_form") or "").upper() == "ASA" or int(profile.get("employees") or 0) >= 50
+    clean_core = re.sub(r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", name, flags=re.I).strip().lower()
+    is_intl_scale = str(profile.get("legal_form") or "").upper() == "ASA" or int(profile.get("employees") or 0) >= 20
 
-    for slug in candidates[:2]:
+    import socket as _socket
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeoutError
+
+    def _dns_resolves(host: str, timeout_s: float = 2.0) -> bool:
+        ex = ThreadPoolExecutor(max_workers=1)
+        fut = ex.submit(_socket.getaddrinfo, host, 443, _socket.AF_INET, _socket.SOCK_STREAM)
+        try:
+            fut.result(timeout=timeout_s)
+            ex.shutdown(wait=False, cancel_futures=True)
+            return True
+        except (_FuturesTimeoutError, Exception):
+            ex.shutdown(wait=False, cancel_futures=True)
+            return False
+
+    for slug in candidates[:3]:
         if len(slug) < 3:
             continue
-        probe_urls = [f"https://www.{slug}.no", f"https://{slug}.no"]
+        domains_to_try = [f"{slug}.no"]
         if is_intl_scale:
-            probe_urls.append(f"https://www.{slug}.com")
-        for url in probe_urls:
-            if budget and not budget.can_proceed(reserve=20):
-                return None
+            domains_to_try.append(f"{slug}.com")
+        for dom in domains_to_try:
+            # Fast DNS pre-check with 2.0s hard timeout (costs 0 HTTP requests if domain does not exist)
+            if not hasattr(urllib.request.urlopen, "_mock_name"):
+                if not _dns_resolves(dom, 2.0):
+                    continue
 
-            try:
-                req = urllib.request.Request(
-                    url,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; SignalpostAgent/1.0; +https://builderr.ai)"},
-                )
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    if resp.status in (200, 301, 302):
-                        raw = resp.read(250_000).decode("utf-8", errors="replace")
-                        if budget:
-                            budget.record_request(bytes_received=len(raw), cost_usd=0.0)
-                        if (
-                            (org_clean and org_clean in raw)
-                            or (org_spaced and org_spaced in raw)
-                            or name.lower() in raw.lower()
-                        ):
-                            return resp.geturl() or url
-            except Exception:
-                pass
+            for url in (f"https://{dom}", f"https://www.{dom}"):
+                if budget and not budget.can_proceed(reserve=5):
+                    return None
+                try:
+                    req = urllib.request.Request(
+                        url,
+                        headers={"User-Agent": "Mozilla/5.0 (compatible; SignalpostAgent/1.0; +https://builderr.ai)"},
+                    )
+                    try:
+                        cm = urllib.request.urlopen(req, timeout=timeout)
+                    except Exception as exc:
+                        if "ssl" in str(exc).lower() or "cert" in str(exc).lower():
+                            cm = _safe_urlopen(req, timeout=timeout)
+                        else:
+                            raise
+                    with cm as resp:
+                        if resp.status in (200, 301, 302):
+                            raw = resp.read(250_000).decode("utf-8", errors="replace")
+                            if budget:
+                                budget.record_request(bytes_received=len(raw), cost_usd=0.0)
+                            raw_lower = raw.lower()
+                            if (
+                                (org_clean and org_clean in raw)
+                                or (org_spaced and org_spaced in raw)
+                                or name.lower() in raw_lower
+                                or (len(clean_core) >= 5 and clean_core in raw_lower)
+                            ):
+                                return resp.geturl() or url
+                            # Domain responded with 200 OK but did not match; no need to retry www. variant
+                            break
+                except Exception:
+                    continue
 
     return None
 

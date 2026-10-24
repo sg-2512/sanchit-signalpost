@@ -96,7 +96,7 @@ def verify_norid_domain_ownership(
         if clean_org in raw_text:
             is_exact_owner = True
 
-        h_digest = hashlib.sha256(f"{clean_org}|norid|{clean_domain}|{is_exact_owner}".encode()).hexdigest()
+        h_digest = hashlib.sha256(raw).hexdigest()
         obs_id = f"norid-{clean_org}-{h_digest[:16]}"
 
         return {

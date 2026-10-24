@@ -85,7 +85,7 @@ def _safe_urlopen(request: urllib.request.Request, timeout: float):
         return SAFE_OPENER.open(request, timeout=timeout)
     except urllib.error.URLError as exc:
         exc_str = str(exc).lower()
-        if "ssl" in exc_str or "certificate" in exc_str or "hostname" in exc_str:
+        if "ssl" in exc_str or "certificate" in exc_str or "cert" in exc_str:
             return SAFE_SSL_FALLBACK_OPENER.open(request, timeout=timeout)
         raise
 
@@ -538,10 +538,10 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
     ats_domains = (
         "webcruiter.no", "webcruiter.com", "jobbnorge.no", "teamtailor.com",
         "recman.no", "recman.io", "career.recman.no", "easycruit.com", "reachmee.com",
-        "finn.no/jobb", "finn.no/stilling", "workbuster.com", "workbuster.se",
+        "finn.no/jobb", "finn.no/job/", "finn.no/stilling", "finnkode=", "workbuster.com", "workbuster.se",
         "varbi.com", "jobylon.com", "homerun.co", "talentech.com", "talentech.io",
         "karriere.no", "personio.de", "personio.com", "bamboohr.com", "lever.co",
-        "greenhouse.io", "workable.com", "smartrecruiters.com",
+        "greenhouse.io", "workable.com", "smartrecruiters.com", "arbeidsplassen.nav.no/stillinger/stilling/",
     )
     candidate_elements = soup.select("a[href]") + soup.select("iframe[src]")
     for anchor in candidate_elements:
@@ -748,8 +748,8 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
             score = o_rank + lang_penalty
             other_cands[clean] = min(score, other_cands.get(clean, score))
 
-    # If fewer than 2 news links or fewer than 2 career links found in HTML and sitemap check enabled
-    if check_sitemap and (len(news_cands) < 2 or len(career_cands) < 2):
+    # Only fetch /sitemap.xml if neither a news link nor a career link was found in HTML
+    if check_sitemap and len(news_cands) == 0 and len(career_cands) == 0:
         s_news, s_careers = _discover_sitemap_urls(base_url)
         for u in s_careers:
             if u not in career_cands:
@@ -928,7 +928,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
         fast_path_saturated = bool(len(homepage_news) >= 1 and len(homepage_jobs) >= 1 and len(social) >= 1)
-        subpage_limit = 1 if fast_path_saturated else 3
+        subpage_limit = 1 if fast_path_saturated else 2
         check_sitemap = not fast_path_saturated
         for page_url in _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=check_sitemap):
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(

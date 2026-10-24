@@ -49,9 +49,12 @@ class BudgetTracker:
         with self._lock:
             return max(0.0, self.max_cost_usd - self.cost_usd)
 
-    def can_proceed(self, reserve: int = 0) -> bool:
+    def can_proceed(self, reserve: int = 0, *, official: bool = False) -> bool:
         with self._lock:
-            if self.requests + reserve >= self.max_requests:
+            effective_reserve = reserve
+            if not official and effective_reserve == 0 and self.max_requests >= 50:
+                effective_reserve = min(150, max(5, int(self.max_requests * 0.12)))
+            if self.requests + effective_reserve >= self.max_requests:
                 return False
             if self.cost_usd >= self.max_cost_usd:
                 return False
@@ -72,11 +75,11 @@ class BudgetTracker:
         """Budget-aware wrapper around http.fetch_json.
 
         Records each attempt as a request against the budget. Official Brreg calls
-        are never blocked when running in production batches (max_requests > 50).
+        are never blocked by external connector reserves.
         """
         is_official_brreg = "brreg.no" in str(url or "").lower()
         effective_reserve = 0 if is_official_brreg else reserve
-        if not self.can_proceed(reserve=effective_reserve):
+        if not self.can_proceed(reserve=effective_reserve, official=is_official_brreg):
             from .evidence import utc_now
             return FetchResult(url, 0, 0, 0, error="budget_exhausted", retrieved_at=utc_now())
 

@@ -186,7 +186,7 @@ def evaluate_company_hiring(
 
     # 3. NAV Arbeidsplassen Live Job Search
     nav_jobs: list[dict[str, Any]] = []
-    if budget and budget.can_proceed(reserve=5):
+    if budget and budget.can_proceed(reserve=1):
         nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=subunit_orgs, budget=budget)
         for job in nav_jobs:
             signals.append({

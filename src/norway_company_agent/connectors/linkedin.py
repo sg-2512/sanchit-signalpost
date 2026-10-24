@@ -112,7 +112,7 @@ def discover_linkedin_company(
                 if not sec["is_safe"]:
                     continue
 
-                digest = hashlib.sha256(f"{org_number}|linkedin|{company_id}|{canonical_url}".encode()).hexdigest()
+                digest = hashlib.sha256(raw).hexdigest()
                 retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 return {
                     "id": "social-linkedin-" + hashlib.sha256(f"{org_number}|{company_id}".encode()).hexdigest()[:24],

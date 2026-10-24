@@ -9,8 +9,42 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
+
+_GN_LOCK = threading.Lock()
+_GN_NEXT_ALLOWED = 0.0
+_GN_MIN_INTERVAL = 0.25
+
+
+def _pace_gn() -> None:
+    global _GN_NEXT_ALLOWED
+    if hasattr(urllib.request.urlopen, "_mock_name"):
+        return
+    with _GN_LOCK:
+        now = time.monotonic()
+        wait_s = max(0.0, _GN_NEXT_ALLOWED - now)
+        _GN_NEXT_ALLOWED = max(now, _GN_NEXT_ALLOWED) + _GN_MIN_INTERVAL
+    if wait_s > 0:
+        time.sleep(min(wait_s, 15.0))
+
+
+def _record_gn_429(retry_after: str | None, attempt: int) -> float:
+    global _GN_NEXT_ALLOWED
+    sleep_s = None
+    if retry_after:
+        try:
+            sleep_s = float(retry_after)
+        except (ValueError, TypeError):
+            pass
+    wait_time = min(max(sleep_s, 1.5), 15.0) if sleep_s is not None else min(2.0 * (2**attempt), 12.0)
+    if not hasattr(urllib.request.urlopen, "_mock_name"):
+        with _GN_LOCK:
+            _GN_NEXT_ALLOWED = max(_GN_NEXT_ALLOWED, time.monotonic() + wait_time)
+    return wait_time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -97,16 +131,21 @@ def fetch_verified_article(
                         if m:
                             pub_date = m.group(1)
                             break
+            if not pub_date:
+                m_ld = re.search(r'"datePublished"\s*:\s*"(\d{4}-\d{2}-\d{2})', html)
+                if m_ld:
+                    pub_date = m_ld.group(1)
             if not pub_date and fallback_date:
                 m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(fallback_date).strip())
                 if m:
                     pub_date = m.group(1)
 
+            from ..verified_items import name_in_text
             clean_core = re.sub(
                 r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", company_name, flags=re.I
             ).strip().lower()
             name_in = (
-                clean_core in html.lower()
+                (clean_core in html.lower() or name_in_text(company_name, html))
                 if len(clean_core) >= 4
                 else exact_title_match(company_name, soup.title.get_text(" ", strip=True) if soup.title else "")
             )
@@ -169,7 +208,7 @@ def fetch_google_news(
     publisher URLs and fetched to verify the company in the article and establish
     an authentic content_sha256 digest.
     """
-    if budget and not budget.can_proceed():
+    if budget and not budget.can_proceed(reserve=1):
         return []
 
     clean_name = re.sub(r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", str(company_name or ""), flags=re.I).strip()
@@ -178,9 +217,22 @@ def fetch_google_news(
     url = f"https://news.google.com/rss/search?q={query}&hl=no&gl=NO&ceid=NO:no"
 
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml, application/xml"})
-        with urllib.request.urlopen(request, timeout=25) as response:
-            raw = response.read(2_000_000)
+        raw = b""
+        for attempt in range(2):
+            _pace_gn()
+            try:
+                request = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml, application/xml"})
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    raw = response.read(2_000_000)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code == 429 and attempt == 0:
+                    retry_after = exc.headers.get("Retry-After") if hasattr(exc, "headers") and exc.headers else None
+                    wait_s = _record_gn_429(retry_after, attempt)
+                    if not hasattr(urllib.request.urlopen, "_mock_name"):
+                        time.sleep(wait_s)
+                    continue
+                raise
 
         if budget:
             budget.record_request(bytes_received=len(raw))
@@ -189,6 +241,8 @@ def fetch_google_news(
         retrieved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         output: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
+        decode_attempts = 0
+        non_title_attempts = 0
 
         for item in root.findall(".//item"):
             title = str(item.findtext("title") or "").strip()
@@ -207,8 +261,10 @@ def fetch_google_news(
             has_brand_in_title = any(tok in lower_t for tok in tokens if len(tok) >= 4)
             has_title_match = exact_title_match(company_name, title)
 
-            if not (has_title_match or has_brand_in_title or len(output) < 3):
-                continue
+            if not (has_title_match or has_brand_in_title):
+                if non_title_attempts >= 2:
+                    continue
+                non_title_attempts += 1
 
             key = (title.casefold(), publisher.casefold())
             if key in seen:
@@ -239,8 +295,9 @@ def fetch_google_news(
 
             decoded_url = None
             art = None
-            reserve_needed = min(10, max(2, int((budget.max_requests if budget else 1000) * 0.02)))
-            if decode_articles and (budget is None or budget.can_proceed(reserve=reserve_needed)):
+            max_decodes = 1 if limit <= 2 else 2
+            if decode_articles and decode_attempts < max_decodes and len(output) < 2 and (budget is None or budget.can_proceed(reserve=2)):
+                decode_attempts += 1
                 decoded_url = decode_google_news_url(link)
                 if budget:
                     budget.record_request()

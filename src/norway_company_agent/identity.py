@@ -154,7 +154,10 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     elif is_business_sports_club and "bedriftsidrett" not in normalized_candidate_text and "b i l" not in normalized_candidate_text:
         score = 0.3
         reasons.append("business sports-club entity points to the operating company's site without club evidence")
-    elif org_digits and org_digits in compact_homepage_candidate:
+    elif org_digits and (
+        org_digits in compact_homepage_candidate
+        or (org_digits in compact_candidate and core_compact and domain_sld_alnum == core_compact)
+    ):
         score = 1.0
         reasons.append("exact organisation number appears in homepage identity evidence")
     elif trademark_brand_match and substantive_homepage:

@@ -81,7 +81,7 @@ def resolve_commercial_directory_presence(
         phone = phone_match.group(1).strip() if phone_match else None
 
         # Build directory observation
-        h_digest = hashlib.sha256(f"{clean_org}|proff|{discovered_site}|{phone}".encode()).hexdigest()
+        h_digest = hashlib.sha256(raw).hexdigest()
         obs_id = f"dir-proff-{clean_org}-{h_digest[:16]}"
         observations.append({
             "id": obs_id,

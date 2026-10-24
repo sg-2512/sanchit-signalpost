@@ -140,7 +140,7 @@ def fetch_wikidata_entity(
             if not raw_val:
                 continue
             canonical_url = url_builder(str(raw_val).strip())
-            h_digest = hashlib.sha256(f"{clean_org}|{platform}|{canonical_url}".encode()).hexdigest()
+            h_digest = digest
             observations.append({
                 "id": f"social-{platform}-{clean_org}-{h_digest[:16]}",
                 "organisation_number": clean_org,

@@ -47,14 +47,11 @@ _load_env_file()
 import socket
 socket.setdefaulttimeout(15.0)
 
-# Prioritize IPv4 resolution to prevent Windows hanging on broken IPv6/NAT64 routes
+# Force IPv4 resolution to prevent Windows hanging on broken IPv6/NAT64 routes or double-resolving NXDOMAIN
 _orig_getaddrinfo = socket.getaddrinfo
 def _ipv4_first_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     if family == 0 or family == socket.AF_UNSPEC:
-        try:
-            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-        except socket.gaierror:
-            pass
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
     return _orig_getaddrinfo(host, port, family, type, proto, flags)
 socket.getaddrinfo = _ipv4_first_getaddrinfo
 
@@ -606,33 +603,26 @@ def enrich_single_company(
                 retrieved_at=utc_now(),
             )
 
-    # 2. Google Places (if API key available)
+    emp_count = int(profile.get("employees") or 0)
+    form_code_upper = str(profile.get("legal_form") or "").upper()
+    name_upper = name.upper()
+    has_reg_web_or_email = bool(profile.get("website") or extract_email_domain_candidate(profile))
+    is_housing_coop = form_code_upper in {"BRL", "ESEK", "SAM", "BBL"} or any(
+        tok in name_upper for tok in ("BORETTSLAG", "SAMEIE", "SAMEIET")
+    )
+    is_passive_entity = not has_reg_web_or_email and (
+        is_housing_coop
+        or (emp_count == 0 and any(tok in name_upper for tok in ("HOLDING", "INVEST", "EIENDOM")))
+    )
+
     places_obs: list[dict[str, Any]] = []
-    if places_available() and budget.can_proceed():
-        address = (
-            profile.get("address")
-            or profile.get("municipality")
-            or profile.get("business_address")
-            or (profile.get("evidence", {}).get("registry_live", {}).get("value", {}) or {}).get("forretningsadresse")
-        )
-        places_obs = fetch_place_data(org, name, address=address, budget=budget)
-
-    # 2b. Wikidata SPARQL Entity Corroboration (official website P856 & social handles via P2333)
     wiki_obs: list[dict[str, Any]] = []
-    if budget.can_proceed():
-        wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
-
-    # 2c. Patentstyret (Norwegian Trademarks & Patents - NIPO Open Data Brand Bridge)
     patent_obs: list[dict[str, Any]] = []
-    if patentstyret_available() and budget.can_proceed():
-        patent_obs = fetch_patentstyret_data(org, name, budget=budget)
-        if patent_obs:
-            profile["patents"] = [obs.get("metrics") or {} for obs in patent_obs if obs.get("metrics")]
 
     # 3. Fetch and verify company website via multi-level waterfall
     website_metrics = {"requests": 0, "bytes": 0, "latencies_ms": []}
     verified_website = False
-    if "website" in requested_modules and budget.can_proceed():
+    if "website" in requested_modules and budget.can_proceed(reserve=2):
         target_site = profile.get("website")
 
         # Level 1: Official registry URL
@@ -647,10 +637,9 @@ def enrich_single_company(
                 if val.get("identity_assessment", {}).get("publishable"):
                     profile["website"] = val.get("final_url") or target_site
                     verified_website = True
-            # A declared site that could not be fetched keeps its classified state; no placeholder evidence.
 
         # Level 2: Official registry corporate email domain (post@firmanavn.no -> firmanavn.no)
-        if not verified_website and budget.can_proceed():
+        if not verified_website and budget.can_proceed(reserve=2):
             email_site = extract_email_domain_candidate(profile)
             if email_site:
                 w_rec, w_met = fetch_website(email_site)
@@ -664,14 +653,11 @@ def enrich_single_company(
                         profile["website"] = val.get("final_url") or email_site
                         verified_website = True
 
-        # Level 2b: Wikidata P2333-verified official website (P856)
-        if not verified_website and wiki_obs and budget.can_proceed():
-            wiki_site = next(
-                (wo.get("source_url") for wo in wiki_obs if wo.get("signal_type") == "official_website" and wo.get("source_url")),
-                None,
-            )
-            if wiki_site:
-                w_rec, w_met = fetch_website(wiki_site)
+        # Level 3: Free heuristic .no/.com Norwegian domain probe with fast DNS pre-check
+        if not verified_website and not is_passive_entity and budget.can_proceed(reserve=2):
+            heuristic_site = probe_heuristic_domain(profile, budget=budget)
+            if heuristic_site:
+                w_rec, w_met = fetch_website(heuristic_site)
                 website_metrics["requests"] += w_met.get("requests", 0)
                 website_metrics["bytes"] += w_met.get("bytes", 0)
                 gated = apply_website_identity_gate(profile, w_rec)
@@ -679,14 +665,21 @@ def enrich_single_company(
                     val = gated["website"].get("value") or {}
                     if val.get("identity_assessment", {}).get("publishable"):
                         profile["evidence"]["website"] = gated["website"]
-                        profile["website"] = val.get("final_url") or wiki_site
+                        profile["website"] = val.get("final_url") or heuristic_site
                         verified_website = True
 
-        # Level 3: Google Places verified websiteUri
-        if not verified_website and places_obs and budget.can_proceed():
+        # Level 4: Google Places verified websiteUri (only queried before jobs/news when website not yet found)
+        if not verified_website and not is_passive_entity and places_available() and budget.can_proceed(reserve=4):
+            address = (
+                profile.get("address")
+                or profile.get("municipality")
+                or profile.get("business_address")
+                or (profile.get("evidence", {}).get("registry_live", {}).get("value", {}) or {}).get("forretningsadresse")
+            )
+            places_obs = fetch_place_data(org, name, address=address, budget=budget)
             places_site = None
-            for p in places_obs:
-                u = p.get("website_uri") or (p.get("metrics") or {}).get("website_uri")
+            for p_item in places_obs:
+                u = p_item.get("website_uri") or (p_item.get("metrics") or {}).get("website_uri")
                 if u:
                     places_site = u
                     break
@@ -702,11 +695,19 @@ def enrich_single_company(
                         profile["website"] = val.get("final_url") or places_site
                         verified_website = True
 
-        # Level 4: Free heuristic .no/.com Norwegian domain probe with org-number validation
-        if not verified_website and budget.can_proceed():
-            heuristic_site = probe_heuristic_domain(profile, budget=budget)
-            if heuristic_site:
-                w_rec, w_met = fetch_website(heuristic_site)
+        # Level 4b: Wikidata P2333-verified official website (P856)
+        if not verified_website and not is_passive_entity and (emp_count >= 15 or form_code_upper == "ASA") and budget.can_proceed(reserve=40):
+            wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
+            wiki_site = next(
+                (
+                    (wo.get("source_url") if wo.get("signal_type") == "official_website" else (wo.get("metrics") or {}).get("website"))
+                    for wo in wiki_obs
+                    if (wo.get("signal_type") == "official_website" and wo.get("source_url")) or (wo.get("metrics") or {}).get("website")
+                ),
+                None,
+            )
+            if wiki_site:
+                w_rec, w_met = fetch_website(wiki_site)
                 website_metrics["requests"] += w_met.get("requests", 0)
                 website_metrics["bytes"] += w_met.get("bytes", 0)
                 gated = apply_website_identity_gate(profile, w_rec)
@@ -714,16 +715,19 @@ def enrich_single_company(
                     val = gated["website"].get("value") or {}
                     if val.get("identity_assessment", {}).get("publishable"):
                         profile["evidence"]["website"] = gated["website"]
-                        profile["website"] = val.get("final_url") or heuristic_site
+                        profile["website"] = val.get("final_url") or wiki_site
                         verified_website = True
 
-        # Level 4b: Patentstyret registered trademark brand domain probe (Builderr Route 9 Brand Bridge)
-        if not verified_website and profile.get("patents") and budget.can_proceed():
-            for pat in profile["patents"]:
+        # Level 4c: Patentstyret registered trademark brand domain probe (Builderr Route 9 Brand Bridge)
+        if not verified_website and not is_passive_entity and emp_count >= 10 and patentstyret_available() and budget.can_proceed(reserve=40):
+            patent_obs = fetch_patentstyret_data(org, name, budget=budget)
+            if patent_obs:
+                profile["patents"] = [obs.get("metrics") or {} for obs in patent_obs if obs.get("metrics")]
+            for pat in profile.get("patents") or []:
                 b_name = str(pat.get("title") or "")
                 b_slug = re.sub(r"[^a-z0-9]", "", b_name.lower())
                 if len(b_slug) >= 3 and b_slug not in ("as", "asa", "norge", "norway"):
-                    for cand_url in (f"https://www.{b_slug}.no", f"https://{b_slug}.no", f"https://www.{b_slug}.com"):
+                    for cand_url in (f"https://www.{b_slug}.no", f"https://{b_slug}.no"):
                         if not budget.can_proceed():
                             break
                         try:
@@ -743,28 +747,8 @@ def enrich_single_company(
                     if verified_website:
                         break
 
-        # Level 4c: Proff.no & 1881.no verified commercial directory resolver
-        if not verified_website and budget.can_proceed():
-            proff_site, proff_obs = resolve_commercial_directory_presence(org, name, budget=budget)
-            if proff_obs:
-                observations.extend(proff_obs)
-            if proff_site:
-                try:
-                    w_rec, w_met = fetch_website(proff_site)
-                    website_metrics["requests"] += w_met.get("requests", 0)
-                    website_metrics["bytes"] += w_met.get("bytes", 0)
-                    gated = apply_website_identity_gate(profile, w_rec)
-                    if gated["website"].get("status") == "available":
-                        val = gated["website"].get("value") or {}
-                        if val.get("identity_assessment", {}).get("publishable"):
-                            profile["evidence"]["website"] = gated["website"]
-                            profile["website"] = val.get("final_url") or proff_site
-                            verified_website = True
-                except Exception:
-                    pass
-
-        # Level 4d: Official Norid (.no National Registry) RDAP Brand Domain Discovery
-        if not verified_website and budget.can_proceed():
+        # Level 4e: Official Norid (.no National Registry) RDAP Brand Domain Discovery (only when corporate email domain exists)
+        if not verified_website and not is_passive_entity and extract_email_domain_candidate(profile) and budget.can_proceed(reserve=40):
             reg_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
             bulk_val = (profile.get("evidence", {}).get("registry", {}).get("value") or {})
             c_email = (
@@ -834,12 +818,9 @@ def enrich_single_company(
     web_social_obs = extract_social_observations(profile)
     observations.extend(web_social_obs)
 
-    # Website news & job announcements
+    # Website news & job announcements (validated in Step 9 before appending to observations)
     web_news_obs = extract_website_news_observations(profile)
-    observations.extend(web_news_obs)
-
     web_jobs_obs = extract_website_job_observations(profile)
-    observations.extend(web_jobs_obs)
 
     # Official registry observations
     observations.extend(extract_workforce_observation(profile))
@@ -850,15 +831,14 @@ def enrich_single_company(
 
     # 5. Google News RSS (free)
     news_obs: list[dict[str, Any]] = []
-    if budget.can_proceed():
-        news_obs = fetch_google_news(org, name, limit=5, years=2, budget=budget)
-        observations.extend(news_obs)
+    if budget.can_proceed(reserve=1):
+        gn_limit = 2 if web_news_obs else 5
+        news_obs = fetch_google_news(org, name, limit=gn_limit, years=2, budget=budget)
 
     # 5b. Norwegian Corporate Press Wires (NTB Kommunikasjon, Mynewsdesk, Cision)
     wire_obs: list[dict[str, Any]] = []
-    if budget.can_proceed():
+    if not is_passive_entity and (emp_count >= 5 or verified_website) and not web_news_obs and not news_obs and budget.can_proceed(reserve=30):
         wire_obs = fetch_press_wire_news(org, name, limit=3, budget=budget)
-        observations.extend(wire_obs)
 
     # 6. Google Places & Wikidata & Patentstyret observations (already fetched)
     observations.extend(places_obs)
@@ -867,14 +847,14 @@ def enrich_single_company(
 
     # 7. YouTube Data API connector
     yt_obs: list[dict[str, Any]] = []
-    if youtube_available() and budget.can_proceed():
+    if not is_passive_entity and (emp_count >= 5 or verified_website) and youtube_available() and budget.can_proceed(reserve=25):
         social_links = ((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("social_links") or [])
         yt_obs = fetch_youtube_data(org, name, social_links=social_links, budget=budget)
         observations.extend(yt_obs)
 
     # 7b. LinkedIn Company Discovery (free, open guest typeahead with anti-impersonation)
     li_obs: dict[str, Any] | None = None
-    if budget.can_proceed():
+    if not is_passive_entity and budget.can_proceed():
         social_links = ((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("social_links") or [])
         has_linkedin = any(
             (link.get("platform") == "linkedin" or "linkedin.com" in str(link.get("url") or "").lower())
@@ -915,18 +895,11 @@ def enrich_single_company(
                     cur_soc.append({"platform": vs["platform"], "url": vs["url"]})
 
     # 8. Multi-Source Hiring & Recruitment Intelligence (NAV, LinkedIn, Website, Brreg)
-    hiring_block, hiring_obs = evaluate_company_hiring(profile, observations, budget=budget)
+    hiring_block, hiring_obs = evaluate_company_hiring(profile, observations + list(web_jobs_obs), budget=budget)
     profile["hiring"] = hiring_block
-    observations.extend(hiring_obs)
-
-    # 8b. Brreg Kunngjøringer (Official Legal Announcements)
-    kunn_obs: list[dict[str, Any]] = []
-    if budget.can_proceed():
-        kunn_obs = fetch_brreg_kunngjoringer(org, name, budget=budget)
-        observations.extend(kunn_obs)
 
     # 9. Populate evidence records for news, jobs, and hiring
-    # Only real editorial or company-website news observations count as news
+    # Only real editorial or company-website news observations that pass strict validation count as news
     raw_news = list(web_news_obs) + list(news_obs) + list(wire_obs)
     c_name = profile.get("name") or ""
     site_url = str(profile.get("website") or "")
@@ -946,6 +919,7 @@ def enrich_single_company(
         ok, _ = validate_news_item(cand, company_name=c_name, site_url=site_url)
         if ok:
             all_news_obs.append(o)
+    observations.extend(all_news_obs)
 
     if all_news_obs:
         primary_n = all_news_obs[0]
@@ -965,6 +939,8 @@ def enrich_single_company(
                         "url": o.get("source_url"),
                         "published_at": o.get("published_at"),
                         "content_sha256": o.get("content_sha256"),
+                        "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
+                        "name_in_article": o.get("name_in_article") or bool(o.get("exact_entity")),
                     }
                     for o in all_news_obs
                 ],
@@ -1007,6 +983,8 @@ def enrich_single_company(
         ok, _ = validate_job_item(cand, org=org, company_name=c_name, site_url=site_url, site_publishable=verified_website, subunit_orgs=sub_orgs_hiring)
         if ok:
             all_job_obs.append(o)
+    observations.extend(all_job_obs)
+    observations.extend([o for o in hiring_obs if o.get("signal_type") != "job_posting"])
 
     if all_job_obs:
         primary_j = all_job_obs[0]
@@ -1026,6 +1004,11 @@ def enrich_single_company(
                         "url": o.get("source_url"),
                         "published_at": o.get("published_at"),
                         "content_sha256": o.get("content_sha256"),
+                        "kind": o.get("kind") or ("nav_ad" if "arbeidsplassen.nav.no" in str(o.get("source_url") or "") else ""),
+                        "employer_org": o.get("employer_org") or "",
+                        "employer_name": o.get("employer_name") or "",
+                        "match_type": o.get("match_type") or "",
+                        "hiring_org_match": o.get("hiring_org_match"),
                     }
                     for o in all_job_obs
                 ],
@@ -1091,8 +1074,8 @@ def enrich_single_company(
         subunit_obs = fetch_company_subunits(org, name, budget=budget)
         observations.extend(subunit_obs)
 
-    # 13. Patentstyret (Norwegian Trademarks & Patents - ensure attached)
-    if not patent_obs and patentstyret_available() and budget.can_proceed():
+    # 13. Patentstyret (Norwegian Trademarks & Patents - ensure attached for operating entities)
+    if not is_passive_entity and (emp_count >= 10 or verified_website) and not patent_obs and patentstyret_available() and budget.can_proceed(reserve=40):
         patent_obs = fetch_patentstyret_data(org, name, budget=budget)
         observations.extend(patent_obs)
         if patent_obs:
@@ -1100,98 +1083,13 @@ def enrich_single_company(
     elif patent_obs and "patents" not in profile:
         profile["patents"] = [obs.get("metrics") or {} for obs in patent_obs if obs.get("metrics")]
 
-    # 13b. Doffin Public Procurement (Norwegian B2G Contracts & Tenders)
-    if budget.can_proceed():
-        doffin_obs = fetch_doffin_procurement(org, name, budget=budget)
-        if doffin_obs:
-            observations.extend(doffin_obs)
-            profile["procurement"] = [obs.get("metrics") or {} for obs in doffin_obs if obs.get("metrics")]
-
-    # 13c. Mattilsynet Smilefjes (Food Safety & Hygiene Inspections)
-    ind_code = str(profile.get("industry_code") or "")
-    if budget.can_proceed():
-        food_obs = fetch_mattilsynet_inspections(org, name, budget=budget)
-        if food_obs:
-            observations.extend(food_obs)
-            profile["food_safety"] = [obs.get("metrics") or {} for obs in food_obs if obs.get("metrics")]
-
-    # 13d. Regulatory Licenses (Arbeidstilsynet & Finanstilsynet)
-    if budget.can_proceed():
-        lic_obs = fetch_regulatory_licenses(org, name, industry_code=ind_code, budget=budget)
-        if lic_obs:
-            observations.extend(lic_obs)
-            profile["regulatory_licenses"] = [obs.get("metrics") or {} for obs in lic_obs if obs.get("metrics")]
-
-    # 13e. Miljøfyrtårn & ESG Sustainability Certifications
-    if budget.can_proceed():
-        esg_obs = fetch_esg_certifications(org, name, budget=budget)
-        if esg_obs:
-            observations.extend(esg_obs)
-            profile["esg"] = [obs.get("metrics") or {} for obs in esg_obs if obs.get("metrics")]
-
-    # 13f. Lovdata & Insolvency Legal Gazettes
-    if budget.can_proceed():
-        legal_obs = fetch_insolvency_legal_notices(org, name, budget=budget)
-        if legal_obs:
-            observations.extend(legal_obs)
-            profile["legal_standing"] = [obs.get("metrics") or {} for obs in legal_obs if obs.get("metrics")]
-
     # 13g. Norid (.no National Domain Ownership Verification)
     web_url = profile.get("website") or ""
-    if ".no" in web_url and budget.can_proceed():
+    if ".no" in web_url and not profile.get("norid_verification") and budget.can_proceed(reserve=25):
         norid_obs = verify_norid_domain_ownership(web_url, org, name, budget=budget)
         if norid_obs:
             observations.append(norid_obs)
             profile["norid_verification"] = norid_obs.get("metrics") or {}
-
-    # 13h. Løsøreregisteret (Brønnøysund Mortgages, Liens & Distraints)
-    if budget.can_proceed():
-        lien_obs = fetch_losoreregisteret_liens(org, name, budget=budget)
-        if lien_obs:
-            observations.extend(lien_obs)
-            profile["mortgages"] = [obs.get("metrics") or {} for obs in lien_obs if obs.get("metrics")]
-
-    # 13i. Forskningsrådet & SkatteFUNN (R&D Grants & Innovation Projects)
-    if budget.can_proceed():
-        rnd_obs = fetch_forskningsradet_grants(org, name, budget=budget)
-        if rnd_obs:
-            observations.extend(rnd_obs)
-            profile["rnd_grants"] = [obs.get("metrics") or {} for obs in rnd_obs if obs.get("metrics")]
-
-    # 13j. Innovasjon Norge (Commercialization Grants & Subsidies)
-    if budget.can_proceed():
-        in_obs = fetch_innovasjon_norge_grants(org, name, budget=budget)
-        if in_obs:
-            observations.extend(in_obs)
-            profile["innovation_grants"] = [obs.get("metrics") or {} for obs in in_obs if obs.get("metrics")]
-
-    # 13k. Oslo Børs / Euronext Oslo (Stock Exchange Disclosures & Tickers)
-    if budget.can_proceed():
-        bors_obs = fetch_oslo_bors_disclosures(org, name, budget=budget)
-        if bors_obs:
-            observations.extend(bors_obs)
-            profile["stock_exchange"] = [obs.get("metrics") or {} for obs in bors_obs if obs.get("metrics")]
-
-    # 13l. Statistisk sentralbyrå (SSB Industry Macro Benchmarks)
-    if ind_code and budget.can_proceed():
-        ssb_obs = fetch_ssb_industry_benchmark(ind_code, org, name, budget=budget)
-        if ssb_obs:
-            observations.append(ssb_obs)
-            profile["industry_benchmark"] = ssb_obs.get("metrics") or {}
-
-    # 13m. GLEIF (Global Legal Entity Identifier / International Standard)
-    if budget.can_proceed():
-        gleif_obs = fetch_gleif_identifier(org, name, budget=budget)
-        if gleif_obs:
-            observations.append(gleif_obs)
-            profile["lei"] = gleif_obs.get("metrics") or {}
-
-    # 13n. Miljødirektoratet (Environmental Permits & Emissions)
-    if budget.can_proceed():
-        permit_obs = fetch_miljodirektoratet_permits(org, name, budget=budget)
-        if permit_obs:
-            observations.extend(permit_obs)
-            profile["environmental_permits"] = [obs.get("metrics") or {} for obs in permit_obs if obs.get("metrics")]
 
     # 14. Decision-useful factual synthesis (12-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)

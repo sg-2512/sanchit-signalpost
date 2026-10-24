@@ -58,16 +58,40 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
         if item.get("platform") == "linkedin" and item.get("signal_type") == "workforce_snapshot" and item.get("exact_entity")
     ]
 
-    # 2. Hiring signals: combine LinkedIn jobs + NAV Arbeidsplassen + website jobs
+    # 2. Hiring signals: combine validated evidence["jobs"] + external job_posting observations
     jobs_collected = []
     seen_job_keys = set()
+    ev_jobs = ((evidence.get("jobs") or {}).get("value") or {}).get("items") or []
+    for j in ev_jobs:
+        title = j.get("title")
+        j_url = j.get("url")
+        if not title or not j_url:
+            continue
+        key = (str(title).strip().lower(), str(j_url).strip().lower())
+        if key in seen_job_keys:
+            continue
+        seen_job_keys.add(key)
+        jobs_collected.append({
+            "title": title,
+            "location": j.get("location") or row.get("municipality") or "Norge",
+            "date_posted": j.get("published_at") or "",
+            "job_url": j_url,
+            "source": j_url,
+            "sourceClass": (evidence.get("jobs") or {}).get("source_class") or "job_board",
+            "text": f"{title} — {row.get('name')} — {row.get('municipality') or 'Norge'}",
+            "retrievedAt": (evidence.get("jobs") or {}).get("retrieved_at"),
+            "publishedAt": j.get("published_at"),
+            "hash": j.get("content_sha256") or (evidence.get("jobs") or {}).get("content_sha256"),
+            "rightsStatus": "approved",
+        })
     for item in external_observations:
         if item.get("signal_type") == "job_posting":
             metrics = item.get("metrics") or {}
             title = metrics.get("title") or metrics.get("job_title") or item.get("title") or item.get("job_title") or item.get("evidence_span")
-            if not title:
+            j_url = metrics.get("job_url") or item.get("url") or item.get("source_url")
+            if not title or not j_url:
                 continue
-            key = (str(title).strip().lower(), str(metrics.get("location") or "").strip().lower())
+            key = (str(title).strip().lower(), str(j_url).strip().lower())
             if key in seen_job_keys:
                 continue
             seen_job_keys.add(key)
@@ -75,20 +99,45 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
                 "title": title,
                 "location": metrics.get("location") or item.get("location") or row.get("municipality") or "Norge",
                 "date_posted": item.get("date_published") or item.get("published_at") or (item.get("retrieved_at", "")[:10] if item.get("retrieved_at") else ""),
-                "job_url": metrics.get("job_url") or item.get("url") or item.get("source_url"),
+                "job_url": j_url,
                 "source": item.get("source_url"),
                 "sourceClass": item.get("source_class") or "job_board",
                 "text": f"{title} — {row.get('name')} — {metrics.get('location') or row.get('municipality') or 'Norge'}",
                 **observation_meta(item),
             })
 
-    # 3. Public posts and news mentions
+    # 3. Public posts and verified news mentions (excluding registry statutory notices)
     posts_collected = []
     seen_post_keys = set()
+    ev_news = ((evidence.get("news") or {}).get("value") or {}).get("items") or []
+    for n in ev_news:
+        title = n.get("title")
+        n_url = n.get("url")
+        if not title or not n_url:
+            continue
+        key = str(title)[:80].strip().lower()
+        if key in seen_post_keys:
+            continue
+        seen_post_keys.add(key)
+        posts_collected.append({
+            "text": title,
+            "likes": 0,
+            "comments": 0,
+            "date_posted": n.get("published_at") or "Recent",
+            "source": n_url,
+            "sourceClass": (evidence.get("news") or {}).get("source_class") or "public_media",
+            "retrievedAt": (evidence.get("news") or {}).get("retrieved_at"),
+            "publishedAt": n.get("published_at"),
+            "hash": n.get("content_sha256") or (evidence.get("news") or {}).get("content_sha256"),
+            "rightsStatus": "approved",
+        })
     for item in external_observations:
+        obs_id = str(item.get("id") or "")
+        if obs_id.startswith(("notice-news-", "notice-acc-", "notice-kunn-")) or item.get("platform") == "brreg":
+            continue
         if item.get("signal_type") in {"public_post", "public_mention", "dated_news"}:
             metrics = item.get("metrics") or {}
-            text = item.get("evidence_span") or metrics.get("headline") or metrics.get("title") or item.get("title")
+            text = item.get("text") or item.get("evidence_span") or metrics.get("headline") or metrics.get("title") or item.get("title")
             if not text:
                 continue
             key = str(text)[:80].strip().lower()

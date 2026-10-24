@@ -57,8 +57,11 @@ def fetch_press_wire_news(
         retrieved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         observations: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
+        decode_attempts = 0
 
         for item in root.findall(".//item"):
+            if decode_attempts >= 2:
+                break
             title = str(item.findtext("title") or "").strip()
             link = str(item.findtext("link") or "").strip()
             publisher = str(item.findtext("source") or "").strip()
@@ -72,6 +75,7 @@ def fetch_press_wire_news(
             except Exception:
                 published_at = None
 
+            decode_attempts += 1
             decoded_url = decode_google_news_url(link)
             if budget:
                 budget.record_request()
