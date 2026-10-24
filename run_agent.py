@@ -79,6 +79,7 @@ from norway_company_agent.discovery import extract_email_domain_candidate, probe
 
 # External connectors (activate based on env vars)
 from norway_company_agent.connectors.google_news import fetch_google_news
+from norway_company_agent.connectors.press_wire import fetch_press_wire_news
 from norway_company_agent.connectors.google_places import (
     fetch_place_data,
     is_available as places_available,
@@ -853,6 +854,12 @@ def enrich_single_company(
         news_obs = fetch_google_news(org, name, limit=5, years=2, budget=budget)
         observations.extend(news_obs)
 
+    # 5b. Norwegian Corporate Press Wires (NTB Kommunikasjon, Mynewsdesk, Cision)
+    wire_obs: list[dict[str, Any]] = []
+    if budget.can_proceed():
+        wire_obs = fetch_press_wire_news(org, name, limit=3, budget=budget)
+        observations.extend(wire_obs)
+
     # 6. Google Places & Wikidata & Patentstyret observations (already fetched)
     observations.extend(places_obs)
     observations.extend(wiki_obs)
@@ -920,7 +927,7 @@ def enrich_single_company(
 
     # 9. Populate evidence records for news, jobs, and hiring
     # Only real editorial or company-website news observations count as news
-    raw_news = list(web_news_obs) + list(news_obs)
+    raw_news = list(web_news_obs) + list(news_obs) + list(wire_obs)
     c_name = profile.get("name") or ""
     site_url = str(profile.get("website") or "")
     all_news_obs = []
@@ -980,6 +987,8 @@ def enrich_single_company(
     # Only verified single job postings are populated into jobs
     raw_jobs = [o for o in hiring_obs if o.get("signal_type") == "job_posting"] + list(web_jobs_obs)
     all_job_obs = []
+    loc_rec_temp = (profile.get("evidence") or {}).get("locations") or {}
+    sub_orgs_hiring = [str(u.get("organisation_number")) for u in ((loc_rec_temp.get("value") or {}).get("locations") or []) if u.get("organisation_number")]
     for o in raw_jobs:
         t = str(o.get("job_title") or o.get("text") or (o.get("metrics") or {}).get("job_title") or "").strip()
         u = str(o.get("source_url") or "").strip()
@@ -995,7 +1004,7 @@ def enrich_single_company(
             "match_type": o.get("match_type") or "",
             "hiring_org_match": o.get("hiring_org_match"),
         }
-        ok, _ = validate_job_item(cand, org=org, company_name=c_name, site_url=site_url, site_publishable=verified_website)
+        ok, _ = validate_job_item(cand, org=org, company_name=c_name, site_url=site_url, site_publishable=verified_website, subunit_orgs=sub_orgs_hiring)
         if ok:
             all_job_obs.append(o)
 

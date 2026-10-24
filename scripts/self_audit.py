@@ -123,6 +123,8 @@ def audit_run_output(output_dir: Path, strict: bool = True) -> tuple[bool, dict[
         prof = profiles.get(org, {})
         c_name = prof.get("name") or ""
         site_url = prof.get("website") or ""
+        loc_ev = (prof.get("evidence", {}).get("locations", {}).get("value") or {}) if isinstance(prof, dict) else {}
+        sub_orgs = [str(u.get("organisation_number")) for u in (loc_ev.get("locations") or []) if u.get("organisation_number")]
 
         job_claims = [c for c in env.get("claims", []) if c.get("field") in {"job_postings", "jobs"}]
         for jc in job_claims:
@@ -135,7 +137,7 @@ def audit_run_output(output_dir: Path, strict: bool = True) -> tuple[bool, dict[
                 continue
             for item in items:
                 stats["jobs_items_checked"] += 1
-                ok, reason = validate_job_item(item, org=org, company_name=c_name, site_url=site_url, site_publishable=True)
+                ok, reason = validate_job_item(item, org=org, company_name=c_name, site_url=site_url, site_publishable=True, subunit_orgs=sub_orgs)
                 if not ok:
                     failures.append(f"Org {org}: Job item rejected ({reason}): {item.get('title')} ({item.get('url')})")
                 else:

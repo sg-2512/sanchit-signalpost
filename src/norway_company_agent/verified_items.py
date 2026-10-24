@@ -218,6 +218,7 @@ def validate_job_item(
     company_name: str,
     site_url: str = "",
     site_publishable: bool = False,
+    subunit_orgs: Any = (),
 ) -> tuple[bool, str]:
     """Return (ok, reason). Applied to every job item right before publication."""
     url = _norm_text(item.get("url"))
@@ -237,10 +238,11 @@ def validate_job_item(
         if not _NAV_AD_RE.match(url.split("?")[0].split("#")[0]):
             return False, "nav_not_single_ad"
         emp_org = str(item.get("employer_org") or "")
+        sub_set = {str(s) for s in (subunit_orgs or ()) if s}
         if emp_org:
-            if emp_org != str(org):
+            if emp_org != str(org) and emp_org not in sub_set:
                 return False, "nav_employer_orgnr_mismatch"
-            return True, "nav_single_ad_exact_orgnr"
+            return True, "nav_single_ad_exact_orgnr" if emp_org == str(org) else "nav_single_ad_subunit_orgnr"
         match_type = str(item.get("match_type") or "")
         if match_type in {"nav_employer_orgnr_match", "nav_company_core_match", "nav_company_subunit_match"}:
             return True, match_type
@@ -250,6 +252,23 @@ def validate_job_item(
         if not emp_name and item.get("exact_entity"):
             return True, "nav_single_ad_exact_entity"
         return False, "nav_employer_unverified"
+
+    if host == "finn.no" or host.endswith(".finn.no"):
+        if "finnkode=" not in url and "/stilling/" not in url:
+            return False, "finn_not_single_ad"
+        emp_org = str(item.get("employer_org") or "")
+        sub_set = {str(s) for s in (subunit_orgs or ()) if s}
+        if emp_org:
+            if emp_org != str(org) and emp_org not in sub_set:
+                return False, "finn_employer_orgnr_mismatch"
+            return True, "finn_single_ad_exact_orgnr"
+        emp_name = str(item.get("employer_name") or "")
+        if emp_name and name_in_text(company_name, emp_name):
+            return True, "finn_company_name_match"
+        tokens = brand_tokens(company_name, site_url)
+        if any(tok in title.lower() for tok in tokens if len(tok) >= 4):
+            return True, "finn_brand_match"
+        return False, "finn_employer_unverified"
 
     if is_hub_url(url):
         return False, "hub_or_search_url"
@@ -307,6 +326,23 @@ def validate_news_item(
         return False, "future_date"
     if (ref - pub).days > max_age_days:
         return False, "too_old"
+    if host == "finn.no" or host.endswith(".finn.no"):
+        if "finnkode=" not in url and "/stilling/" not in url:
+            return False, "finn_not_single_ad"
+        emp_org = str(item.get("employer_org") or "")
+        sub_set = {str(s) for s in (subunit_orgs or ()) if s}
+        if emp_org:
+            if emp_org != str(org) and emp_org not in sub_set:
+                return False, "finn_employer_orgnr_mismatch"
+            return True, "finn_single_ad_exact_orgnr"
+        emp_name = str(item.get("employer_name") or "")
+        if emp_name and name_in_text(company_name, emp_name):
+            return True, "finn_company_name_match"
+        tokens = brand_tokens(company_name, site_url)
+        if any(tok in title.lower() for tok in tokens if len(tok) >= 4):
+            return True, "finn_brand_match"
+        return False, "finn_employer_unverified"
+
     if is_hub_url(url):
         return False, "hub_or_listing_url"
     verification = str(item.get("verification") or "")

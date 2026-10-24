@@ -181,10 +181,13 @@ def evaluate_company_hiring(
             "detail": "; ".join(web_signals["hiring_keywords_found"][:2]),
         })
 
+    loc_val = (profile.get('evidence', {}).get('locations', {}).get('value') or {}) if isinstance(profile, dict) else {}
+    subunit_orgs = [str(u.get('organisation_number')) for u in (loc_val.get('locations') or []) if u.get('organisation_number')]
+
     # 3. NAV Arbeidsplassen Live Job Search
     nav_jobs: list[dict[str, Any]] = []
     if budget and budget.can_proceed(reserve=50):
-        nav_jobs = fetch_nav_jobs(name, org, budget=budget)
+        nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=subunit_orgs, budget=budget)
         for job in nav_jobs:
             signals.append({
                 "source": "nav_arbeidsplassen",
@@ -207,7 +210,7 @@ def evaluate_company_hiring(
     for wj in ((website_val.get("job_postings") or []) if isinstance(website_val, dict) else []):
         if not isinstance(wj, dict) or not wj.get("title"):
             continue
-        ok, _reason = validate_job_item(wj, org=org, company_name=name, site_url=site_url, site_publishable=is_site_publishable)
+        ok, _reason = validate_job_item(wj, org=org, company_name=name, site_url=site_url, site_publishable=is_site_publishable, subunit_orgs=subunit_orgs)
         if not ok:
             continue
         web_jobs.append(wj)

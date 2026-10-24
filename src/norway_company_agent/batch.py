@@ -1001,9 +1001,10 @@ def build_contract_claims_and_evidence(
     job_items.sort(key=lambda x: (x.get("_priority", 0), str(x.get("published_at") or "")), reverse=True)
     clean_job_items = []
     c_name = profile.get("name") or ""
+    subunit_orgs = [str(u.get("organisation_number")) for u in (l_val.get("locations") or []) if u.get("organisation_number")]
     for item in job_items:
         clean_it = {k: v for k, v in item.items() if not k.startswith("_")}
-        ok, _reason = validate_job_item(clean_it, org=org, company_name=c_name, site_url=website_url or "", site_publishable=is_publishable)
+        ok, _reason = validate_job_item(clean_it, org=org, company_name=c_name, site_url=website_url or "", site_publishable=is_publishable, subunit_orgs=subunit_orgs)
         if ok:
             clean_job_items.append(clean_it)
 

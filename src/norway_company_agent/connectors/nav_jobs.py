@@ -38,6 +38,7 @@ def fetch_nav_jobs(
     company_name: str,
     org_number: str,
     *,
+    subunit_orgs: Any = (),
     budget: Any | None = None,
     timeout: float = 6.0,
     max_results: int = 10,
@@ -103,9 +104,10 @@ def fetch_nav_jobs(
 
             matched = False
             match_type = ""
-            if employer_org and employer_org == str(org_number):
+            subunit_orgs_set = {str(s) for s in (subunit_orgs or ()) if s}
+            if employer_org and (employer_org == str(org_number) or employer_org in subunit_orgs_set):
                 matched = True
-                match_type = "nav_employer_orgnr_match"
+                match_type = "nav_employer_orgnr_match" if employer_org == str(org_number) else "nav_company_subunit_match"
             elif not employer_org and not is_generic:
                 if b_core == legal_core or emp_core == legal_core:
                     matched = True
