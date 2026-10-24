@@ -73,7 +73,7 @@ def fetch_gleif_identifier(
         managing_lou = reg.get("managingLou") or "GLEIF"
         legal_name = (attr.get("entity") or {}).get("legalName", {}).get("name") or clean_name
 
-        h_digest = hashlib.sha256(f"{clean_org}|gleif|{lei_code}|{status}".encode()).hexdigest()
+        h_digest = hashlib.sha256(raw).hexdigest()
         obs_id = f"lei-{clean_org}-{h_digest[:16]}"
         record_url = f"https://search.gleif.org/#/record/{lei_code}"
 

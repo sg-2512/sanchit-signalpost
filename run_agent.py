@@ -1091,6 +1091,13 @@ def enrich_single_company(
             observations.append(norid_obs)
             profile["norid_verification"] = norid_obs.get("metrics") or {}
 
+    # 13h. GLEIF Global Legal Entity Identifier (exact 9-digit Norwegian org number lookup)
+    if not is_passive_entity and (emp_count >= 10 or form_code_upper in {"ASA", "BA", "FKF", "SF", "SPA", "FS"}) and budget.can_proceed(reserve=30):
+        gleif_obs = fetch_gleif_identifier(org, name, budget=budget)
+        if gleif_obs:
+            observations.append(gleif_obs)
+            profile["gleif_lei"] = gleif_obs.get("metrics") or {}
+
     # 14. Decision-useful factual synthesis (12-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
 

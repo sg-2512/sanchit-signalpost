@@ -191,6 +191,24 @@ def fetch_nav_jobs(
 
         content_digest = hashlib.sha256(raw).hexdigest()
         ads = _extract_ads_from_response(raw)
+        if not ads and (not budget or budget.can_proceed(reserve=2)):
+            api_url = f"https://arbeidsplassen.nav.no/stillinger/api/search?q={clean_query}&size=10"
+            _pace_nav_request()
+            try:
+                api_req = urllib.request.Request(
+                    api_url,
+                    headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+                )
+                with urllib.request.urlopen(api_req, timeout=timeout) as api_resp:
+                    api_raw = api_resp.read(500_000)
+                if budget:
+                    budget.record_request(bytes_received=len(api_raw), elapsed_ms=100, cost_usd=0.0)
+                api_ads = _extract_ads_from_response(api_raw)
+                if api_ads:
+                    ads = api_ads
+                    content_digest = hashlib.sha256(api_raw).hexdigest()
+            except Exception:
+                pass
         retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         observations: list[dict[str, Any]] = []
 

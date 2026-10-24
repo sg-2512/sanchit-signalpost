@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from .evidence import evidence, utc_now
 from .http import fetch_json
 from .official import accounting_obligation_assessment, latest_account, fiscal_year_of
-from .verified_items import registered_domain, validate_job_item, validate_news_item
+from .verified_items import name_in_text, registered_domain, validate_job_item, validate_news_item
 from .sampling import iter_bulk
 
 
@@ -806,8 +806,8 @@ def build_contract_claims_and_evidence(
             "source_url": cand_src_url,
             "published_at": norm_pub,
             "content_sha256": cand_sha,
-            "verification": cand.get("verification") or ("site_listing" if is_site_news else ""),
-            "name_in_article": cand.get("name_in_article"),
+            "verification": cand.get("verification") or ("site_listing" if is_site_news else ("article_fetched" if name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}") else "")),
+            "name_in_article": cand.get("name_in_article") or (not is_site_news and name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}")),
             "_is_site": is_site_news,
             "_is_generic_prefix": lower_t.startswith(("nyheter ", "aktuelt ", "news ", "presse ")),
         }

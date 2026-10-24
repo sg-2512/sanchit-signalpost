@@ -23,6 +23,7 @@ import tldextract
 import trafilatura
 
 from .evidence import evidence
+from .verified_items import is_hub_url
 
 USER_AGENT = "builderr-signalpost-poc/0.1 (+https://builderr.ai)"
 SOCIAL_HOSTS = {
@@ -245,7 +246,7 @@ NORWEGIAN_MONTHS = {
 def extract_date_from_text(text: str) -> str | None:
     if not text:
         return None
-    m = re.search(r"\b(202[0-6])[-/](\d{1,2})[-/](\d{1,2})\b", text)
+    m = re.search(r"\b(202[0-6])[-/](\d{1,2})[-/](\d{1,2})(?:\b|T)", text)
     if m:
         return f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
     m = re.search(r"\b(\d{1,2})\.(\d{1,2})\.(202[0-6])\b", text)
@@ -427,38 +428,60 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
 
     # Fallback for news hub pages (/aktuelt, /nyheter) where headings are direct h2/h3 links
     if not items and is_news_page:
-        fallback_date = None  # hub-level dates are not per-article dates
-        if False:
-            for h in soup.find_all(["h2", "h3"]):
-                title = h.get_text(" ", strip=True)
-                if len(title) < 8 or len(title) > 200 or title.casefold() in seen_titles:
-                    continue
-                if any(skip in title.casefold() for skip in ["meny", "kontakt", "om oss", "les mer", "vis alle", "søk", "filter", "del på", "cookie", "personvern"]):
-                    continue
-                a = h.find("a", href=True) or h.find_parent("a", href=True)
-                if not a:
-                    parent_box = h.find_parent(["div", "li", "section"])
-                    a = parent_box.find("a", href=True) if parent_box else None
-                if not a:
-                    continue
-                link = urllib.parse.urljoin(page_url, a["href"])
-                if link.startswith(("tel:", "mailto:", "javascript:", "#")) or _registered_domain(link) != _registered_domain(page_url):
-                    continue
-                if any(k in link.lower() for k in ["/career", "/karriere", "/jobb", "/stilling", "/vacanc"]):
-                    continue
-                seen_titles.add(title.casefold())
-                items.append({
-                    "title": title,
-                    "url": link,
-                    "verification": "site_listing",
-                    "article_url": link,
-                    "source_url": page_url.rstrip("/"),
-                    "published_at": extract_date_from_text(link) or fallback_date,
-                    "excerpt": title,
-                    "content_sha256": real_page_sha,
-                })
-                if len(items) >= 6:
+        fallback_date = None
+        for meta_prop in ("article:published_time", "article:modified_time", "og:updated_time"):
+            m_tag = soup.find("meta", attrs={"property": meta_prop})
+            if m_tag and m_tag.get("content"):
+                fallback_date = extract_date_from_text(str(m_tag["content"]))
+                if fallback_date:
                     break
+        if not fallback_date:
+            for meta_name in ("date", "publish-date", "pubdate", "DC.date.issued"):
+                m_tag = soup.find("meta", attrs={"name": meta_name})
+                if m_tag and m_tag.get("content"):
+                    fallback_date = extract_date_from_text(str(m_tag["content"]))
+                    if fallback_date:
+                        break
+        for h in soup.find_all(["h2", "h3"]):
+            title = h.get_text(" ", strip=True)
+            if len(title) < 8 or len(title) > 200 or title.casefold() in seen_titles:
+                continue
+            if any(skip in title.casefold() for skip in ["meny", "kontakt", "om oss", "les mer", "vis alle", "søk", "filter", "del på", "cookie", "personvern"]):
+                continue
+            a = h.find("a", href=True) or h.find_parent("a", href=True)
+            if not a:
+                parent_box = h.find_parent(["div", "li", "section"])
+                a = parent_box.find("a", href=True) if parent_box else None
+            if not a:
+                continue
+            link = urllib.parse.urljoin(page_url, a["href"])
+            if link.startswith(("tel:", "mailto:", "javascript:", "#")) or _registered_domain(link) != _registered_domain(page_url):
+                continue
+            if any(k in link.lower() for k in ["/career", "/karriere", "/jobb", "/stilling", "/vacanc"]):
+                continue
+            if link.rstrip("/") == page_url.rstrip("/") or is_hub_url(link):
+                continue
+            card_box = h.find_parent(["a", "div", "li", "article", "section"])
+            card_date = (
+                extract_date_from_text(link)
+                or (extract_date_from_text(card_box.get_text(" ", strip=True)) if card_box else None)
+                or fallback_date
+            )
+            if not card_date:
+                continue
+            seen_titles.add(title.casefold())
+            items.append({
+                "title": title,
+                "url": link,
+                "verification": "site_listing",
+                "article_url": link,
+                "source_url": page_url.rstrip("/"),
+                "published_at": card_date,
+                "excerpt": title,
+                "content_sha256": real_page_sha,
+            })
+            if len(items) >= 6:
+                break
 
     if not items and is_news_page:
         h1 = soup.find("h1")
@@ -710,9 +733,9 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
 
     for link_tag in soup.find_all("link", rel=lambda r: r and "alternate" in r):
         t = (link_tag.get("type") or "").lower()
-        if "rss" in t or "atom" in t or "xml" in t:
+        if ("rss" in t or "atom" in t) and "oembed" not in t:
             href = link_tag.get("href")
-            if href:
+            if href and "oembed" not in str(href).lower() and "wp-json" not in str(href).lower():
                 abs_feed = urllib.parse.urljoin(base_url, href)
                 if abs_feed.startswith(("http://", "https://")) and _registered_domain(abs_feed) == base_reg_domain:
                     news_cands[abs_feed] = -1
