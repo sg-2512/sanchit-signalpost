@@ -1177,8 +1177,8 @@ def main() -> int:
     # 2,000 requests per 100 companies with 150-request safety buffer margin (rule §4)
     # 45 minutes wall-clock limit with safety margin (40 min / 2,400s)
     effective_max_requests = min(args.max_requests, int(len(orgs) * 18.5)) if args.max_requests == 500000 else args.max_requests
-    effective_max_time = min(args.max_time, 2400.0) if args.max_time == 86400.0 else args.max_time
-    effective_max_cost = min(args.max_cost, 10.0)
+    effective_max_time = min(args.max_time, max(2400.0, len(orgs) * 3.5)) if args.max_time == 86400.0 else args.max_time
+    effective_max_cost = args.max_cost if args.max_cost != 100.0 else max(10.0, (len(orgs) / 1000.0) * 10.0)
 
     # Initialize budget tracker
     budget = BudgetTracker(
