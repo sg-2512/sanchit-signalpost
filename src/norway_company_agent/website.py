@@ -347,6 +347,47 @@ def extract_feed_news(feed_bytes: bytes, feed_url: str, base_url: str) -> list[d
     return items
 
 
+def extract_wp_json_news(raw_bytes: bytes, api_url: str, base_url: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    feed_sha = hashlib.sha256(raw_bytes).hexdigest()
+    try:
+        data = json.loads(raw_bytes.decode("utf-8", errors="replace"))
+        if not isinstance(data, list):
+            return []
+        import html as py_html
+        for post in data[:10]:
+            if not isinstance(post, dict):
+                continue
+            title_obj = post.get("title") or {}
+            raw_title = title_obj.get("rendered") if isinstance(title_obj, dict) else str(title_obj or "")
+            title = py_html.unescape(BeautifulSoup(raw_title, "html.parser").get_text(" ", strip=True) if "<" in raw_title else raw_title).strip()
+            link = str(post.get("link") or "").strip()
+            pub = str(post.get("date") or post.get("date_gmt") or "")
+            pub_date = pub[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", pub) else extract_date_from_text(pub)
+            if not title or len(title) < 5 or not link or not pub_date:
+                continue
+            if _registered_domain(link) != _registered_domain(base_url):
+                continue
+            if is_hub_url(link):
+                continue
+            excerpt_obj = post.get("excerpt") or {}
+            raw_excerpt = excerpt_obj.get("rendered") if isinstance(excerpt_obj, dict) else str(excerpt_obj or "")
+            clean_excerpt = BeautifulSoup(raw_excerpt, "html.parser").get_text(" ", strip=True)[:300] if raw_excerpt else title[:300]
+            items.append({
+                "title": title[:200],
+                "url": link,
+                "verification": "site_listing",
+                "article_url": link,
+                "source_url": api_url,
+                "published_at": pub_date,
+                "excerpt": clean_excerpt,
+                "content_sha256": feed_sha,
+            })
+    except Exception:
+        pass
+    return items
+
+
 def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page_sha256: str | None = None) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
@@ -740,6 +781,16 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
                 if abs_feed.startswith(("http://", "https://")) and _registered_domain(abs_feed) == base_reg_domain:
                     news_cands[abs_feed] = -1
 
+    wp_api_link = soup.find("link", rel=lambda r: r and "https://api.w.org/" in str(r))
+    if wp_api_link and wp_api_link.get("href"):
+        wp_posts_url = urllib.parse.urljoin(wp_api_link["href"], "wp/v2/posts?per_page=5")
+        if _registered_domain(wp_posts_url) == base_reg_domain:
+            news_cands[wp_posts_url] = -2
+    elif "wp-content" in str(soup) or "wp-includes" in str(soup):
+        wp_direct = urllib.parse.urljoin(base_url, "/wp-json/wp/v2/posts?per_page=5")
+        if _registered_domain(wp_direct) == base_reg_domain:
+            news_cands[wp_direct] = -2
+
     for anchor in soup.select("a[href]"):
         href = str(anchor.get("href") or "").strip()
         url = urllib.parse.urljoin(base_url, href)
@@ -813,7 +864,8 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
             final_url = response.geturl()
             ctype = response.headers.get("content-type", "").lower()
             is_feed = ("xml" in ctype or "rss" in ctype or "atom" in ctype) and "html" not in ctype
-            if len(raw) > max_bytes or (not is_feed and "html" not in ctype):
+            is_json = ("json" in ctype or "wp-json" in final_url) and "html" not in ctype
+            if len(raw) > max_bytes or (not is_feed and not is_json and "html" not in ctype):
                 return None, [], 2, len(raw), elapsed, "unsupported or oversized page"
             if _registered_domain(final_url) != homepage_domain:
                 return None, [], 2, len(raw), elapsed, "redirected outside registered domain"
@@ -826,6 +878,17 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
                 "main_text_excerpt": "",
                 "content_sha256": page_sha,
                 "news_items": feed_news,
+                "job_postings": [],
+            }
+            return page, [], 2, len(raw), elapsed, None
+        if is_json:
+            wp_news = extract_wp_json_news(raw, final_url, final_url)
+            page = {
+                "url": final_url,
+                "title": "Corporate CMS News Feed",
+                "main_text_excerpt": "",
+                "content_sha256": page_sha,
+                "news_items": wp_news,
                 "job_postings": [],
             }
             return page, [], 2, len(raw), elapsed, None

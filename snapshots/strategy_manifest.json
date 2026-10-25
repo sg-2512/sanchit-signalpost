@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-10-25T11:48:51.761914+00:00",
-  "git_commit": "4b8826210b4061655ed9c77b90cfe78afdf1227c",
+  "created_at": "2026-10-25T12:41:57.061085+00:00",
+  "git_commit": "f0f00413dd7c3d5d7c46044d139ba43b1c871275",
   "git_dirty": true,
   "environment": {
     "python_version": "3.14.2",
@@ -120,5 +120,5 @@
     "src/norway_company_agent/budget.py": "1b61e42ffb855a3921bdc946c246bc242f48dfe2d91095aba5fe312acb6edc03",
     "src/norway_company_agent/identity.py": "b8e3e88360d5ec8038d6902a9c030ce4990f815570a9dfd139155d121a4e078c"
   },
-  "overall_manifest_hash": "2ee46282f7e36cf5dfd04328feaf09232acf425253525d88aca9c5489d44b547"
+  "overall_manifest_hash": "2360ab02de653692e960904a59ef473b59226a95dbb3754db2cb250771103a72"
 }

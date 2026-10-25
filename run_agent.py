@@ -845,6 +845,11 @@ def enrich_single_company(
     observations.extend(wiki_obs)
     observations.extend(patent_obs)
 
+    # 6b. Wikidata P2333 Knowledge Graph (enrich operating commercial firms with CEO/founding/socials)
+    if not wiki_obs and not is_passive_entity and (emp_count >= 10 or form_code_upper == "ASA") and budget.can_proceed(reserve=35):
+        wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
+        observations.extend(wiki_obs)
+
     # 7. YouTube Data API connector
     yt_obs: list[dict[str, Any]] = []
     if not is_passive_entity and (emp_count >= 5 or verified_website) and youtube_available() and budget.can_proceed(reserve=25):
@@ -1078,6 +1083,7 @@ def enrich_single_company(
     if not is_passive_entity and (emp_count >= 10 or verified_website) and not patent_obs and patentstyret_available() and budget.can_proceed(reserve=40):
         patent_obs = fetch_patentstyret_data(org, name, budget=budget)
         observations.extend(patent_obs)
+
         if patent_obs:
             profile["patents"] = [obs.get("metrics") or {} for obs in patent_obs if obs.get("metrics")]
     elif patent_obs and "patents" not in profile:
