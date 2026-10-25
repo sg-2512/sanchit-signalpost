@@ -129,7 +129,8 @@ def validate_claim_value_format(field: str, val: Any) -> tuple[bool, str]:
 
 
 def audit_envelope_file(file_path: Path) -> dict[str, Any]:
-    lines = [l.strip() for l in file_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    with file_path.open("r", encoding="utf-8") as f:
+        lines = [l.strip() for l in f if l.strip()]
     total_envelopes = len(lines)
     
     errors: list[str] = []
