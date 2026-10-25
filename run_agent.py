@@ -837,7 +837,7 @@ def enrich_single_company(
 
     # 5b. Norwegian Corporate Press Wires (NTB Kommunikasjon, Mynewsdesk, Cision)
     wire_obs: list[dict[str, Any]] = []
-    if not is_passive_entity and (emp_count >= 5 or verified_website) and not web_news_obs and not news_obs and budget.can_proceed(reserve=30):
+    if not is_passive_entity and (emp_count >= 5 or verified_website) and (len(web_news_obs) + len(news_obs) < 2) and budget.can_proceed(reserve=30):
         wire_obs = fetch_press_wire_news(org, name, limit=3, budget=budget)
 
     # 6. Google Places & Wikidata & Patentstyret observations (already fetched)
@@ -1097,6 +1097,38 @@ def enrich_single_company(
         if gleif_obs:
             observations.append(gleif_obs)
             profile["gleif_lei"] = gleif_obs.get("metrics") or {}
+
+    # 13i. Kartverket & Matrikkelen (Official Cadastral Resolution for Operating Entities)
+    if not is_passive_entity and (emp_count >= 5 or verified_website) and budget.can_proceed(reserve=40):
+        reg_l_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
+        b_addr = profile.get("address") or reg_l_val.get("forretningsadresse") or (profile.get("evidence", {}).get("registry", {}).get("value") or {}).get("forretningsadresse") or {}
+        if isinstance(b_addr, dict):
+            raw_addr = b_addr.get("adresse") or []
+            street_str = ", ".join(raw_addr) if isinstance(raw_addr, list) else str(raw_addr or "")
+            kom_str = str(b_addr.get("kommune") or profile.get("municipality") or "")
+            post_str = str(b_addr.get("postnummer") or "")
+            if street_str and len(street_str) >= 4:
+                kart_geo = geocode_address_kartverket(street_str, municipality=kom_str, postcode=post_str, budget=budget)
+                if kart_geo and kart_geo.get("cadastral_id"):
+                    profile["cadastral_info"] = kart_geo
+                    k_sha = str(kart_geo.get("content_sha256") or hashlib.sha256(b"").hexdigest())
+                    observations.append({
+                        "id": f"cadastre-kartverket-{org}-{k_sha[:16]}",
+                        "organisation_number": org,
+                        "platform": "kartverket",
+                        "signal_type": "place_summary",
+                        "source_url": kart_geo.get("source_url") or "https://ws.geonorge.no/adresser/v1/sok",
+                        "retrieved_at": utc_now(),
+                        "content_sha256": k_sha,
+                        "exact_entity": True,
+                        "identity_proof": [{"type": "official_kartverket_matrikkelen", "cadastral_id": kart_geo.get("cadastral_id"), "address": kart_geo.get("formatted_address")}],
+                        "acquisition_mode": "official_api",
+                        "rights_status": "approved",
+                        "source_class": "official_cadastre",
+                        "evidence_span": f"Official Kartverket cadastre for {name}: {kart_geo.get('cadastral_id')} at {kart_geo.get('formatted_address')} ({kart_geo.get('kommunenavn')})",
+                        "metrics": kart_geo,
+                        "strategy": "kartverket_cadastre_lookup",
+                    })
 
     # 14. Decision-useful factual synthesis (12-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)

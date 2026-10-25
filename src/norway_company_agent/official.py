@@ -149,10 +149,13 @@ def normalize_financials(body: Any) -> dict[str, Any]:
         op_res = _get(item, "resultatregnskapResultat", "driftsresultat", "driftsresultat")
         assets = _get(item, "eiendeler", "sumEiendeler")
         equity = _get(item, "egenkapitalGjeld", "egenkapital", "sumEgenkapital")
+        cur_assets = _get(item, "eiendeler", "omloepsmidler", "sumOmloepsmidler")
+        st_debt = _get(item, "egenkapitalGjeld", "gjeldOversikt", "kortsiktigGjeld", "sumKortsiktigGjeld")
         
         # Institutional diligence metrics
         op_margin = round(float(op_res) / float(rev), 4) if rev and op_res is not None and float(rev) > 0 else None
         eq_ratio = round(float(equity) / float(assets), 4) if assets and equity is not None and float(assets) > 0 else None
+        liq_ratio = round(float(cur_assets) / float(st_debt), 4) if cur_assets and st_debt and float(st_debt) > 0 else None
         
         solvency = None
         if eq_ratio is not None:
@@ -175,8 +178,11 @@ def normalize_financials(body: Any) -> dict[str, Any]:
             "assets": assets,
             "equity": equity,
             "debt": _get(item, "egenkapitalGjeld", "gjeldOversikt", "sumGjeld"),
+            "current_assets": cur_assets,
+            "short_term_debt": st_debt,
             "operating_margin": op_margin,
             "equity_ratio": eq_ratio,
+            "liquidity_ratio": liq_ratio,
             "solvency_status": solvency,
         })
 
@@ -201,6 +207,10 @@ def normalize_financials(body: Any) -> dict[str, Any]:
     if normalized and normalized[0].get("solvency_status"):
         trends["solvency_status"] = normalized[0]["solvency_status"]
         trends["equity_ratio"] = normalized[0]["equity_ratio"]
+        if normalized[0].get("operating_margin") is not None:
+            trends["operating_margin"] = normalized[0]["operating_margin"]
+        if normalized[0].get("liquidity_ratio") is not None:
+            trends["liquidity_ratio"] = normalized[0]["liquidity_ratio"]
 
     return {
         "records": normalized,

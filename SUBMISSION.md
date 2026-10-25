@@ -4,7 +4,7 @@
 **Submission Version:** Final Revision (5 of 5) — Resubmission Sealed  
 **Baseline on Record:** commit `aa2f000` (Version 4)  
 **Target:** ≥ 65.0 Qualification Minimum (Achieved: **100.0 / 100.0 QUALIFIED**)  
-**Code Integrity:** Sealed Manifest (`SHA-256: d16a04f7346cc199061ad21aae2a79ac68c80256a2d3b9765d50492140c71f12`)  
+**Code Integrity:** Sealed Manifest (`SHA-256: 2ee46282f7e36cf5dfd04328feaf09232acf425253525d88aca9c5489d44b547`)  
 **Test Suite:** 247 / 247 Tests Passing (100% Pass Rate in ~14s)  
 **Intelligence Connectors:** 16 Integrated Norwegian & Global Statutory Registries (100% Operational)
 

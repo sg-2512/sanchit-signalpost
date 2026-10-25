@@ -85,6 +85,8 @@ def geocode_address_kartverket(
         if snr:
             cadastral_id += f", Snr {snr}"
 
+        digest = hashlib.sha256(raw).hexdigest()
+
         return {
             "formatted_address": hit.get("adressetekst") or clean_addr,
             "postnummer": hit.get("postnummer") or postcode,
@@ -98,6 +100,8 @@ def geocode_address_kartverket(
             "seksjonsnummer": snr,
             "cadastral_id": cadastral_id,
             "source": "Kartverket Geonorge",
+            "source_url": url,
+            "content_sha256": digest,
         }
 
     except Exception:
