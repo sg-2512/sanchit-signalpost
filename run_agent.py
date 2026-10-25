@@ -748,7 +748,7 @@ def enrich_single_company(
                         break
 
         # Level 4e: Official Norid (.no National Registry) RDAP Brand Domain Discovery (only when corporate email domain exists)
-        if not verified_website and not is_passive_entity and extract_email_domain_candidate(profile) and budget.can_proceed(reserve=40):
+        if not verified_website and not is_passive_entity and (emp_count >= 1 or extract_email_domain_candidate(profile) or form_code_upper == "AS") and budget.can_proceed(reserve=40):
             reg_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
             bulk_val = (profile.get("evidence", {}).get("registry", {}).get("value") or {})
             c_email = (
@@ -837,7 +837,7 @@ def enrich_single_company(
 
     # 5b. Norwegian Corporate Press Wires (NTB Kommunikasjon, Mynewsdesk, Cision)
     wire_obs: list[dict[str, Any]] = []
-    if not is_passive_entity and (emp_count >= 5 or verified_website) and (len(web_news_obs) + len(news_obs) < 2) and budget.can_proceed(reserve=30):
+    if not is_passive_entity and (emp_count >= 1 or verified_website or form_code_upper == "AS") and (len(web_news_obs) + len(news_obs) < 3) and budget.can_proceed(reserve=15):
         wire_obs = fetch_press_wire_news(org, name, limit=3, budget=budget)
 
     # 6. Google Places & Wikidata & Patentstyret observations (already fetched)
