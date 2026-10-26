@@ -27,6 +27,8 @@ PLATFORMS = {
     "wikipedia",
     "company_directory",
     "patentstyret",
+    "norid",
+    "kartverket",
 }
 
 SIGNAL_TYPES = {
@@ -43,6 +45,8 @@ SIGNAL_TYPES = {
     "buzz_metrics",
     "dated_news",
     "patent_trademark_record",
+    "official_notice",
+    "legal_domain_ownership",
 }
 
 # “Experimental” means the connector can be benchmarked locally, but its output cannot be
@@ -58,7 +62,14 @@ EXPERIMENTAL_ACQUISITION_MODES = {
     "unofficial_api_experiment",
     "rights_review_experiment",
 }
-INDEPENDENT_SENTIMENT_CLASSES = {"customer_review", "employee_review", "licensed_news", "public_news", "public_mention"}
+INDEPENDENT_SENTIMENT_CLASSES = {
+    "customer_review",
+    "employee_review",
+    "licensed_news",
+    "public_news",
+    "public_mention",
+    "official_notice",
+}
 
 
 def _host(url: str) -> str:

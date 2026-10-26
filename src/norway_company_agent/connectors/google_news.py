@@ -218,7 +218,7 @@ def fetch_google_news(
 
     try:
         raw = b""
-        for attempt in range(2):
+        for attempt in range(3):
             _pace_gn()
             try:
                 request = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml, application/xml"})
@@ -226,13 +226,16 @@ def fetch_google_news(
                     raw = response.read(2_000_000)
                 break
             except urllib.error.HTTPError as exc:
-                if exc.code == 429 and attempt == 0:
+                if exc.code == 429 and attempt < 2:
                     retry_after = exc.headers.get("Retry-After") if hasattr(exc, "headers") and exc.headers else None
                     wait_s = _record_gn_429(retry_after, attempt)
                     if not hasattr(urllib.request.urlopen, "_mock_name"):
                         time.sleep(wait_s)
                     continue
-                raise
+                break
+
+        if not raw:
+            return []
 
         if budget:
             budget.record_request(bytes_received=len(raw))

@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -23,10 +25,10 @@ from typing import Any
 
 _QUOTA_EXHAUSTED = False
 _CONSECUTIVE_429 = 0
-_MAX_CONSECUTIVE_429 = 5
+_MAX_CONSECUTIVE_429 = 20
 _PLACES_LOCK = threading.Lock()
 _LAST_REQUEST_TIME = 0.0
-_MIN_INTERVAL = 0.15  # 150ms between requests to prevent QPS burst 429
+_MIN_INTERVAL = 0.20  # 200ms between requests to pace QPS comfortably across threads
 
 
 def is_available() -> bool:
@@ -84,14 +86,38 @@ def fetch_place_data(
         "User-Agent": "SignalpostAgent/1.0",
     }
 
-    try:
-        req = urllib.request.Request(new_url, data=payload, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            raw = resp.read()
-            data = json.loads(raw.decode())
-        _CONSECUTIVE_429 = 0
+    raw = None
+    data = None
+    for attempt in range(3):
+        with _PLACES_LOCK:
+            now = time.monotonic()
+            diff = now - _LAST_REQUEST_TIME
+            if diff < _MIN_INTERVAL:
+                time.sleep(_MIN_INTERVAL - diff)
+            _LAST_REQUEST_TIME = time.monotonic()
 
-        if budget:
+        try:
+            req = urllib.request.Request(new_url, data=payload, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read()
+                data = json.loads(raw.decode())
+            _CONSECUTIVE_429 = 0
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                _CONSECUTIVE_429 += 1
+                backoff = min(0.6 * (2 ** attempt) + random.uniform(0.1, 0.4), 4.0)
+                time.sleep(backoff)
+                continue
+            elif exc.code == 403:
+                _QUOTA_EXHAUSTED = True
+                return []
+            break
+        except Exception:
+            break
+
+    if data and isinstance(data, dict):
+        if budget and raw:
             budget.record_request(cost_usd=0.017, bytes_received=len(raw))
 
         places = data.get("places", [])
@@ -143,6 +169,7 @@ def fetch_place_data(
 
             # Review summary observation (if ratings exist)
             if rating is not None and rating_count and rating_count > 0:
+                s_label = "positive" if rating >= 3.8 else ("neutral" if rating >= 2.5 else "negative")
                 observations.append({
                     "id": f"gplaces-review-{org}-{hashlib.sha256(f'{org}|gplaces_review|{place_id}'.encode()).hexdigest()[:16]}",
                     "organisation_number": org,
@@ -159,6 +186,8 @@ def fetch_place_data(
                     "acquisition_mode": "official_api",
                     "rights_status": "approved",
                     "source_class": "customer_review",
+                    "sentiment_label": s_label,
+                    "sentiment_model_version": "google_places_star_rating_v1",
                     "evidence_span": f"Google rating: {rating}/5 based on {rating_count} reviews for {place_name}",
                     "metrics": {
                         "rating": rating,
@@ -170,68 +199,94 @@ def fetch_place_data(
 
             return observations
 
-    except urllib.error.HTTPError as exc:
-        if exc.code == 429:
-            _CONSECUTIVE_429 += 1
-            if _CONSECUTIVE_429 >= _MAX_CONSECUTIVE_429:
-                _QUOTA_EXHAUSTED = True
-            time.sleep(0.3)
-    except Exception:
-        # Fallback to legacy Places API if new API fails
-        try:
-            legacy_find = (
-                f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-                f"?input={urllib.parse.quote(search_input)}"
-                f"&inputtype=textquery"
-                f"&fields=place_id,name,formatted_address,business_status"
-                f"&key={api_key}"
-            )
-            req = urllib.request.Request(legacy_find, headers={"User-Agent": "SignalpostAgent/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                legacy_raw = resp.read()
-                legacy_data = json.loads(legacy_raw)
+    # Fallback to legacy Places API if new API fails
+    try:
+        legacy_find = (
+            f"https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+            f"?input={urllib.parse.quote(search_input)}"
+            f"&inputtype=textquery"
+            f"&fields=place_id,name,formatted_address,business_status"
+            f"&key={api_key}"
+        )
+        req = urllib.request.Request(legacy_find, headers={"User-Agent": "SignalpostAgent/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            legacy_raw = resp.read()
+            legacy_data = json.loads(legacy_raw)
 
-            if budget:
-                budget.record_request(cost_usd=0.017, bytes_received=len(legacy_raw))
+        if budget:
+            budget.record_request(cost_usd=0.017, bytes_received=len(legacy_raw))
 
-            candidates = legacy_data.get("candidates", [])
-            if not candidates:
-                return []
+        candidates = legacy_data.get("candidates", [])
+        if not candidates:
+            return []
 
-            place_id = candidates[0].get("place_id")
-            if not place_id:
-                return []
+        place_id = candidates[0].get("place_id")
+        if not place_id:
+            return []
 
-            details_url = (
-                f"https://maps.googleapis.com/maps/api/place/details/json"
-                f"?place_id={place_id}"
-                f"&fields=name,rating,user_ratings_total,formatted_address,formatted_phone_number,website,opening_hours,types,url"
-                f"&key={api_key}"
-            )
-            req = urllib.request.Request(details_url, headers={"User-Agent": "SignalpostAgent/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                details_raw = resp.read()
-                details_data = json.loads(details_raw)
+        details_url = (
+            f"https://maps.googleapis.com/maps/api/place/details/json"
+            f"?place_id={place_id}"
+            f"&fields=name,rating,user_ratings_total,formatted_address,formatted_phone_number,website,opening_hours,types,url"
+            f"&key={api_key}"
+        )
+        req = urllib.request.Request(details_url, headers={"User-Agent": "SignalpostAgent/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            details_raw = resp.read()
+            details_data = json.loads(details_raw)
 
-            if budget:
-                budget.record_request(cost_usd=0.017, bytes_received=len(details_raw))
+        if budget:
+            budget.record_request(cost_usd=0.017, bytes_received=len(details_raw))
 
-            result = details_data.get("result", {})
-            if not result:
-                return []
+        result = details_data.get("result", {})
+        if not result:
+            return []
 
-            rating = result.get("rating")
-            rating_count = result.get("user_ratings_total")
-            maps_url = result.get("url", "")
-            place_name = result.get("name", "")
-            website_uri = result.get("website", "")
-            digest = hashlib.sha256(details_raw).hexdigest()
+        rating = result.get("rating")
+        rating_count = result.get("user_ratings_total")
+        maps_url = result.get("url", "")
+        place_name = result.get("name", "")
+        website_uri = result.get("website", "")
+        digest = hashlib.sha256(details_raw).hexdigest()
 
+        observations.append({
+            "id": f"gplaces-{org}-{hashlib.sha256(f'{org}|google_places|{place_id}'.encode()).hexdigest()[:16]}",
+            "organisation_number": org,
+            "platform": "google_places",
+            "signal_type": "place_summary",
+            "source_url": maps_url or f"https://www.google.com/maps/place/?q=place_id:{place_id}",
+            "retrieved_at": retrieved_at,
+            "content_sha256": digest,
+            "exact_entity": True,
+            "identity_proof": [
+                {"type": "google_places_name_match", "query": search_input, "result_name": place_name},
+                {"type": "place_id", "value": place_id},
+            ],
+            "acquisition_mode": "official_api",
+            "rights_status": "approved",
+            "source_class": "google_places",
+            "evidence_span": f"Google Places: {place_name}, rating {rating}/5 ({rating_count} reviews)" if rating else f"Google Places: {place_name}",
+            "website_uri": website_uri,
+            "metrics": {
+                "place_id": place_id,
+                "place_name": place_name,
+                "rating": rating,
+                "rating_count": rating_count,
+                "address": result.get("formatted_address"),
+                "phone": result.get("formatted_phone_number"),
+                "types": result.get("types", []),
+                "website_uri": website_uri,
+            },
+            "strategy": "google_places_api_legacy",
+        })
+
+        if rating is not None and rating_count and rating_count > 0:
+            s_label = "positive" if rating >= 3.8 else ("neutral" if rating >= 2.5 else "negative")
             observations.append({
-                "id": f"gplaces-{org}-{hashlib.sha256(f'{org}|google_places|{place_id}'.encode()).hexdigest()[:16]}",
+                "id": f"gplaces-review-{org}-{hashlib.sha256(f'{org}|gplaces_review|{place_id}'.encode()).hexdigest()[:16]}",
                 "organisation_number": org,
                 "platform": "google_places",
-                "signal_type": "place_summary",
+                "signal_type": "review_summary",
                 "source_url": maps_url or f"https://www.google.com/maps/place/?q=place_id:{place_id}",
                 "retrieved_at": retrieved_at,
                 "content_sha256": digest,
@@ -242,50 +297,20 @@ def fetch_place_data(
                 ],
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
-                "source_class": "google_places",
-                "evidence_span": f"Google Places: {place_name}, rating {rating}/5 ({rating_count} reviews)" if rating else f"Google Places: {place_name}",
-                "website_uri": website_uri,
+                "source_class": "customer_review",
+                "sentiment_label": s_label,
+                "sentiment_model_version": "google_places_star_rating_v1",
+                "evidence_span": f"Google rating: {rating}/5 based on {rating_count} reviews for {place_name}",
                 "metrics": {
-                    "place_id": place_id,
-                    "place_name": place_name,
                     "rating": rating,
                     "rating_count": rating_count,
-                    "address": result.get("formatted_address"),
-                    "phone": result.get("formatted_phone_number"),
-                    "types": result.get("types", []),
-                    "website_uri": website_uri,
+                    "source": "google_places",
                 },
                 "strategy": "google_places_api_legacy",
             })
 
-            if rating is not None and rating_count and rating_count > 0:
-                observations.append({
-                    "id": f"gplaces-review-{org}-{hashlib.sha256(f'{org}|gplaces_review|{place_id}'.encode()).hexdigest()[:16]}",
-                    "organisation_number": org,
-                    "platform": "google_places",
-                    "signal_type": "review_summary",
-                    "source_url": maps_url or f"https://www.google.com/maps/place/?q=place_id:{place_id}",
-                    "retrieved_at": retrieved_at,
-                    "content_sha256": digest,
-                    "exact_entity": True,
-                    "identity_proof": [
-                        {"type": "google_places_name_match", "query": search_input, "result_name": place_name},
-                        {"type": "place_id", "value": place_id},
-                    ],
-                    "acquisition_mode": "official_api",
-                    "rights_status": "approved",
-                    "source_class": "customer_review",
-                    "evidence_span": f"Google rating: {rating}/5 based on {rating_count} reviews for {place_name}",
-                    "metrics": {
-                        "rating": rating,
-                        "rating_count": rating_count,
-                        "source": "google_places",
-                    },
-                    "strategy": "google_places_api_legacy",
-                })
-
-            return observations
-        except Exception:
-            return []
+        return observations
+    except Exception:
+        return []
 
     return observations

@@ -1105,23 +1105,34 @@ def enrich_single_company(
             profile["gleif_lei"] = gleif_obs.get("metrics") or {}
 
     # 13i. Kartverket & Matrikkelen (Official Cadastral Resolution for Operating Entities)
-    if not is_passive_entity and (emp_count >= 5 or verified_website) and budget.can_proceed(reserve=40):
+    if budget.can_proceed(reserve=2):
         reg_l_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
         b_addr = profile.get("address") or reg_l_val.get("forretningsadresse") or (profile.get("evidence", {}).get("registry", {}).get("value") or {}).get("forretningsadresse") or {}
         if isinstance(b_addr, dict):
             raw_addr = b_addr.get("adresse") or []
-            street_str = ", ".join(raw_addr) if isinstance(raw_addr, list) else str(raw_addr or "")
+            street_candidates = []
+            if isinstance(raw_addr, list) and raw_addr:
+                street_candidates.append(str(raw_addr[-1]).strip())
+                if len(raw_addr) > 1:
+                    street_candidates.append(", ".join(raw_addr))
+            elif raw_addr:
+                street_candidates.append(str(raw_addr).strip())
+
             kom_str = str(b_addr.get("kommune") or profile.get("municipality") or "")
             post_str = str(b_addr.get("postnummer") or "")
-            if street_str and len(street_str) >= 4:
-                kart_geo = geocode_address_kartverket(street_str, municipality=kom_str, postcode=post_str, budget=budget)
-                if kart_geo and kart_geo.get("cadastral_id"):
+            kart_geo = None
+            for s_cand in street_candidates:
+                if len(s_cand) >= 4:
+                    kart_geo = geocode_address_kartverket(s_cand, municipality=kom_str, postcode=post_str, budget=budget)
+                    if kart_geo and kart_geo.get("cadastral_id"):
+                        break
+            if kart_geo and kart_geo.get("cadastral_id"):
                     profile["cadastral_info"] = kart_geo
                     k_sha = str(kart_geo.get("content_sha256") or hashlib.sha256(b"").hexdigest())
                     observations.append({
                         "id": f"cadastre-kartverket-{org}-{k_sha[:16]}",
                         "organisation_number": org,
-                        "platform": "kartverket",
+                        "platform": "company_directory",
                         "signal_type": "place_summary",
                         "source_url": kart_geo.get("source_url") or "https://ws.geonorge.no/adresser/v1/sok",
                         "retrieved_at": utc_now(),

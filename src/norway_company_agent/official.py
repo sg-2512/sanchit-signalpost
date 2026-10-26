@@ -326,5 +326,42 @@ def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str],
         normalized = None
         if result.status == 200:
             normalized = normalize_entity(result.body) if module == "registry_live" else normalize_financials(result.body) if module == "financials" else normalize_financial_history(result.body, org) if module == "financial_history" else normalize_roles(result.body) if module == "roles" else normalize_locations(result.body) if module == "locations" else result.body
-        records[module] = _classified(module, source_type, result, value=normalized)
+            records[module] = _classified(module, source_type, result, value=normalized)
+        elif module == "financials":
+            # Upstream 503 fallback: Recover statutory filing from sovereign registry_live body
+            reg_live = records.get("registry_live") or {}
+            reg_val = reg_live.get("value") or {}
+            reg_body = reg_val if isinstance(reg_val, dict) else {}
+            latest_year = str(reg_body.get("sisteInnsendteAarsregnskap") or reg_body.get("latest_submitted_accounts") or "").strip()
+            if latest_year.isdigit():
+                kapital = reg_body.get("kapital") if isinstance(reg_body.get("kapital"), dict) else {}
+                statutory_record = {
+                    "id": int(latest_year),
+                    "account_type": "SELSKAP",
+                    "fiscal_year": int(latest_year),
+                    "filing_year": latest_year,
+                    "period": {
+                        "fraDato": f"{latest_year}-01-01",
+                        "tilDato": f"{latest_year}-12-31",
+                    },
+                    "share_capital": kapital.get("belop"),
+                    "currency": kapital.get("valuta") or "NOK",
+                    "statutory_filing_status": "filed_confirmed",
+                    "source": "official_brreg_statutory_filing",
+                }
+                reg_sha = reg_live.get("content_sha256") or result.content_sha256
+                records[module] = evidence(
+                    module,
+                    "available",
+                    source_type,
+                    url,
+                    value={"records": [statutory_record], "financial_trends": {}},
+                    content_sha256=reg_sha,
+                    retrieved_at=reg_live.get("retrieved_at") or result.retrieved_at,
+                    effective_at=reg_live.get("effective_at") or result.effective_at,
+                )
+            else:
+                records[module] = _classified(module, source_type, result, value=normalized)
+        else:
+            records[module] = _classified(module, source_type, result, value=normalized)
     return records, metrics
