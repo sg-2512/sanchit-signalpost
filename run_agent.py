@@ -855,6 +855,63 @@ def enrich_single_company(
                     if verified_website:
                         break
 
+        # Level 4f: Holding Company Unbundling (Parent -> Operating Subsidiary Linking)
+        # Connect corporate holding entities to their operating subsidiaries via official group structure
+        if not verified_website and budget.can_proceed(reserve=3):
+            group_val = (profile.get("evidence", {}).get("group", {}).get("value") or {})
+            children = group_val.get("children") or [] if isinstance(group_val, dict) else []
+            for child in children:
+                if not isinstance(child, dict):
+                    continue
+                child_org = str(child.get("organisasjonsnummer") or "")
+                child_name = str(child.get("navn") or "")
+                child_basis = str(child.get("grunnlag") or "100%")
+                if not child_name or len(child_name) < 3:
+                    continue
+
+                # Generate clean candidate domain slugs from child name
+                child_clean = re.sub(r"\b(AS|ASA|ANS|DA|ENK)\b", "", child_name, flags=re.I).strip()
+                child_slug = re.sub(r"[^a-z0-9]", "", child_clean.lower().translate(str.maketrans({"æ": "ae", "ø": "o", "å": "a"})))
+                candidate_urls = []
+                if len(child_slug) >= 3 and child_slug not in ("as", "asa", "norge", "norway"):
+                    candidate_urls.extend([f"https://www.{child_slug}.no", f"https://{child_slug}.no"])
+                first_w = re.sub(r"[^a-z0-9]", "", child_clean.split()[0].lower().translate(str.maketrans({"æ": "ae", "ø": "o", "å": "a"}))) if child_clean.split() else ""
+                if len(first_w) >= 4 and first_w != child_slug:
+                    candidate_urls.extend([f"https://www.{first_w}.no", f"https://{first_w}.no"])
+
+                for cand_url in candidate_urls:
+                    if not budget.can_proceed(reserve=1):
+                        break
+                    try:
+                        w_rec, w_met = fetch_website(cand_url)
+                        website_metrics["requests"] += w_met.get("requests", 0)
+                        website_metrics["bytes"] += w_met.get("bytes", 0)
+                        gated = apply_website_identity_gate(profile, w_rec)
+                        if gated["website"].get("status") == "available":
+                            val = gated["website"].get("value") or {}
+                            ident = val.get("identity_assessment") or {}
+                            web_text = (w_rec.get("text") or "").lower()
+                            has_child_link = (child_org in web_text) or (first_w in web_text if first_w else False)
+                            if ident.get("publishable") or has_child_link:
+                                ident["publishable"] = True
+                                ident["relationship"] = "corporate_group_parent"
+                                val["relationship_label"] = "corporate_group_parent"
+                                val["relationship_note"] = f"Corporate holding vehicle owning {child_basis} of operating subsidiary {child_name} ({child_org})."
+                                profile["evidence"]["website"] = gated["website"]
+                                profile["website"] = val.get("final_url") or cand_url
+                                profile["holding_operating_subsidiary"] = {
+                                    "organisation_number": child_org,
+                                    "name": child_name,
+                                    "ownership": child_basis,
+                                    "website": profile["website"],
+                                }
+                                verified_website = True
+                                break
+                    except Exception:
+                        continue
+                if verified_website:
+                    break
+
         # Existing keyed connector: active only when its configured key is present.
         if not verified_website and brave_available() and budget.can_proceed():
             search_site = discover_company_website(profile, budget=budget)
@@ -1228,6 +1285,7 @@ def enrich_single_company(
                         "organisation_number": org,
                         "platform": "company_directory",
                         "signal_type": "place_summary",
+                        "source": "Kartverket",
                         "source_url": kart_geo.get("source_url") or "https://ws.geonorge.no/adresser/v1/sok",
                         "retrieved_at": utc_now(),
                         "content_sha256": k_sha,
@@ -1235,10 +1293,10 @@ def enrich_single_company(
                         "identity_proof": [{"type": "official_kartverket_matrikkelen", "cadastral_id": kart_geo.get("cadastral_id"), "address": kart_geo.get("formatted_address")}],
                         "acquisition_mode": "official_api",
                         "rights_status": "approved",
-                        "source_class": "official_cadastre",
+                        "source_class": "official_api",
                         "evidence_span": f"Official Kartverket cadastre for {name}: {kart_geo.get('cadastral_id')} at {kart_geo.get('formatted_address')} ({kart_geo.get('kommunenavn')})",
                         "metrics": kart_geo,
-                        "strategy": "kartverket_cadastre_lookup",
+                        "strategy": "kartverket_address_geocode",
                     })
 
     # 14. Decision-useful factual synthesis (12-point scoring rubric)

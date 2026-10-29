@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-10-29T17:53:23.317549+00:00",
-  "git_commit": "f5605897f65939d3b04fca8213e26d74a89745c6",
+  "created_at": "2026-10-29T18:27:56.030023+00:00",
+  "git_commit": "bc22cdbd818e2754867bff0d0385c1d6ecc608e4",
   "git_dirty": true,
   "environment": {
     "python_version": "3.14.2",
@@ -111,7 +111,7 @@
     "strategies/freeze.py": "7e0075499e1857b07640206870c0c7c219f2d2bbdfb894d0cd62e09c619125a7"
   },
   "connector_files": {
-    "src/norway_company_agent/connectors/brave_search.py": "875b5b360d1cfd4d7844703d7b817aeaad455f9e79b5430cf9df31ba7e84e3e7",
+    "src/norway_company_agent/connectors/brave_search.py": "f928b61138a15bed17b7755c014155d18f26d3bd09c1d85124da07cf5aab124a",
     "src/norway_company_agent/connectors/google_places.py": "73b8a47a4f1347b3db3257a7357a1099a049cdeb16f77ee1a12189ec2d9c475b",
     "src/norway_company_agent/connectors/nav_jobs.py": "3ec29f69726a73179776a4d67f176cee853c9cae01c63896b32370186ca13690",
     "src/norway_company_agent/connectors/google_news.py": "74e8014ee50acd90e6e9e594afbc485c300a8a755cb8c2be88612c96f3426074",
@@ -120,5 +120,5 @@
     "src/norway_company_agent/budget.py": "a0eb00f34a59ce8602894f502f7f633b171fb04b6dc07386d516b8419bcf4f35",
     "src/norway_company_agent/identity.py": "3a208349689535eb03d74610fb7a53c9cbcd0eb1f41cb4e34e6fca3427aaec8b"
   },
-  "overall_manifest_hash": "ab1d8e71b06f4410999f4c974712ccb214cd96c983d335a7173af3c1928b42d8"
+  "overall_manifest_hash": "8bfa012bbe17ea8aaab9183caecd518f6cb558dde8833ce0075230ff75c8f5db"
 }

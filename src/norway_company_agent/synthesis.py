@@ -203,7 +203,11 @@ def generate_company_synthesis(
 
     # Deterministic factual template synthesis (100% compliant, $0 cost, zero hallucination)
     emp_str = f"with {employees} registered employee(s)" if employees is not None else "with unfiled employee count"
-    what_it_does = f"{name} (org {org}) is a Norwegian {form} based in {muni}, operating in {ind_label} {emp_str}."
+    sub_info = profile.get("holding_operating_subsidiary")
+    if sub_info:
+        what_it_does = f"{name} (org {org}) is a Norwegian {form} based in {muni}, acting as a corporate holding vehicle owning {sub_info.get('ownership', '100%')} of operating subsidiary {sub_info.get('name')} ({sub_info.get('organisation_number')})."
+    else:
+        what_it_does = f"{name} (org {org}) is a Norwegian {form} based in {muni}, operating in {ind_label} {emp_str}."
 
     lead_parts: list[str] = []
     if ceo:

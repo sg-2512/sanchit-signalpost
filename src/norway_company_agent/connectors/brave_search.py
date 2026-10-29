@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -59,50 +60,63 @@ def discover_company_website(
         return None
 
     try:
-        query = build_company_search_query(profile)
+        primary_query = build_company_search_query(profile)
     except ValueError:
         return None
 
-    url = BRAVE_ENDPOINT + "?" + urllib.parse.urlencode({
-        "q": query,
-        "count": count,
-        "country": "no",
-        "search_lang": "nb",
-        "safesearch": "moderate",
-        "spellcheck": "0",
-    })
+    queries = [primary_query]
+    # Brand query fallback for non-.no international brand domains
+    c_name = str(profile.get("name") or "")
+    clean_brand = re.sub(r"\b(AS|ASA|ANS|DA|ENK|HOLDING|INVEST|GROUP|GRUPPEN)\b", "", c_name, flags=re.I).strip()
+    if clean_brand and len(clean_brand) >= 3:
+        muni = str(profile.get("municipality") or "Norge").strip()
+        brand_q = f'"{clean_brand}" {muni} website'
+        if brand_q not in queries:
+            queries.append(brand_q)
 
-    request = urllib.request.Request(url, headers={
-        "Accept": "application/json",
-        "Accept-Encoding": "identity",
-        "Cache-Control": "no-cache",
-        "User-Agent": "SignalPostAgent/0.1 (research; +https://builderr.ai/signalpost)",
-        "X-Subscription-Token": api_key,
-    })
+    for query in queries:
+        if budget and not budget.can_proceed():
+            break
+        url = BRAVE_ENDPOINT + "?" + urllib.parse.urlencode({
+            "q": query,
+            "count": count,
+            "country": "no",
+            "search_lang": "nb",
+            "safesearch": "moderate",
+            "spellcheck": "0",
+        })
 
-    started = time.monotonic()
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read()
-            elapsed_ms = (time.monotonic() - started) * 1000
+        request = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "Cache-Control": "no-cache",
+            "User-Agent": "SignalPostAgent/0.1 (research; +https://builderr.ai/signalpost)",
+            "X-Subscription-Token": api_key,
+        })
 
-        # Brave Search API costs ~$0.005 per request ($5 per 1,000 queries)
-        if budget:
-            budget.record_request(
-                bytes_received=len(raw),
-                latency_ms=elapsed_ms,
-                cost_usd=0.005,
-            )
+        started = time.monotonic()
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read()
+                elapsed_ms = (time.monotonic() - started) * 1000
 
-        payload = json.loads(raw)
-        results = parse_brave_web_results(payload, query=query)
-        decision = choose_search_candidate(profile, results)
-        selected = decision.get("selected")
-        if selected and selected.get("url"):
-            return str(selected["url"])
-        return None
+            # Brave Search API costs ~$0.005 per request ($5 per 1,000 queries)
+            if budget:
+                budget.record_request(
+                    bytes_received=len(raw),
+                    latency_ms=elapsed_ms,
+                    cost_usd=0.005,
+                )
 
-    except Exception:
-        if budget:
-            budget.record_request(cost_usd=0.005)
-        return None
+            payload = json.loads(raw)
+            results = parse_brave_web_results(payload, query=query)
+            decision = choose_search_candidate(profile, results)
+            selected = decision.get("selected")
+            if selected and selected.get("url"):
+                return str(selected["url"])
+        except Exception:
+            if budget:
+                budget.record_request(cost_usd=0.005)
+            continue
+
+    return None

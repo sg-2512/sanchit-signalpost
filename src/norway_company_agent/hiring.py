@@ -183,12 +183,15 @@ def evaluate_company_hiring(
 
     loc_val = (profile.get('evidence', {}).get('locations', {}).get('value') or {}) if isinstance(profile, dict) else {}
     subunit_orgs = [str(u.get('organisation_number')) for u in (loc_val.get('locations') or []) if u.get('organisation_number')]
+    group_val = (profile.get('evidence', {}).get('group', {}).get('value') or {}) if isinstance(profile, dict) else {}
+    child_orgs = [str(c.get('organisasjonsnummer')) for c in (group_val.get('children') or []) if c.get('organisasjonsnummer')]
+    combined_related_orgs = list(dict.fromkeys(subunit_orgs + child_orgs))
 
     # 3. NAV Arbeidsplassen Live Job Search
     nav_jobs: list[dict[str, Any]] = []
     nav_status = {"status": "blocked"}
     if budget and budget.can_proceed(reserve=1):
-        nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=subunit_orgs, budget=budget, status_out=nav_status)
+        nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=combined_related_orgs, budget=budget, status_out=nav_status)
         for job in nav_jobs:
             signals.append({
                 "source": "nav_arbeidsplassen",

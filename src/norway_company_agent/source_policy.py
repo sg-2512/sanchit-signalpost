@@ -30,6 +30,8 @@ OFFICIAL_SAFE_STRATEGIES = frozenset({
     "company_site_job",
     "official_registry",
     "official_annual_accounts",
+    "kartverket_address_geocode",
+    "independent_news_discovery",
 })
 
 # These platforms require a declared API, licence, or written permission for
