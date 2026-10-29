@@ -56,7 +56,7 @@ The manifest selector requires at least 1,000 companies for a full entry. You ca
 use its first ten rows for a private smoke test before running the full batch.
 
 ```bash
-uv sync
+uv sync --locked
 curl -L 'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' -o brreg-enheter.csv
 curl -L 'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' -o signalpost-universe.jsonl.gz
 
@@ -95,7 +95,9 @@ uv run python scripts/run_competition_batch.py \
 uv run --with pytest pytest -q
 ```
 
-The published archive was clean-room verified on August 24, 2026: 104 tests and 5 subtests passed, followed by a one-company live BRREG smoke run with one terminal envelope, five requests and zero silent drops.
+The published archive was clean-room verified on August 24, 2026: 104 tests and 5 subtests passed, followed by a one-company live BRREG smoke run with one terminal envelope, five requests and zero silent drops. That historical verification does not establish current challenge qualification.
+
+The local score reports are optimization proxies only. Their generated audit labels are not independent judgments, so proxy scores must never be described as official scores or qualification. Only Builderr's verified run can establish either.
 
 Increase `--count` and `--expected-count` together if you want to publish more than the 1,000-company minimum. The ten-row smoke test above is practice only. Do not set `select_entry_batch.py --count 10`: the selector enforces the 1,000-company entry minimum.
 

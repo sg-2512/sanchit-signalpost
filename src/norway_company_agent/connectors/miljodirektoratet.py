@@ -95,6 +95,7 @@ def fetch_miljodirektoratet_permits(
                 ],
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
+                "strategy": "miljodirektoratet_permit_lookup",
                 "source_class": "environmental_authority",
                 "evidence_span": f"Miljødirektoratet {type_tillatelse} for {clean_name} ({anlegg_navn}): Status {status} (Vedtatt {vedtaksdato[:10]})",
                 "metrics": {

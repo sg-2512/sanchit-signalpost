@@ -266,7 +266,6 @@ class GooglePlacesWebsiteTests(unittest.TestCase):
             "evidence": {},
         }
         budget = BudgetTracker(max_requests=100)
-
         fake_place_obs = [{
             "id": "gplaces-1",
             "platform": "google_places",
@@ -275,32 +274,35 @@ class GooglePlacesWebsiteTests(unittest.TestCase):
             "metrics": {"website_uri": "https://www.farsundbygg.no"},
         }]
 
-        with patch("run_agent.fetch_place_data", return_value=fake_place_obs):
-            with patch("run_agent.fetch_website") as mock_fetch_web:
-                mock_fetch_web.return_value = (
-                    {
-                        "status": "available",
-                        "source_url": "https://www.farsundbygg.no",
-                        "value": {
-                            "final_url": "https://www.farsundbygg.no",
-                            "title": "Farsund Bygg AS",
-                            "identity_text_excerpt": "Farsund Bygg AS Org.nr: 987654321",
-                            "social_links": [
-                                {"platform": "linkedin", "url": "https://www.linkedin.com/company/farsund-bygg"}
-                            ],
-                        },
+        with patch("run_agent.places_available", return_value=True), patch(
+            "run_agent.fetch_place_data", return_value=fake_place_obs
+        ) as mock_fetch_places, patch("run_agent.fetch_website") as mock_fetch_web:
+            mock_fetch_web.return_value = (
+                {
+                    "status": "available",
+                    "source_url": "https://www.farsundbygg.no",
+                    "value": {
+                        "final_url": "https://www.farsundbygg.no",
+                        "title": "Farsund Bygg AS",
+                        "identity_text_excerpt": "Farsund Bygg AS Org.nr: 987654321",
+                        "social_links": [
+                            {"platform": "linkedin", "url": "https://www.linkedin.com/company/farsund-bygg"}
+                        ],
                     },
-                    {"requests": 1, "bytes": 1000},
-                )
-                enriched, obs = run_agent.enrich_single_company(
-                    profile,
-                    fetch_modules=set(),
-                    requested_modules=["website"],
-                    budget=budget,
-                )
+                },
+                {"requests": 1, "bytes": 1000},
+            )
+            enriched, obs = run_agent.enrich_single_company(
+                profile,
+                fetch_modules=set(),
+                requested_modules=["website"],
+                budget=budget,
+            )
+        mock_fetch_web.assert_called()
 
         self.assertEqual(enriched["website"], "https://www.farsundbygg.no")
         self.assertEqual(enriched["evidence"]["website"]["status"], "available")
+        mock_fetch_places.assert_called_once()
         social_obs = [o for o in obs if o.get("platform") == "linkedin" and o.get("signal_type") == "profile_handle"]
         self.assertGreater(len(social_obs), 0)
 
@@ -410,12 +412,24 @@ class OperatingLocationPlaceTests(unittest.TestCase):
         finally:
             Path(tf_path).unlink(missing_ok=True)
 
+    def test_read_organisation_inputs_rejects_duplicate_companies(self):
+        from norway_company_agent.batch import read_organisation_inputs
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", mode="w", encoding="utf-8", delete=False) as tf:
+            tf.write('923609016\n923609016\n')
+            tf_path = tf.name
+        try:
+            with self.assertRaisesRegex(ValueError, "Duplicate organisation number"):
+                read_organisation_inputs(tf_path)
+        finally:
+            Path(tf_path).unlink(missing_ok=True)
+
     def test_evidence_terminal_state_budget_exhausted(self):
         from norway_company_agent.batch import evidence_terminal_state
         rec_status = {"status": "budget_exhausted"}
-        self.assertEqual(evidence_terminal_state(rec_status), "budget_exhausted")
+        self.assertEqual(evidence_terminal_state(rec_status), "failed")
         rec_note = {"status": "source_error", "note": "budget_exhausted before request"}
-        self.assertEqual(evidence_terminal_state(rec_note), "budget_exhausted")
+        self.assertEqual(evidence_terminal_state(rec_note), "failed")
 
     def test_linkedin_company_publishable_schema(self):
         from norway_company_agent.connectors.linkedin import discover_linkedin_company

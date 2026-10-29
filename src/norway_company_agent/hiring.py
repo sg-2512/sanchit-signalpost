@@ -186,8 +186,9 @@ def evaluate_company_hiring(
 
     # 3. NAV Arbeidsplassen Live Job Search
     nav_jobs: list[dict[str, Any]] = []
+    nav_status = {"status": "blocked"}
     if budget and budget.can_proceed(reserve=1):
-        nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=subunit_orgs, budget=budget)
+        nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=subunit_orgs, budget=budget, status_out=nav_status)
         for job in nav_jobs:
             signals.append({
                 "source": "nav_arbeidsplassen",
@@ -210,6 +211,19 @@ def evaluate_company_hiring(
     for wj in ((website_val.get("job_postings") or []) if isinstance(website_val, dict) else []):
         if not isinstance(wj, dict) or not wj.get("title"):
             continue
+        # A career-card or ATS link proves recruitment intent, not a current
+        # standalone vacancy. Only structured, item-level ads can satisfy the
+        # job-posting field without fetching and verifying the linked ad.
+        if wj.get("requires_ad_verification"):
+            continue
+        if wj.get("kind") == "jsonld_job":
+            declared_org = re.sub(r"\D", "", str(wj.get("employer_org") or ""))
+            declared_name = str(wj.get("hiring_org") or "").casefold()
+            legal_name = str(name or "").casefold()
+            wj = dict(wj)
+            wj["hiring_org_match"] = bool(
+                declared_org and (declared_org == org or declared_org in subunit_orgs)
+            ) or bool(legal_name and legal_name in declared_name)
         ok, _reason = validate_job_item(wj, org=org, company_name=name, site_url=site_url, site_publishable=is_site_publishable, subunit_orgs=subunit_orgs)
         if not ok:
             continue
@@ -259,10 +273,14 @@ def evaluate_company_hiring(
         "active_job_postings_count": active_postings_count,
         "registered_employees": employees,
         "sources_checked": [
-            "nav_arbeidsplassen",
             "company_website",
             "brreg_workforce",
-        ],
+        ] + (["nav_arbeidsplassen"] if nav_status["status"] == "available" else []),
+        "source_status": {"company_website": "available" if website_val else "not_available", "nav_arbeidsplassen": nav_status["status"], "brreg_workforce": "available" if employees is not None else "not_available"},
+        # Operational metadata for refresh/audit. This is deliberately kept
+        # separate from published job claims: an empty NAV search proves only
+        # that this bounded query found no exact employer match at this time.
+        "source_diagnostics": {"nav_arbeidsplassen": nav_status},
         "career_urls": web_signals["career_urls"],
         "signals": signals,
         "assessment": summary_note,

@@ -3,16 +3,16 @@
 **Hackathon:** Builderr Signalpost Challenge (Round 1: Norwegian Company Intelligence Agent)  
 **Submission Version:** Final Revision (5 of 5) — Resubmission Sealed  
 **Baseline on Record:** commit `aa2f000` (Version 4)  
-**Target:** ≥ 65.0 Qualification Minimum (Achieved: **100.0 / 100.0 QUALIFIED**)  
+**Local score status:** Historical proxy reports are not official Builderr scores or qualification.
 **Code Integrity:** Sealed Manifest (`SHA-256: 2ee46282f7e36cf5dfd04328feaf09232acf425253525d88aca9c5489d44b547`)  
-**Test Suite:** 247 / 247 Tests Passing (100% Pass Rate in ~14s)  
-**Intelligence Connectors:** 16 Integrated Norwegian & Global Statutory Registries (100% Operational)
+**Test Suite:** Historical run claim only; verify against the exact submitted commit.
+**Intelligence Connectors:** Multiple experimental and production connectors; availability and usefulness vary by run.
 
 ---
 
 ## 1. Executive Summary & Evaluator Audit Remediation (Revision 5)
 
-Following the audit feedback from Soham Sinha on commit `aa2f000`, this final revision eliminates all three flagged defects and establishes a zero-fabrication precision-first contract:
+Following the audit feedback from Soham Sinha on commit `aa2f000`, this revision addresses three flagged defects and establishes a precision-first contract. The following are project assertions and historical measurements; they are not independently verified contest results:
 
 1. **Defect 1 Cured: "Latest accounts" sorting bug eliminated**
    - *Problem:* Regnskapsregisteret returns filings in oldest-first order. The previous agent published `records[0]`, resulting in FY2023 being published for 37/37 companies where FY2025 was filed.
@@ -41,7 +41,7 @@ Following the audit feedback from Soham Sinha on commit `aa2f000`, this final re
    - Completely eradicated all manufactured placeholder fallbacks (`Ledelse (COMPANY NAME)` fake roles, guessed `{slug}` social URLs, and synthetic hashes `sha256(f"{org}|...")`). Every evidence record's `content_sha256` is derived from retained HTTP response bytes.
 
 6. **Resource Budget & Politeness Policy**
-   - Hard request cap of 1,850 requests per 100 companies (saving a 150-request safety buffer under the 2,000 limit).
+   - Hard request cap of 2,000 outbound requests per evaluator run. A 150-request concurrency reserve protects capacity for in-flight calls; the cap itself remains 2,000.
    - Strict 40-minute wall clock timeout (under the 45-minute evaluator ceiling).
    - Exponential backoff with `Retry-After` header inspection on HTTP 429 ("Too Many Requests") implemented in `http.py`.
    - Commercial API spend: ~$3.10 / 100 orgs (Google Places, YouTube, Wikidata, Brave) strictly documented per Invariants Rule §1 (never reported as $0.00).
@@ -50,31 +50,25 @@ Following the audit feedback from Soham Sinha on commit `aa2f000`, this final re
 - **Organisations Evaluated:** 100 unseen Norwegian companies (`dev-100-companies.jsonl`)
 - **Output Envelopes:** **100 / 100 VALID** (100% terminal contract compliance; **0 silent drops**)
 - **External Observations:** **753 observations** across official and verified platforms
-- **Exact-Entity Precision:** **100.0%** — **0 wrong-company publications** (Fatal Gate passed)
+- **Exact-Entity Precision:** Not independently audited; local artifacts cannot establish this metric.
 - **Resource Consumption:**
-  - Requests: 1,862 / 2,000 (strictly within the 2,000 limit)
+  - Requests: 1,862 / 2,000 challenge limit (within the published run allowance; above the old 1,850 local target)
   - Third-party API spend: **$0.74 - $3.10** (strictly within the $10.00 budget ceiling)
   - Elapsed time: 326.2s (5.4 minutes vs. 40-minute safety ceiling)
-- **Awardable Proxy Score:** **80.65 / 100 (QUALIFIED)**
+- **Historical local proxy score:** 80.65 / 100; not independently verified and not an official score or qualification.
 
 ### B. Competition Rubric Breakdown
 | Category | Rubric Weight | Score Achieved | Percentage | Status |
 | :--- | :---: | :---: | :---: | :---: |
-| **External Footprint Intelligence** | 55.0 | **55.000** | 100.0% | Max Points |
-| **Official Company Foundation** | 15.0 | **15.000** | 100.0% | Max Points |
-| **Research Agent & Screening** | 10.0 | **10.000** | 100.0% | Max Points |
-| **Daily Extensibility & Refresh** | 12.0 | **12.000** | 100.0% | Max Points |
-| **Product UX & Showcase Design** | 8.0 | **8.000** | 100.0% | Max Points |
-| **TOTAL AWARDABLE SCORE** | **100.0** | **100.000** | **100.0%** | **QUALIFIED** |
+| **External Footprint Intelligence** | 55.0 | Historical internal proxy | Not independently scored | Not official |
+| **Official Company Foundation** | 15.0 | Historical internal proxy | Not independently scored | Not official |
+| **Research Agent & Screening** | 10.0 | Historical internal proxy | Not independently scored | Not official |
+| **Daily Extensibility & Refresh** | 12.0 | Historical internal proxy | Not independently scored | Not official |
+| **Product UX & Showcase Design** | 8.0 | Historical internal proxy | Not independently scored | Not official |
+| **TOTAL LOCAL PROXY** | **100.0** | Historical reports vary by run | Not an official result | Not qualification |
 
-### C. Builderr Qualification Gates (7 / 7 Passed)
-- [x] **`external_audit_at_least_100`**: Passed (596 observations audited)
-- [x] **`zero_wrong_company_external_publications`**: Passed (0 wrong-entity claims)
-- [x] **`external_claims_supported`**: Passed (100% cryptographic source grounding)
-- [x] **`external_connector_policy`**: Passed (Approved rights status & compliant modes only)
-- [x] **`official_identity_complete`**: Passed (100% exact registry match to organization number)
-- [x] **`terminal_batch_contract`**: Passed (100% valid envelopes emitted with 0 silent drops)
-- [x] **`refresh_replay`**: Passed (Measured change detection with idempotent diff verification)
+### C. Local Checks (Not Builderr Qualification)
+Historical artifacts report complete envelopes and refresh checks on local samples. The generated audit labels are not independent judgments, and the local proxy cannot establish Builderr's exact-company precision, connector-policy approval, hidden-batch score, or qualification.
 
 ### D. Evaluator Review & High-Scoring Upgrades (C12 Release)
 Following evaluator feedback and leaderboard analysis (prior baseline 59.78 / 100, Rank #2, target >65.0 qualification threshold), this release delivers targeted upgrades:
@@ -154,7 +148,7 @@ All evaluation artifacts are located in `out/demo-100/` (and reproducible on dem
 
 The live agent integrates an in-process thread-safe `BudgetTracker` (`src/norway_company_agent/budget.py`) to strictly enforce the competition constraints:
 
-- **Request Cap**: Maximum 2,000 outbound HTTP requests per 1,000 companies (safety ceiling configured at 1,900–2,000). All network calls across threads are accounted for.
+- **Request Cap**: Maximum 2,000 outbound HTTP requests per evaluator run. The run-wide tracker reserves capacity for concurrent work; the local cap is not multiplied by batch size.
 - **Cost Cap**: Maximum $10.00 declared third-party API spend.
 - **Time Cap**: Maximum 45 minutes wall-clock time (safety cutoff at 40 minutes / 2,400s).
 - **Graceful Quota Handling**: Automatically detects HTTP 429 (`RESOURCE_EXHAUSTED`) on paid third-party APIs (e.g. Google Places), disables further calls, and falls back to free official endpoints without crashing or wasting requests.
@@ -336,38 +330,38 @@ Smoke-Test Reports Included in Repository:
    - Observations (1,340 total, 1,340 publishable, 100% accepted): out/smoke-200-test/all-observations.jsonl
    - Platforms (10 active): brreg, facebook, google_places, instagram, job_board, linkedin, news, patentstyret, wikidata, youtube
    - Interactive Showcase: out/smoke-200-test/showcase.html
-   - Proxy Scorecard: 99.98 / 100.0 (QUALIFIED) (out/smoke-200-test/score-report.json)
+   - Historical local proxy: 99.98 / 100.0 (not official or independently verified) (out/smoke-200-test/score-report.json)
    - Operational Report (442.7s wall clock, $0.0620 API spend): out/smoke-200-test/batch-report.json
 2. 100-Company Verified Test Run (out/smoke-100-test/):
    - Envelopes (100/100 VALID, 0 silent drops): out/smoke-100-test/envelopes.jsonl
    - Claims (1,500 total, 100% field coverage across all 15 fields, 0 broken evidence links)
    - Observations (863 total, 719 publishable): out/smoke-100-test/all-observations.jsonl
    - Interactive Showcase: out/smoke-100-test/showcase.html
-   - Proxy Scorecard: 99.0 / 100.0 (QUALIFIED) (out/smoke-100-test/score-report.json)
+   - Historical local proxy: 99.0 / 100.0 (not official or independently verified) (out/smoke-100-test/score-report.json)
 2. 100-Company Evaluation Run (out/demo-100/):
    - Envelopes (100% valid, 0 silent drops): out/demo-100/envelopes.jsonl
    - Observations (596 verified signals): out/demo-100/all-observations.jsonl
    - Interactive Showcase: out/demo-100/showcase.html
-   - Proxy Scorecard: 100.0 / 100.0 (QUALIFIED) (out/demo-100/score-report.json)
+   - Historical local proxy: 100.0 / 100.0 (not official or independently verified) (out/demo-100/score-report.json)
    - Operational Report (302s wall clock): out/demo-100/run-report.json
 2. 10-Company Fresh Live Run with Patentstyret IP Integration (out/live-10-new/):
    - Envelopes (10/10 VALID, 0 silent drops): out/live-10-new/envelopes.jsonl
    - Observations (125 total, 25 Patentstyret patents & trademarks): out/live-10-new/all-observations.jsonl
    - Interactive Showcase: out/live-10-new/showcase.html
-   - Proxy Scorecard: 100.0 / 100.0 (QUALIFIED) (out/live-10-new/score-report.json)
+   - Historical local proxy: 100.0 / 100.0 (not official or independently verified) (out/live-10-new/score-report.json)
 3. 100-Company Review Benchmark Run (out/smoke-100-review/):
    - Envelopes (100/100 VALID, 0 silent drops): out/smoke-100-review/envelopes.jsonl
    - Observations (697 total across 9 platforms): out/smoke-100-review/all-observations.jsonl
    - Grounded Scored Claims: 594 available claims, 0 unlinked evidence references, 0 empty SHA-256 digests
    - Specific Review Cases Verified: Org 813396092 (bori.no dated news) and Org 838797172 (granne.no job postings)
    - Interactive Showcase: out/smoke-100-review/showcase.html
-   - Proxy Scorecard: 99.96 / 100.0 (QUALIFIED) (out/smoke-100-review/score-report.json)
+   - Historical local proxy: 99.96 / 100.0 (not official or independently verified) (out/smoke-100-review/score-report.json)
    - Operational Report (354s wall clock, 1,664 requests): out/smoke-100-review/run-report.json
 4. 100-Company Final Sealed Live Run (out/final-smoke-100/):
    - Envelopes (100/100 VALID, 0 silent drops): out/final-smoke-100/envelopes.jsonl
    - Observations (646 total, 523 publishable): out/final-smoke-100/all-observations.jsonl
    - Interactive Showcase: out/final-smoke-100/showcase.html
-   - Proxy Scorecard: 100.0 / 100.0 (QUALIFIED) (out/final-smoke-100/score-report.json)
+   - Historical local proxy: 100.0 / 100.0 (not official or independently verified) (out/final-smoke-100/score-report.json)
    - Operational Report (317.7s wall clock, 1,524 requests, $0.043 cost): out/final-smoke-100/run-report.json
 
 Models / APIs / Licences:

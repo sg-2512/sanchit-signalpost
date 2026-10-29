@@ -29,7 +29,7 @@ def main() -> None:
     parser.add_argument("--external-report", required=True)
     parser.add_argument("--batch-report", required=True)
     parser.add_argument("--resume-report")
-    parser.add_argument("--refresh-report", required=True)
+    parser.add_argument("--refresh-report", help="Optional refresh evaluation JSON; omitted means the refresh gate remains unproven")
     parser.add_argument("--research-report", required=True)
     parser.add_argument("--sentiment-report")
     parser.add_argument("--ux-report", required=True)
@@ -49,8 +49,13 @@ def main() -> None:
     coverage = external.get("coverage", {})
 
     external_qualified = bool(external.get("qualification_passed"))
-    zero_wrong = external.get("wrong_entity_publications") == 0 and external.get("published_audited", 0) > 0
-    supported = external.get("unsupported_publications") == 0 and external.get("published_audited", 0) > 0
+    published_audited = int(external.get("published_audited") or 0)
+    zero_wrong = published_audited > 0 and external.get("wrong_entity_publications") == 0
+    supported = (
+        published_audited > 0
+        and external.get("unsupported_publications") == 0
+        and external.get("evidence_span_validity") == 1.0
+    )
     entity_points = 10.0 if external_qualified and zero_wrong else 0.0
     breadth_points = capped(10, coverage.get("two_platforms")) if external_qualified else 0.0
     workforce_points = capped(7, coverage.get("workforce_jobs")) if external_qualified else 0.0
@@ -135,7 +140,12 @@ def main() -> None:
         "terminal_batch_contract": batch_valid,
         "refresh_replay": refresh_valid,
     }
-    qualification = all(gates.values())
+    qualification = bool(
+        all(gates.values())
+        and external_qualified
+        and batch_valid
+        and refresh_valid
+    )
     report = {
         "scorer": "signalpost_external_first_competition_proxy_v3",
         "claim_boundary": "Optimization proxy. Final score requires the organiser's frozen hidden companies and independent labels.",
@@ -154,7 +164,9 @@ def main() -> None:
         "target_met": raw_score >= args.target,
         "qualification_gates": gates,
         "qualification_passed": qualification,
-        "awardable_score": raw_score if qualification else 0,
+        "awardable_score": None,
+        "score_kind": "internal_proxy_unverified",
+        "qualification_note": "This is an internal proxy qualification. Only an independent Builderr evaluation can establish the official result.",
         "unproven_or_failed": [name for name, passed in gates.items() if not passed],
     }
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)

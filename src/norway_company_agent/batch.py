@@ -12,21 +12,7 @@ from .verified_items import name_in_text, registered_domain, validate_job_item, 
 from .sampling import iter_bulk
 
 
-TERMINAL_STATES = {
-    "complete",
-    "available",
-    "not_available",
-    "blocked",
-    "not_applicable",
-    "ambiguous",
-    "failed",
-    "not_found",
-    "blocked_policy",
-    "blocked_robots",
-    "source_error",
-    "budget_exhausted",
-    "submission_error",
-}
+TERMINAL_STATES = {"available", "not_available", "blocked", "not_applicable", "ambiguous", "failed"}
 
 
 def read_organisation_inputs(path: str | Path) -> list[dict[str, Any]]:
@@ -70,7 +56,7 @@ def read_organisation_inputs(path: str | Path) -> list[dict[str, Any]]:
         if not clean_org:
             clean_org = f"input_{len(records) + 1}"
         if clean_org in seen_orgs:
-            continue
+            raise ValueError(f"Duplicate organisation number in input: {clean_org}")
         seen_orgs.add(clean_org)
         record = {"organisation_number": clean_org}
         if isinstance(value, dict):
@@ -214,25 +200,21 @@ def profiles_from_bulk(path: str | Path | None, organisation_numbers: Iterable[s
 
 def evidence_terminal_state(record: dict[str, Any] | None) -> str:
     if not record:
-        return "submission_error"
+        return "failed"
     status = record.get("status")
     if status == "available":
-        return "complete"
+        return "available"
     if status == "not_applicable":
         return "not_applicable"
     if status == "not_found":
-        return "not_found"
+        return "not_available"
     if status == "blocked":
-        note = str(record.get("note") or "").casefold()
-        return "blocked_robots" if "robot" in note else "blocked_policy"
+        return "blocked"
     if status == "budget_exhausted":
-        return "budget_exhausted"
+        return "failed"
     if status == "source_error":
-        note = str(record.get("note") or "").casefold()
-        if "budget" in note:
-            return "budget_exhausted"
-        return "source_error"
-    return "submission_error"
+        return "failed"
+    return "failed"
 
 
 def _to_availability_state(status: str | None) -> str:
@@ -586,6 +568,19 @@ def build_contract_claims_and_evidence(
             "confidence": 1.0,
             "evidence_ids": [f"ev-locations-{org}"],
         })
+    elif (ev.get("registered_address") or {}).get("status") == "available" and (ev.get("registered_address") or {}).get("content_sha256"):
+        address_value = (ev.get("registered_address") or {}).get("value") or {}
+        claims.append({
+            "field": "operating_locations",
+            "value": {
+                "locations": [address_value],
+                "scope": "principal_registered_business_address",
+                "separate_subunits_status": address_value.get("subunit_lookup_status"),
+            },
+            "availability": "available",
+            "confidence": 0.85,
+            "evidence_ids": [f"ev-registered_address-{org}"],
+        })
     else:
         claims.append({
             "field": "operating_locations",
@@ -743,10 +738,10 @@ def build_contract_claims_and_evidence(
 
     crawled_page_shas: dict[str, str] = {}
     if has_valid_site_ev:
-        crawled_page_shas[str(w_rec.get("source_url") or website_url)] = str(w_rec.get("content_sha256"))
+        crawled_page_shas[str(w_rec.get("source_url") or website_url).rstrip("/")] = str(w_rec.get("content_sha256"))
         for p in w_val.get("pages", []) or []:
             if p.get("url") and p.get("content_sha256"):
-                crawled_page_shas[str(p["url"])] = str(p["content_sha256"])
+                crawled_page_shas[str(p["url"]).rstrip("/")] = str(p["content_sha256"])
     valid_page_sha_set = set(crawled_page_shas.values())
 
     generic_news_titles = {
@@ -789,11 +784,12 @@ def build_contract_claims_and_evidence(
         cand_reg_dom = registered_domain(c_url)
         is_site_news = bool(site_reg_dom) and (cand_reg_dom == site_reg_dom)
         if is_site_news:
-            if has_valid_site_ev and cand_sha not in valid_page_sha_set:
-                cand_sha = str(w_rec.get("content_sha256"))
-                cand_src_url = str(w_rec.get("source_url") or website_url)
-            else:
-                cand_src_url = str(cand.get("source_url") or (w_rec.get("source_url") if has_valid_site_ev else c_url))
+            cand_src_url = str(cand.get("source_url") or (w_rec.get("source_url") if has_valid_site_ev else c_url))
+            source_sha = crawled_page_shas.get(cand_src_url.rstrip("/"))
+            if source_sha:
+                # A listing/feed hash is valid evidence when its URL is the source page
+                # that supplied the dated article listing. Do not substitute the homepage hash.
+                cand_sha = source_sha
         else:
             cand_src_url = str(cand.get("source_url") or c_url)
         if not cand_sha:
@@ -1100,7 +1096,7 @@ def terminal_envelope(
             "retry_count": int((record or {}).get("retry_count") or 0),
             "final_timestamp": (record or {}).get("retrieved_at") or completed_at,
         }
-    entity_state = "submission_error" if any(item["state"] == "submission_error" for item in module_states.values()) else "complete"
+    entity_state = "failed" if any(item["state"] == "failed" for item in module_states.values()) else "available"
 
     # Canonical company-level result state according to Builderr specification
     reg_status = (profile.get("evidence", {}).get("registry") or {}).get("status")
@@ -1108,14 +1104,14 @@ def terminal_envelope(
     reg_module_state = module_states.get("registry", {}).get("state")
 
     if (
-        entity_state == "submission_error"
+        entity_state == "failed"
         or reg_status in {"submission_error", "source_error"}
         or reg_live_status in {"submission_error", "source_error"}
-        or reg_module_state in {"submission_error", "source_error"}
-        or any(s.get("state") == "submission_error" for s in module_states.values())
+        or reg_module_state == "failed"
+        or any(s.get("state") == "failed" for s in module_states.values())
     ):
         company_availability = "failed"
-        entity_state = "submission_error"
+        entity_state = "failed"
     elif reg_status == "not_found" and reg_live_status in {None, "not_found", "absent"}:
         company_availability = "not_available"
     elif reg_status == "blocked" or reg_live_status == "blocked":
@@ -1188,7 +1184,7 @@ def terminal_envelope(
             "run_id": run_id,
             "started_at": started_at,
             "completed_at": completed_at,
-            "terminal_status": "completed" if entity_state == "complete" and company_availability != "failed" else "failed",
+            "terminal_status": "completed" if entity_state != "failed" and company_availability != "failed" else "failed",
             "availability": company_availability,
         },
         "legal_identity": {

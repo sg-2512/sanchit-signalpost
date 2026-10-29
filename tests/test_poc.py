@@ -734,8 +734,8 @@ class OperationsTests(unittest.TestCase):
             },
         }
         envelope = terminal_envelope(profile, run_id="day-1", modules=["registry", "website"], started_at="2026-01-01T00:00:00Z", completed_at="2026-01-01T00:01:00Z")
-        self.assertEqual(envelope["modules"]["registry"]["state"], "complete")
-        self.assertEqual(envelope["modules"]["website"]["state"], "blocked_robots")
+        self.assertEqual(envelope["modules"]["registry"]["state"], "available")
+        self.assertEqual(envelope["modules"]["website"]["state"], "blocked")
         self.assertIn("claims", envelope)
         self.assertIn("evidence", envelope)
         self.assertIn("run", envelope)
@@ -747,8 +747,29 @@ class OperationsTests(unittest.TestCase):
         self.assertTrue(validate_envelopes([envelope], 1)["passed"])
         self.assertFalse(validate_envelopes([envelope], 2)["passed"])
 
-    def test_unknown_evidence_state_is_submission_error(self):
-        self.assertEqual(evidence_terminal_state({"status": "not_fetched"}), "submission_error")
+    def test_failed_http_retries_are_counted_as_requests(self):
+        from unittest.mock import patch
+        from norway_company_agent import http
+        with patch.object(http.urllib.request, "urlopen", side_effect=OSError("offline")), patch.object(http.time, "sleep"):
+            result = http.fetch_json("https://example.test", attempts=3)
+        self.assertEqual(result.request_count, 3)
+
+    def test_success_after_retry_reports_each_attempt(self):
+        from unittest.mock import MagicMock, patch
+        from norway_company_agent import http
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        response.read.return_value = b"{}"
+        response.status = 200
+        response.geturl.return_value = "https://example.test/final"
+        with patch.object(http.urllib.request, "urlopen", side_effect=[OSError("offline"), response]), patch.object(http.time, "sleep"):
+            result = http.fetch_json("https://example.test", attempts=3)
+        self.assertEqual(result.request_count, 2)
+        self.assertEqual(result.url, "https://example.test/final")
+
+    def test_unknown_evidence_state_is_failed_for_the_public_contract(self):
+        self.assertEqual(evidence_terminal_state({"status": "not_fetched"}), "failed")
 
     def test_batch_resume_only_skips_profiles_with_all_terminal_modules(self):
         complete = {"evidence": {"registry": {"status": "available"}, "website": {"status": "not_found"}}}
@@ -769,6 +790,17 @@ class OperationsTests(unittest.TestCase):
 
 
 class WebsiteTests(unittest.TestCase):
+    def test_optional_budget_calls_preserve_retry_reserve(self):
+        from norway_company_agent.budget import BudgetTracker
+
+        budget = BudgetTracker(max_requests=100, request_reserve=20)
+        budget.record_request(count=80)
+        self.assertFalse(budget.can_proceed())
+        self.assertFalse(budget._reserve_request_slots(2))
+        budget.record_request(count=1)
+        self.assertTrue(budget.can_proceed(official=True))
+        self.assertEqual(budget.report()["protected_request_reserve"], 20)
+
     def test_interrupted_run_does_not_synthesize_terminal_failures(self):
         profiles = [{"organisation_number": "1", "website": "pending.no"}]
         self.assertEqual(terminal_events_for_run(profiles, [], False), [])

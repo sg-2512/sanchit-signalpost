@@ -594,6 +594,7 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
             "excerpt": container.get_text(" ", strip=True)[:300],
             "content_sha256": real_page_sha,
             "kind": "listing_card",
+            "requires_ad_verification": True,
         })
         if len(jobs) >= 8:
             break
@@ -637,6 +638,7 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
                     "excerpt": f"Link to recruitment ATS page {clean_href} found on {page_url}",
                     "content_sha256": real_page_sha,
                     "kind": "ats_ad",
+                    "requires_ad_verification": True,
                 })
                 if len(jobs) >= 8:
                     break
@@ -651,8 +653,8 @@ def _jsonld_jobs(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
         if isinstance(node, dict):
             kind = node.get("@type")
             kinds = set(kind if isinstance(kind, list) else [kind])
-            if "JobPosting" in kinds and node.get("title"):
-                title = str(node.get("title") or "").strip()
+            if "JobPosting" in kinds and (node.get("title") or node.get("name")):
+                title = str(node.get("title") or node.get("name") or "").strip()
                 pub = str(node.get("datePosted") or "")
                 pub_iso = extract_date_from_text(pub) or (pub[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", pub) else None)
                 url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
@@ -660,6 +662,11 @@ def _jsonld_jobs(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
                 digest = page_sha256 or hashlib.sha256(f"{title}|{url}".encode("utf-8")).hexdigest()
                 hiring = node.get("hiringOrganization")
                 hiring_name = str(hiring.get("name") or "") if isinstance(hiring, dict) else str(hiring or "")
+                identifier = hiring.get("identifier") if isinstance(hiring, dict) else None
+                if isinstance(identifier, dict):
+                    employer_org = str(identifier.get("value") or identifier.get("@id") or "")
+                else:
+                    employer_org = str(identifier or "")
                 jobs.append({
                     "title": title,
                     "url": url,
@@ -669,6 +676,9 @@ def _jsonld_jobs(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
                     "content_sha256": digest,
                     "kind": "jsonld_job",
                     "hiring_org": hiring_name,
+                    "employer_org": re.sub(r"\D", "", employer_org),
+                    "valid_through": str(node.get("validThrough") or "")[:10] or None,
+                    "employment_type": node.get("employmentType"),
                 })
             for child in node.values():
                 walk(child)
@@ -733,14 +743,13 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
                 # If sitemap index with nested sitemaps, probe post/news/career sub-sitemap
                 if "<sitemap>" in raw_xml.lower():
                     sub_sitemaps = re.findall(r"<sitemap>\s*<loc>(https?://[^<]+)</loc>", raw_xml, re.I)
-                    for sub_url in sub_sitemaps:
+                    for sub_url in sub_sitemaps[:8]:
                         if any(t in sub_url.lower() for t in ["post", "news", "nyhet", "karriere", "jobb"]):
                             try:
                                 sub_req = urllib.request.Request(sub_url.strip(), headers={"User-Agent": USER_AGENT})
                                 with _safe_urlopen(sub_req, timeout=timeout) as sub_resp:
                                     sub_xml = sub_resp.read(500_000).decode("utf-8", errors="replace")
                                     locs.extend(re.findall(r"<loc>(https?://[^<]+)</loc>", sub_xml, re.I))
-                                    break
                             except Exception:
                                 pass
 
@@ -751,18 +760,18 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
                 candidate_careers = [l.strip() for l in locs if any(t in l.lower() for t in career_terms)]
 
                 for l in (leaf_news or candidate_news):
-                    if l not in news_urls and len(news_urls) < 3:
+                    if l not in news_urls and len(news_urls) < 6:
                         news_urls.append(l)
 
                 for l in candidate_careers:
-                    if l not in career_urls and len(career_urls) < 3:
+                    if l not in career_urls and len(career_urls) < 4:
                         career_urls.append(l)
     except Exception:
         pass
     return news_urls, career_urls
 
 
-def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_sitemap: bool = False) -> list[str]:
+def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_sitemap: bool = False) -> list[str]:
     base_reg_domain = _registered_domain(base_url)
     career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
     news_terms = ("aktuelt", "nyheter", "siste-nytt", "news", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "artikler", "blogg", "press", "presse", "media", "publikasjoner")
@@ -822,8 +831,9 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
             score = o_rank + lang_penalty
             other_cands[clean] = min(score, other_cands.get(clean, score))
 
-    # Only fetch /sitemap.xml if neither a news link nor a career link was found in HTML
-    if check_sitemap and len(news_cands) == 0 and len(career_cands) == 0:
+    # Sitemaps regularly contain the leaf articles/ads missing from menu HTML.
+    # Use it whenever the verified site has an incomplete careers or news route.
+    if check_sitemap and (len(news_cands) < 2 or len(career_cands) < 1):
         s_news, s_careers = _discover_sitemap_urls(base_url)
         for u in s_careers:
             if u not in career_cands:
@@ -838,11 +848,11 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 3, check_si
 
     selected: list[str] = []
     for bucket in (
-        sorted_careers[:1],
-        sorted_news[:1],
+        sorted_careers[:2],
+        sorted_news[:2],
         sorted_others[:1],
-        sorted_news[1:2],
-        sorted_careers[1:2],
+        sorted_news[2:3],
+        sorted_careers[2:3],
         sorted_others[1:],
     ):
         for u in bucket:
@@ -902,13 +912,31 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
             lines = [ln.strip() for ln in clean_soup.get_text("\n").splitlines() if ln.strip() and not (ln.strip().startswith("{") and '"fr":' in ln)]
             page_text = "\n".join(lines)
         page_sha = hashlib.sha256(raw).hexdigest()
+        ld_json_items = []
+        for s in page_soup.find_all("script", type=lambda t: t and "ld+json" in str(t).lower()):
+            s_text = s.string or s.get_text()
+            if s_text and s_text.strip():
+                try:
+                    s_data = json.loads(s_text.strip())
+                    if isinstance(s_data, list):
+                        ld_json_items.extend(s_data)
+                    elif isinstance(s_data, dict):
+                        if "@graph" in s_data and isinstance(s_data["@graph"], list):
+                            ld_json_items.extend(s_data["@graph"])
+                        ld_json_items.append(s_data)
+                except Exception:
+                    pass
+        sec_meta = {"json-ld": ld_json_items}
+        sec_ld_jobs = _jsonld_jobs(sec_meta, final_url, page_sha256=page_sha)
+        sec_ld_news = _jsonld_news(sec_meta, final_url, page_sha256=page_sha)
+
         page = {
             "url": final_url,
             "title": page_soup.title.get_text(" ", strip=True)[:500] if page_soup.title else "",
             "main_text_excerpt": page_text[:5000],
             "content_sha256": page_sha,
-            "news_items": extract_website_news(final_url, page_soup, page_html, page_sha256=page_sha),
-            "job_postings": extract_website_jobs(final_url, page_soup, page_html, page_sha256=page_sha),
+            "news_items": sec_ld_news + extract_website_news(final_url, page_soup, page_html, page_sha256=page_sha),
+            "job_postings": sec_ld_jobs + extract_website_jobs(final_url, page_soup, page_html, page_sha256=page_sha),
         }
         return page, _social_links(final_url, page_soup), 2, len(raw), elapsed, None
     except Exception as exc:
@@ -1014,8 +1042,10 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
         fast_path_saturated = bool(len(homepage_news) >= 1 and len(homepage_jobs) >= 1 and len(social) >= 1)
-        subpage_limit = 1 if fast_path_saturated else 2
-        check_sitemap = not fast_path_saturated
+        # A verified corporate domain is the highest-return external source.
+        # Bounded route coverage beats a broad unverified search expansion.
+        subpage_limit = 3 if fast_path_saturated else 5
+        check_sitemap = True
         for page_url in _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=check_sitemap):
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(
                 page_url,

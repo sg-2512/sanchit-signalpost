@@ -27,12 +27,12 @@ BRAVE_SEARCH_API_KEY_ENV = "BRAVE_SEARCH_API_KEY"
 
 
 def is_available() -> bool:
-    """Return True if a Brave Search API key is present in environment."""
-    return bool(os.environ.get(BRAVE_API_KEY_ENV) or os.environ.get(BRAVE_SEARCH_API_KEY_ENV))
+    """Return True if a Brave or generic Search API key is present in environment."""
+    return bool(os.environ.get(BRAVE_API_KEY_ENV) or os.environ.get(BRAVE_SEARCH_API_KEY_ENV) or os.environ.get("SEARCH_API_KEY"))
 
 
 def _get_api_key() -> str:
-    key = os.environ.get(BRAVE_API_KEY_ENV) or os.environ.get(BRAVE_SEARCH_API_KEY_ENV) or ""
+    key = os.environ.get(BRAVE_API_KEY_ENV) or os.environ.get(BRAVE_SEARCH_API_KEY_ENV) or os.environ.get("SEARCH_API_KEY") or ""
     return key.strip()
 
 

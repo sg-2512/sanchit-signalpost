@@ -58,12 +58,14 @@ LEGAL_SUFFIXES = {"as", "asa", "sa", "ba", "da", "ans", "enk", "nuf", "sti"}
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
 
-def decode_google_news_url(rss_url: str, timeout: float = 6.0) -> str | None:
+def decode_google_news_url(rss_url: str, timeout: float = 6.0, request_count_out: list[int] | None = None) -> str | None:
     """Decode a Google News RSS redirect link directly to its canonical publisher URL."""
     if not rss_url or "news.google.com" not in rss_url:
         return rss_url
     try:
         req = urllib.request.Request(rss_url, headers={"User-Agent": UA})
+        if request_count_out is not None:
+            request_count_out[0] += 1
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             final_url = resp.geturl()
             if "news.google.com" not in final_url:
@@ -86,6 +88,8 @@ def decode_google_news_url(rss_url: str, timeout: float = 6.0) -> str | None:
                 "User-Agent": UA,
             },
         )
+        if request_count_out is not None:
+            request_count_out[0] += 1
         with urllib.request.urlopen(rpc_req, timeout=timeout) as rpc_resp:
             raw_rpc = rpc_resp.read(500_000).decode("utf-8", errors="replace")
             clean_text = raw_rpc.replace(")]}'", "").strip()
@@ -104,10 +108,13 @@ def fetch_verified_article(
     company_name: str,
     fallback_date: str | None = None,
     timeout: float = 6.0,
+    request_count_out: list[int] | None = None,
 ) -> dict[str, Any] | None:
     """Fetch an article page, compute authentic SHA-256 hash, and verify company naming."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": UA})
+        if request_count_out is not None:
+            request_count_out[0] += 1
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             final_url = resp.geturl()
             raw = resp.read(1_000_000)
@@ -200,6 +207,7 @@ def fetch_google_news(
     years: int = 3,
     budget: Any | None = None,
     decode_articles: bool = True,
+    status_out: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch news mentions for a company from Google News RSS.
 
@@ -208,6 +216,8 @@ def fetch_google_news(
     publisher URLs and fetched to verify the company in the article and establish
     an authentic content_sha256 digest.
     """
+    if status_out is not None:
+        status_out["status"] = "blocked"
     if budget and not budget.can_proceed(reserve=1):
         return []
 
@@ -216,16 +226,21 @@ def fetch_google_news(
     query = urllib.parse.quote(f'"{query_name}"')
     url = f"https://news.google.com/rss/search?q={query}&hl=no&gl=NO&ceid=NO:no"
 
+    rss_request_count = 0
+    rss_accounted = False
     try:
         raw = b""
+        last_http_status = None
         for attempt in range(3):
             _pace_gn()
             try:
                 request = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml, application/xml"})
+                rss_request_count += 1
                 with urllib.request.urlopen(request, timeout=15) as response:
                     raw = response.read(2_000_000)
                 break
             except urllib.error.HTTPError as exc:
+                last_http_status = exc.code
                 if exc.code == 429 and attempt < 2:
                     retry_after = exc.headers.get("Retry-After") if hasattr(exc, "headers") and exc.headers else None
                     wait_s = _record_gn_429(retry_after, attempt)
@@ -235,10 +250,19 @@ def fetch_google_news(
                 break
 
         if not raw:
+            if budget and rss_request_count:
+                budget.record_request(count=rss_request_count)
+                rss_accounted = True
+            if status_out is not None:
+                status_out["status"] = "blocked" if last_http_status in {401, 403, 429} else "failed"
             return []
 
+        if status_out is not None:
+            status_out["status"] = "not_available"
+
         if budget:
-            budget.record_request(bytes_received=len(raw))
+            budget.record_request(bytes_received=len(raw), count=rss_request_count)
+            rss_accounted = True
 
         root = ET.fromstring(raw)
         retrieved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -301,13 +325,15 @@ def fetch_google_news(
             max_decodes = 1 if limit <= 2 else 2
             if decode_articles and decode_attempts < max_decodes and len(output) < 2 and (budget is None or budget.can_proceed(reserve=2)):
                 decode_attempts += 1
-                decoded_url = decode_google_news_url(link)
+                decode_request_count = [0]
+                decoded_url = decode_google_news_url(link, request_count_out=decode_request_count)
                 if budget:
-                    budget.record_request()
+                    budget.record_request(count=decode_request_count[0])
                 if decoded_url and decoded_url.startswith(("http://", "https://")) and "news.google.com" not in decoded_url:
-                    art = fetch_verified_article(decoded_url, company_name, fallback_date=published_at)
-                    if budget and art:
-                        budget.record_request(bytes_received=art.get("bytes_len", 0))
+                    article_request_count = [0]
+                    art = fetch_verified_article(decoded_url, company_name, fallback_date=published_at, request_count_out=article_request_count)
+                    if budget and article_request_count[0]:
+                        budget.record_request(bytes_received=(art or {}).get("bytes_len", 0), count=article_request_count[0])
 
             if art and art.get("content_sha256") and art.get("name_in_article"):
                 final_link = art["url"]
@@ -358,9 +384,13 @@ def fetch_google_news(
             if len(output) >= limit:
                 break
 
+        if output and status_out is not None:
+            status_out["status"] = "available"
         return output
 
     except Exception:
-        if budget:
-            budget.record_request()
+        if budget and rss_request_count and not rss_accounted:
+            budget.record_request(count=rss_request_count)
+        if status_out is not None:
+            status_out["status"] = "failed"
         return []

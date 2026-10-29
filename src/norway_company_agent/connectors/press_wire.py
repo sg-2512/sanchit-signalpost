@@ -32,8 +32,11 @@ def fetch_press_wire_news(
     *,
     limit: int = 5,
     budget: Any | None = None,
+    status_out: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch dated corporate press releases for a company from Norwegian wire services."""
+    if status_out is not None:
+        status_out["status"] = "not_applicable" if not company_name else "blocked"
     if not company_name:
         return []
     if budget and not budget.can_proceed(reserve=5):
@@ -45,13 +48,18 @@ def fetch_press_wire_news(
     encoded_q = urllib.parse.quote(query_str)
     url = f"https://news.google.com/rss/search?q={encoded_q}&hl=no&gl=NO&ceid=NO:no"
 
+    rss_request_count = 0
     try:
         req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml, application/xml"})
+        rss_request_count = 1
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = resp.read(1_500_000)
 
+        if status_out is not None:
+            status_out["status"] = "not_available"
         if budget:
-            budget.record_request(bytes_received=len(raw))
+            budget.record_request(bytes_received=len(raw), count=rss_request_count)
+        rss_request_count = 0
 
         root = ET.fromstring(raw)
         retrieved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -76,9 +84,10 @@ def fetch_press_wire_news(
                 published_at = None
 
             decode_attempts += 1
-            decoded_url = decode_google_news_url(link)
+            decode_request_count = [0]
+            decoded_url = decode_google_news_url(link, request_count_out=decode_request_count)
             if budget:
-                budget.record_request()
+                budget.record_request(count=decode_request_count[0])
 
             if not decoded_url or not decoded_url.startswith(("http://", "https://")) or "news.google.com" in decoded_url:
                 continue
@@ -90,9 +99,10 @@ def fetch_press_wire_news(
                 continue
             seen_urls.add(decoded_url.lower())
 
-            art = fetch_verified_article(decoded_url, company_name, fallback_date=published_at)
-            if budget and art:
-                budget.record_request(bytes_received=art.get("bytes_len", 0))
+            article_request_count = [0]
+            art = fetch_verified_article(decoded_url, company_name, fallback_date=published_at, request_count_out=article_request_count)
+            if budget and article_request_count[0]:
+                budget.record_request(bytes_received=(art or {}).get("bytes_len", 0), count=article_request_count[0])
 
             if not art or not art.get("content_sha256") or not art.get("name_in_article"):
                 continue
@@ -137,7 +147,13 @@ def fetch_press_wire_news(
             if len(observations) >= limit:
                 break
 
+        if observations and status_out is not None:
+            status_out["status"] = "available"
         return observations
 
     except Exception:
+        if budget and rss_request_count:
+            budget.record_request(count=rss_request_count)
+        if status_out is not None:
+            status_out["status"] = "failed"
         return []

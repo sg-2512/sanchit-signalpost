@@ -107,7 +107,7 @@ def main() -> None:
         print(f"    - {plat:<16s} : {count} observations")
     print(f"  * Decision Syntheses    : {synthesis_count} / {n} ({synthesis_count/n*100:.1f}%)")
 
-    awardable = score_data.get("awardable_score", 97.28)
+    awardable = score_data.get("awardable_score")
     category_scores = score_data.get("category_scores") or {}
 
     print(f"\n[4] OFFICIAL BUILDERR SCORING RUBRIC:")
@@ -118,9 +118,9 @@ def main() -> None:
         print(f"  * Extensibility & Daily Refresh   (Max 12) : {category_scores.get('daily_extensibility_refresh', 0.0):>5.2f} / 12.0")
         print(f"  * Product UX & Validation Design  (Max  8) : {category_scores.get('product_ux_design', 0.0):>5.2f} /  8.0")
     print("  " + "-" * 50)
-    print(f"  [RESULT] AWARDABLE PROXY SCORE    (Max 100) : {awardable:>5.2f} / 100.00")
+    print(f"  [RESULT] LOCAL PROXY SCORE        (Max 100) : {score_data.get('raw_score', 0):>5.2f} / 100.00")
 
-    status = "QUALIFIED (Score >= 90.0)" if awardable >= 90.0 and val.get("passed") else "SUBMISSION READY"
+    status = "INDEPENDENT EVALUATION REQUIRED"
     print("\n" + "=" * 68)
     print(f"  VERDICT: {status}")
     print("=" * 68)

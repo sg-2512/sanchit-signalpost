@@ -89,6 +89,20 @@ def _extract_ads_from_response(raw: bytes) -> list[dict[str, Any]]:
     return ads
 
 
+def _nav_search_page(query: str, *, offset: int, size: int, timeout: float) -> bytes:
+    """Fetch one bounded official NAV API page.
+
+    This is separate from the HTML/SSR fallback so pagination remains explicit,
+    measurable, and easy to stop under the shared request budget.
+    """
+    params = urllib.parse.urlencode({"q": query, "size": size, "from": offset})
+    url = f"https://arbeidsplassen.nav.no/stillinger/api/search?{params}"
+    _pace_nav_request()
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return response.read(750_000)
+
+
 _STRICT_LEGAL_FORMS = {
     "as", "asa", "ans", "da", "enk", "ks", "ba", "sa", "sf", "sti", "nuf",
     "ik", "kf", "fkf", "hf", "rhf", "bl", "brl", "esek", "ab", "oy",
@@ -123,11 +137,15 @@ def fetch_nav_jobs(
     budget: Any | None = None,
     timeout: float = 8.0,
     max_results: int = 10,
+    max_pages: int = 3,
+    status_out: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch verified active job postings for a company from NAV Arbeidsplassen.
 
     Strict entity gate: requires exact normalized company core match or orgnr match.
     """
+    if status_out is not None:
+        status_out["status"] = "not_applicable"
     if not company_name:
         return []
 
@@ -136,81 +154,116 @@ def fetch_nav_jobs(
         return []
 
     if budget and not budget.can_proceed(reserve=1):
+        if status_out is not None:
+            status_out["status"] = "blocked"
         return []
 
     # Query preserving Norwegian characters (æ, ø, å) while stripping legal suffixes
-    clean_query_words = [
-        w for w in re.findall(r"[a-zA-Z0-9æøåÆØÅ]+", str(company_name or ""))
-        if w.casefold() not in LEGAL_SUFFIXES
+    strict_words = [
+        word for word in re.findall(r"[a-zA-Z0-9æøåÆØÅ]+", str(company_name or ""))
+        if word.casefold() not in _STRICT_LEGAL_FORMS
     ]
-    query_str = " ".join(clean_query_words) if len(" ".join(clean_query_words)) >= 3 else company_name.strip()
-    clean_query = urllib.parse.quote(query_str)
-    url = f"https://arbeidsplassen.nav.no/stillinger?q={clean_query}"
-
+    query_words = [word for word in strict_words if word.casefold() not in {"holding", "invest", "gruppen", "group", "norge", "norway"}]
+    # One query per company keeps the public NAV search inside the shared
+    # request budget. Prefer the full legal core so short/generic names retain
+    # their strongest employer context; exact org-number matching still gates
+    # every published ad.
+    query_candidates = list(dict.fromkeys(
+        query for query in (" ".join(query_words), " ".join(strict_words))
+        if len(query) >= 3
+    ))[:1]
+    if not query_candidates:
+        query_candidates = [company_name.strip()]
     start_time = time.perf_counter()
     bytes_received = 0
     raw = b""
-    for attempt in range(2):
-        _pace_nav_request()
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": USER_AGENT,
-                    "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read(1_500_000)
-                bytes_received = len(raw)
-            break
-        except urllib.error.HTTPError as exc:
-            if exc.code == 429 and attempt == 0:
-                retry_after = exc.headers.get("Retry-After") if hasattr(exc, "headers") and exc.headers else None
-                wait_s = _record_nav_429(retry_after, attempt)
-                if not hasattr(urllib.request.urlopen, "_mock_name"):
-                    time.sleep(wait_s)
-                continue
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            if budget:
-                budget.record_request(bytes_received=bytes_received, elapsed_ms=elapsed_ms, cost_usd=0.0)
-            return []
-        except Exception:
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            if budget:
-                budget.record_request(bytes_received=bytes_received, elapsed_ms=elapsed_ms, cost_usd=0.0)
-            return []
+    search_attempts = 0
+    request_failed = False
+    for query in query_candidates:
+        clean_query = urllib.parse.quote(query)
+        url = f"https://arbeidsplassen.nav.no/stillinger?q={clean_query}"
+        for attempt in range(2):
+            if budget and not budget.can_proceed(reserve=2 if attempt == 0 else 1):
+                request_failed = True
+                break
+            search_attempts += 1
+            _pace_nav_request()
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": USER_AGENT,
+                        "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    raw = resp.read(1_500_000)
+                    bytes_received += len(raw)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code == 429 and attempt == 0:
+                    retry_after = exc.headers.get("Retry-After") if hasattr(exc, "headers") and exc.headers else None
+                    wait_s = _record_nav_429(retry_after, attempt)
+                    if not hasattr(urllib.request.urlopen, "_mock_name"):
+                        time.sleep(wait_s)
+                    continue
+                raw = b""
+                request_failed = True
+                break
+            except Exception:
+                raw = b""
+                request_failed = True
+                break
+        if raw:
+            ads = _extract_ads_from_response(raw)
+            if ads:
+                break
 
     if not raw:
+        if status_out is not None:
+            status_out["status"] = "failed" if request_failed else "not_available"
+        if budget:
+            budget.record_request(bytes_received=bytes_received, elapsed_ms=int((time.perf_counter() - start_time) * 1000), cost_usd=0.0, count=max(1, search_attempts))
         return []
 
     try:
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         if budget:
-            budget.record_request(bytes_received=bytes_received, elapsed_ms=elapsed_ms, cost_usd=0.0)
+            budget.record_request(bytes_received=bytes_received, elapsed_ms=elapsed_ms, cost_usd=0.0, count=search_attempts)
+        if status_out is not None:
+            status_out["status"] = "available"  # the search completed; results may legitimately be empty
 
         content_digest = hashlib.sha256(raw).hexdigest()
         ads = _extract_ads_from_response(raw)
-        if not ads and (not budget or budget.can_proceed(reserve=2)):
-            api_url = f"https://arbeidsplassen.nav.no/stillinger/api/search?q={clean_query}&size=10"
-            _pace_nav_request()
+        # The SSR page is often capped. Add at most two API pages so a company
+        # with several current postings is not undercounted. Every returned ad
+        # still must pass the employer-org/subunit identity gate below.
+        api_pages: list[bytes] = []
+        for page_index in range(max(0, min(max_pages, 3))):
+            if budget and not budget.can_proceed(reserve=1):
+                break
             try:
-                api_req = urllib.request.Request(
-                    api_url,
-                    headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-                )
-                with urllib.request.urlopen(api_req, timeout=timeout) as api_resp:
-                    api_raw = api_resp.read(500_000)
+                api_raw = _nav_search_page(query_candidates[0], offset=page_index * 25, size=25, timeout=timeout)
+                api_pages.append(api_raw)
                 if budget:
                     budget.record_request(bytes_received=len(api_raw), elapsed_ms=100, cost_usd=0.0)
                 api_ads = _extract_ads_from_response(api_raw)
                 if api_ads:
-                    ads = api_ads
-                    content_digest = hashlib.sha256(api_raw).hexdigest()
+                    ads.extend(api_ads)
+                # A short page is terminal; avoid unnecessary requests.
+                if len(api_ads) < 25:
+                    break
             except Exception:
-                pass
+                if budget:
+                    budget.record_request(cost_usd=0.0)
+                break
+        if api_pages:
+            content_digest = hashlib.sha256(b"".join(api_pages)).hexdigest()
         retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         observations: list[dict[str, Any]] = []
+        rejected_identity = 0
+        rejected_expired = 0
+        rejected_missing_id = 0
 
         GENERIC_WORDS = {
             "drift", "bygg", "service", "regnskap", "advokat", "revisjon", "transport",
@@ -221,6 +274,7 @@ def fetch_nav_jobs(
         is_generic = legal_core in GENERIC_WORDS or len(strict_core) < 4
         subunit_orgs_set = {str(s) for s in (subunit_orgs or ()) if s}
 
+        seen_ad_ids: set[str] = set()
         for src in ads:
             b_name = src.get("businessName") or ""
             emp_obj = src.get("employer") if isinstance(src.get("employer"), dict) else {}
@@ -248,10 +302,12 @@ def fetch_nav_jobs(
                     match_type = "nav_company_subunit_match"
 
             if not matched:
+                rejected_identity += 1
                 continue
 
             expires_raw = str(src.get("expires") or "")
             if expires_raw[:10] and expires_raw[:10] < time.strftime("%Y-%m-%d", time.gmtime()):
+                rejected_expired += 1
                 continue  # expired ad
 
             uuid = src.get("uuid") or src.get("id") or ""
@@ -259,7 +315,12 @@ def fetch_nav_jobs(
             published = src.get("published")
             expires = src.get("expires")
             if not uuid:
+                rejected_missing_id += 1
                 continue  # no ad id -> cannot link to a single advertisement
+            uuid = str(uuid)
+            if uuid in seen_ad_ids:
+                continue
+            seen_ad_ids.add(uuid)
             job_url = f"https://arbeidsplassen.nav.no/stillinger/stilling/{uuid}"
             ad_digest = hashlib.sha256(
                 json.dumps(src, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
@@ -300,7 +361,21 @@ def fetch_nav_jobs(
             if len(observations) >= max_results:
                 break
 
+        if status_out is not None:
+            # Diagnostics describe the connector run, not a company claim. They
+            # make an empty result auditable without weakening the identity gate.
+            status_out.update({
+                "query": query_candidates[0],
+                "api_pages_checked": len(api_pages),
+                "candidate_ads_seen": len(ads),
+                "matched_active_ads": len(observations),
+                "rejected_identity": rejected_identity,
+                "rejected_expired": rejected_expired,
+                "rejected_missing_id": rejected_missing_id,
+            })
         return observations
 
     except Exception:
+        if status_out is not None:
+            status_out["status"] = "failed"
         return []

@@ -27,12 +27,15 @@ class BudgetTracker:
         max_requests: int = 500000,
         max_cost_usd: float = 100.0,
         max_time_seconds: float = 86400.0,
+        request_reserve: int = 150,
     ) -> None:
         self._lock = threading.Lock()
         self.max_requests = max_requests
         self.max_cost_usd = max_cost_usd
         self.max_time_seconds = max_time_seconds
+        self.request_reserve = max(0, int(request_reserve))
         self.requests = 0
+        self._reserved_requests = 0
         self.cost_usd = 0.0
         self.bytes_received = 0
         self.latencies_ms: list[int] = []
@@ -52,15 +55,39 @@ class BudgetTracker:
     def can_proceed(self, reserve: int = 0, *, official: bool = False) -> bool:
         with self._lock:
             effective_reserve = reserve
-            if not official and effective_reserve == 0 and self.max_requests >= 50:
-                effective_reserve = min(150, max(5, int(self.max_requests * 0.12)))
-            if self.requests + effective_reserve >= self.max_requests:
+            if not official and self.max_requests >= 50:
+                # Optional enrichment must leave room for mandatory completion and
+                # bounded retries, regardless of the caller's local reserve.
+                effective_reserve = max(effective_reserve, min(self.request_reserve, max(0, self.max_requests - 1)))
+            if self.requests + self._reserved_requests + effective_reserve >= self.max_requests:
                 return False
             if self.cost_usd >= self.max_cost_usd:
                 return False
         if self.elapsed_seconds() >= self.max_time_seconds:
             return False
         return True
+
+    def _reserve_request_slots(self, count: int, *, reserve: int = 0, official: bool = False) -> bool:
+        """Atomically reserve capacity for a bounded HTTP operation before it starts."""
+        with self._lock:
+            effective_reserve = reserve
+            if not official and self.max_requests >= 50:
+                effective_reserve = max(effective_reserve, min(self.request_reserve, max(0, self.max_requests - 1)))
+            if self.requests + self._reserved_requests + count + effective_reserve > self.max_requests:
+                return False
+            if self.cost_usd >= self.max_cost_usd:
+                return False
+            self._reserved_requests += count
+            return True
+
+    def _release_and_record(self, reserved: int, *, actual: int, cost_usd: float, bytes_received: int, elapsed_ms: int) -> None:
+        with self._lock:
+            self._reserved_requests = max(0, self._reserved_requests - reserved)
+            self.requests += actual
+            self.cost_usd += cost_usd
+            self.bytes_received += bytes_received
+            if elapsed_ms:
+                self.latencies_ms.append(elapsed_ms)
 
     def record_request(self, cost_usd: float = 0.0, bytes_received: int = 0, elapsed_ms: int = 0, latency_ms: int = 0, count: int = 1) -> None:
         with self._lock:
@@ -79,16 +106,23 @@ class BudgetTracker:
         """
         is_official_brreg = "brreg.no" in str(url or "").lower()
         effective_reserve = 0 if is_official_brreg else reserve
-        if not self.can_proceed(reserve=effective_reserve, official=is_official_brreg):
+        reserved = max(1, attempts)
+        if not self._reserve_request_slots(reserved, reserve=effective_reserve, official=is_official_brreg):
             from .evidence import utc_now
             return FetchResult(url, 0, 0, 0, error="budget_exhausted", retrieved_at=utc_now())
 
-        result = _raw_fetch_json(url, timeout=timeout, attempts=attempts)
+        try:
+            result = _raw_fetch_json(url, timeout=timeout, attempts=attempts)
+        except BaseException:
+            self._release_and_record(reserved, actual=0, cost_usd=0.0, bytes_received=0, elapsed_ms=0)
+            raise
 
-        self.record_request(
+        self._release_and_record(
+            reserved,
             cost_usd=cost_per_request,
             bytes_received=result.bytes_received,
             elapsed_ms=result.elapsed_ms,
+            actual=min(reserved, max(0, int(getattr(result, "request_count", 1)))),
         )
         return result
 
@@ -99,6 +133,7 @@ class BudgetTracker:
                 "total_requests": self.requests,
                 "max_requests": self.max_requests,
                 "remaining_requests": max(0, self.max_requests - self.requests),
+                "protected_request_reserve": self.request_reserve,
                 "total_cost_usd": round(self.cost_usd, 4),
                 "max_cost_usd": self.max_cost_usd,
                 "total_bytes": self.bytes_received,

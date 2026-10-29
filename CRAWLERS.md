@@ -28,18 +28,18 @@ The system uses a multi-stage deterministic crawling pipeline managed by [`src/n
 | **Wikidata SPARQL (P2333)** | `connectors/wikidata.py` | Open CC0 Data | 5 req/sec | Official social handles, CEO, inception, QID |
 | **Patentstyret API** | `connectors/patentstyret.py` | Official Open API | 10 req/sec | Norwegian trademarks and patent registrations |
 | **NAV Arbeidsplassen** | `connectors/nav_jobs.py` | Official Govt API | 10 req/sec | Active hiring vacancies by orgnr |
-| **Google Places API** | `connectors/google_places.py` | Permitted API | 10 req/sec | Physical store ratings, address, coords |
-| **YouTube Data API v3** | `connectors/youtube.py` | Permitted API | 10 req/sec | Corporate channel verification and video metrics |
+| **Google Places API** | `connectors/google_places.py` | Optional keyed provider | Provider quota | Place data and website candidates when configured |
+| **YouTube Data API v3** | `connectors/youtube.py` | Optional keyed provider | Provider quota | Channel metrics when configured |
 | **LinkedIn Guest Typeahead** | `connectors/linkedin.py` | Open Discovery API | 5 req/sec | Corporate LinkedIn profile verification |
 | **Google News RSS** | `connectors/google_news.py` | Permitted RSS | 5 req/sec | Media mentions and news sentiment |
-| **Brave Search API** | `connectors/brave_search.py` | Candidate Discovery | 5 req/sec | Website candidate discovery |
+| **Brave Search API** | `connectors/brave_search.py` | Optional keyed provider | Provider quota | Website candidate discovery when configured |
 
 ## 3. Resource Budgets & Governance
 
 Per company batch execution, the agent strictly enforces the competition resource ceiling:
-- **Maximum Request Budget:** 2,000 requests across entire batch (averaging 1.1 to 2.0 requests per company).
+- **Maximum Request Budget:** 2,000 requests across the entire run. Optional enrichment preserves a 10% protected request reserve (capped at 200) for bounded retries and completion work.
 - **Cost Budget:** \$10.00 USD total cap (current agent operates at **\$0.00 third-party cost**).
-- **Runtime Budget:** 45 minutes total (current 100-company run completes in **~14.5 seconds**; p50: 0.12s, p95: 0.28s).
+- **Runtime Budget:** 45 minutes total. The latest recorded 100-company live run completed in 235.6 seconds; see `out/review-100-user-live-r3/batch-report.json` for that run's measurements.
 - **Enforcement:** Managed by [`src/norway_company_agent/budget.py`](file:///c:/Users/Sanchit%20Gupta/builderr/signalpost-starter-kit/src/norway_company_agent/budget.py). If limits are approached, external discovery terminates cleanly, falling back to cached or official register records.
 
 ## 4. Fallback Cascade
@@ -50,8 +50,8 @@ Per company batch execution, the agent strictly enforces the competition resourc
         ├── 1. Registry-declared homepage (data.brreg.no)
         │      └── Fetch -> Verify DNS/SSL -> Reverse Proof Match
         │
-        ├── 2. Exact Domain Candidate Generation (Brave Search / Heuristic)
-        │      └── Fetch -> Check Robots.txt -> Extract Footer OrgNr / Address
+        ├── 2. Existing candidate sources (public registry/site links, heuristic, optional configured search)
+        │      └── Fetch -> Check robots.txt -> Extract footer OrgNr / address
         │
         └── 3. No match or verification failed?
                └── Mark "availability": "not_available" (Zero wrong-company leaks)

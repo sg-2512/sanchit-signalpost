@@ -98,6 +98,7 @@ def fetch_forskningsradet_grants(
                 ],
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
+                "strategy": "forskningsradet_project_lookup",
                 "source_class": "research_funding_authority",
                 "evidence_span": f"Norges forskningsråd tildeling ({program}) til {clean_name}: '{title}' ({amount_label}, {start_year}–{end_year})",
                 "metrics": {

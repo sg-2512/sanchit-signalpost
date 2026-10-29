@@ -86,6 +86,22 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
             or (len(core) >= 2 and set(core).issubset(combined_homepage_tokens))
         )
     )
+    # A short legal name can also be a product/brand.  If the captured site
+    # identifies a *different* legal company, preserve the useful relationship
+    # but do not call the site the exact legal entity's website merely because
+    # the brand token appears (for example, a product site hosted by its parent).
+    legal_name_norm = " ".join(_tokens(profile.get("name")))
+    candidate_legal_entities = {
+        " ".join(_tokens(match))
+        for match in re.findall(
+            r"(?:[A-Za-zÃ†Ã˜Ã…Ã¦Ã¸Ã¥][A-Za-zÃ†Ã˜Ã…Ã¦Ã¸Ã¥&.'’ -]{1,80})\s+(?:AS|ASA|ANS|DA|ENK|NUF)\b",
+            candidate_text,
+            re.I,
+        )
+    }
+    candidate_legal_entities.discard("")
+    mentions_target_legal_entity = bool(legal_name_norm and legal_name_norm in candidate_legal_entities)
+    other_legal_entities = sorted(entity for entity in candidate_legal_entities if entity != legal_name_norm)
     substantive_homepage = len(str(value.get("main_text_excerpt") or "").strip()) >= 50 or len(str(value.get("title") or "").strip()) >= 15
     is_business_sports_club = bool(re.search(r"(?:^|\s)B\.?\s*I\.?\s*L\.?(?:\s|$)", str(profile.get("name") or ""), re.I))
 
@@ -169,9 +185,12 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     elif is_declared_hjemmeside and substantive_homepage and len(core) >= 2 and ratio >= 0.99:
         score = 0.95
         reasons.append("all normalized legal-name tokens appear on declared registry website")
-    elif len(core) == 1 and exact_homepage_name and substantive_homepage:
+    elif len(core) == 1 and exact_homepage_name and substantive_homepage and not other_legal_entities:
         score = 0.95
         reasons.append("single distinctive legal-name token appears in homepage identity evidence with substantive content")
+    elif len(core) == 1 and exact_homepage_name and substantive_homepage and other_legal_entities:
+        score = 0.75
+        reasons.append("brand token appears on a site that identifies another legal entity; preserve as related brand, not exact legal website")
     elif is_declared_hjemmeside and len(core) >= 2 and core_compact and domain_sld_alnum == core_compact:
         score = 0.94
         reasons.append("declared registry homepage domain SLD matches concatenated legal-name tokens")
@@ -213,6 +232,34 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     else:
         score = 0.3
         reasons.append("registry-linked URL lacks strong exact-entity identity evidence")
+    is_group_parent = False
+    if other_legal_entities:
+        for other_ent in other_legal_entities:
+            other_toks = set(_tokens(other_ent))
+            shared_brand = set(brand_tokens or core) & other_toks
+            has_group_word = any(w in other_toks or w in candidate_text.lower() for w in ("holding", "group", "gruppen", "konsern", "morforetak"))
+            if shared_brand and has_group_word:
+                is_group_parent = True
+                break
+    if not is_group_parent and any(marker in candidate_text.lower() for marker in ("del av konsernet", "konsernselskap", "et selskap i", "a subsidiary of")):
+        is_group_parent = True
+
+    if score >= 0.9:
+        if is_co_op and is_known_bbl:
+            relationship = "housing_management_portal"
+        else:
+            relationship = "exact_legal_entity"
+    elif is_group_parent:
+        relationship = "corporate_group_parent"
+    elif is_co_op and is_known_bbl:
+        relationship = "housing_management_portal"
+    elif exact_homepage_name and other_legal_entities:
+        relationship = "public_brand_or_related_entity"
+    elif other_legal_entities and score < 0.5:
+        relationship = "unrelated_or_confuser"
+    else:
+        relationship = "ambiguous_or_unproven"
+
     status = "exact" if score >= 0.9 else "review" if score >= 0.8 else "related_or_uncertain"
     return {
         "status": status,
@@ -220,6 +267,9 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
         "publishable": status == "exact",
         "legal_name_tokens": core,
         "matched_tokens": overlap,
+        "relationship": relationship,
+        "identified_legal_entities": other_legal_entities,
+        "target_legal_entity_mentioned": mentions_target_legal_entity,
         "reasons": reasons,
         "method": "deterministic_name_org_evidence_v2",
     }
@@ -318,6 +368,32 @@ def apply_website_identity_gate(profile: dict[str, Any], website: dict[str, Any]
     value = website.get("value") or {}
     assessment = assess_website_identity(temporary_profile)
     value["identity_assessment"] = assessment
+    rel = assessment.get("relationship") or "exact_legal_entity"
+    value["relationship_label"] = rel
+    if rel == "exact_legal_entity":
+        value["relationship_note"] = "Verified official website of target legal entity."
+    elif rel == "corporate_group_parent":
+        value["relationship_note"] = (
+            "Corporate parent or group website. Associated with target entity's corporate structure; "
+            "facts describe group operations and require attribution."
+        )
+    elif rel == "public_brand_or_related_entity":
+        value["relationship_note"] = (
+            "This site uses the company name as a public brand but identifies another legal entity. "
+            "Its facts must not be published as facts about the target legal entity without separate relationship evidence."
+        )
+    elif rel == "housing_management_portal":
+        value["relationship_note"] = (
+            "Official residential management or BBL portal for co-operative housing entity."
+        )
+    elif rel == "unrelated_or_confuser":
+        value["relationship_note"] = (
+            "Site identifies a distinct legal entity with no verified corporate or brand ownership relationship."
+        )
+    else:
+        value["relationship_note"] = (
+            "Ambiguous or partial relationship; identity evidence is incomplete."
+        )
     original = list(value.get("discovered_social_links") or value.get("social_links") or [])
     value["discovered_social_links"] = original
     social_assessments = [assess_social_identity(profile, link) for link in original]

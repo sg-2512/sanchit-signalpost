@@ -273,7 +273,12 @@ def validate_job_item(
         return False, "finn_employer_unverified"
 
     if is_hub_url(url):
-        return False, "hub_or_search_url"
+        segs = path_segments(url)
+        last_seg = segs[-1].casefold().strip() if segs else ""
+        if kind == "jsonld_job" and len(segs) >= 2 and last_seg not in _PATH_HUB_TOKENS:
+            pass
+        else:
+            return False, "hub_or_search_url"
     if not site_publishable and kind != "ats_ad":
         return False, "site_identity_not_verified"
 

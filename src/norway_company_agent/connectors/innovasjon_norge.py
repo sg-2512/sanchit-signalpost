@@ -98,6 +98,7 @@ def fetch_innovasjon_norge_grants(
                 ],
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
+                "strategy": "innovasjon_norge_grant_lookup",
                 "source_class": "innovation_agency",
                 "evidence_span": f"Innovasjon Norge tildeling ({scheme}) til {clean_name}: '{project_name}' ({amount_label}, år {year})",
                 "metrics": {

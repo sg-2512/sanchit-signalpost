@@ -78,6 +78,67 @@ class TestHiringModules(unittest.TestCase):
         self.assertTrue(publishable_observation(obs[0]))
 
     @patch("urllib.request.urlopen")
+    def test_fetch_nav_jobs_uses_one_query_and_keeps_exact_employer_gate(self, mock_urlopen):
+        first = MagicMock()
+        first.read.return_value = b'{"hits":{"hits":[{"_source":{"uuid":"job-456","title":"Senior Engineer","businessName":"FJELLGL\u00d8D HOLDING AS","employer":{"orgnr":"923609016","name":"FJELLGL\u00d8D HOLDING AS"}}}]}}'
+        first.__enter__.return_value = first
+        mock_urlopen.return_value = first
+        obs = fetch_nav_jobs("FJORDLYS HOLDING AS", "923609016")
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(mock_urlopen.call_count, 2)
+        self.assertIn("q=FJORDLYS", mock_urlopen.call_args_list[0].args[0].full_url)
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_nav_jobs_paginates_and_deduplicates_subunit_ads(self, mock_urlopen):
+        first = MagicMock()
+        first.read.return_value = b'{"hits":{"hits":[]}}'
+        first.__enter__.return_value = first
+        api = MagicMock()
+        api.read.return_value = b'{"hits":{"hits":[{"_source":{"uuid":"job-1","title":"Engineer","businessName":"Nordic Works Bergen","employer":{"orgnr":"998877665","name":"Nordic Works Bergen"}}}]}}'
+        api.__enter__.return_value = api
+        mock_urlopen.side_effect = [first, api]
+        obs = fetch_nav_jobs("Nordic Works AS", "912345678", subunit_orgs=["998877665"])
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["match_type"], "nav_company_subunit_match")
+        self.assertEqual(obs[0]["employer_org"], "998877665")
+
+    @patch("urllib.request.urlopen")
+    def test_nav_empty_result_exposes_non_claim_diagnostics(self, mock_urlopen):
+        response = MagicMock()
+        response.read.return_value = b'{"hits":{"hits":[]}}'
+        response.__enter__.return_value = response
+        mock_urlopen.return_value = response
+
+        status = {}
+        obs = fetch_nav_jobs("Nordic Works AS", "912345678", status_out=status)
+
+        self.assertEqual(obs, [])
+        self.assertEqual(status["status"], "available")
+        self.assertEqual(status["matched_active_ads"], 0)
+        self.assertIn("candidate_ads_seen", status)
+        self.assertIn("query", status)
+
+    def test_jsonld_job_uses_declared_employer_organisation_number(self):
+        profile = {
+            "organisation_number": "912345678",
+            "name": "Nordic Works AS",
+            "website": "https://nordic.no",
+            "evidence": {"website": {"value": {
+                "identity_assessment": {"publishable": True},
+                "job_postings": [{
+                    "title": "Engineer",
+                    "url": "https://nordic.no/jobs/engineer",
+                    "content_sha256": "a" * 64,
+                    "kind": "jsonld_job",
+                    "employer_org": "912345678",
+                    "hiring_org": "Different display name",
+                }],
+            }}},
+        }
+        hiring, _ = evaluate_company_hiring(profile)
+        self.assertEqual(hiring["active_job_postings_count"], 1)
+
+    @patch("urllib.request.urlopen")
     def test_fetch_linkedin_jobs_publishable(self, mock_urlopen):
         from norway_company_agent.external_footprint import publishable_observation, validate_observation
 

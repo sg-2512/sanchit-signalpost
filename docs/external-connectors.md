@@ -9,16 +9,14 @@ Use the [Brønnøysund entity registry](https://data.brreg.no/enhetsregisteret/a
 first. Its open data is available under [NLOD 2.0](https://data.norge.no/nlod/en/2.0). Search is only
 for an entity whose registry website is absent, invalid, or dead.
 
-Recommended production path: a separately contracted [Brave Search API](https://brave.com/search/api/)
-connector, provided its [terms](https://api-dashboard.search.brave.com/terms-of-service) and the chosen
-plan explicitly cover the required evidence retention. If permanent result storage is not permitted,
-keep provider output transient and retain only independently fetched page evidence after verification.
+This implementation adds no API providers or credentials. Existing keyed connectors remain optional and
+work when the operator configures their keys; the intended evaluation can run without adding any keys.
+The keyless path discovers candidates from registry data, verified company-controlled pages, public
+feeds/sitemaps, and other explicitly permitted unauthenticated sources. Do not scrape search-engine result
+pages. External search output remains candidate metadata, not publication evidence.
 
-Two adapters are available, and neither scrapes a search-results page. `apply_search_discovery.py` accepts
-exported JSONL only for a plan with result-storage rights. `run_brave_discovery.py` is the default transient
-path: it keeps search output in memory, immediately crawls an accepted candidate, and discards raw titles,
-snippets, ranks, query text, and response bodies. Both reject directories and social networks. Publication
-still requires independently fetched proof of the exact legal entity.
+Directory pages and company-name matches alone are candidates, not proof. Publication still requires
+independently fetched evidence tied to the exact legal entity.
 
 Do not use Google or Bing grounding output to build a stored crawl corpus. Google Custom Search JSON API
 is [closed to new customers and scheduled to discontinue on 1 January 2027](https://developers.google.com/custom-search/v1/overview).

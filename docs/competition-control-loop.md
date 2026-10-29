@@ -1,11 +1,11 @@
 # Signalpost competition optimization loop
 
-The objective is a qualified external-first score of at least 80/100 on a frozen 1,000-company submission
+The objective is an independently verified external-first score of at least 65/100 on a fresh official batch
 and a separate zero-overlap extension corpus. Registry financials are foundation data; verified external
 footprint, reviews, jobs, buzz and sentiment are the primary differentiator.
 
-The independent judge score is authoritative. A deterministic local scorer is only the fast feedback
-signal between independent reviews. It must never replace the hidden evaluation.
+The independent judge score is authoritative. A deterministic local scorer is only an optimization signal
+between independent reviews. Its audit labels, connector gates, and proxy points do not establish qualification.
 
 ## Loop
 
@@ -25,6 +25,6 @@ signal between independent reviews. It must never replace the hidden evaluation.
 - Roll back immediately: wrong-company publication, fabricated financial claim, silent entity drop,
   missing material evidence hash, prohibited request, or broken regression gate.
 
-The external-first baseline is 33.968/100 raw and zero awardable because no external observations have
-yet passed the new blind audit. The first experiments are Google Places, YouTube, licensed news/search,
-and jobs. Each begins on a 100-company development slice, then a zero-overlap validation slice.
+External observations need independently checked exact-company, evidence, and policy labels before a local
+report may claim verified precision or qualification. Develop on a representative slice, then validate on
+a zero-overlap set before presenting measurements as evidence.

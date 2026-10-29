@@ -29,3 +29,7 @@ dev-5-*.jsonl
 *.egg-info/
 .coverage
 htmlcov/
+
+out/
+.tmp/
+*.docx
