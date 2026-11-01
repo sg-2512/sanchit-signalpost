@@ -160,7 +160,7 @@ def fetch_patentstyret_data(
                     "status": status,
                     "filing_date": pub_date,
                 },
-                "strategy": "patentstyret_ip_search",
+                "strategy": "patentstyret_open_data",
             })
 
         return observations

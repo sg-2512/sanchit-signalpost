@@ -115,6 +115,7 @@ from norway_company_agent.connectors.kartverket import geocode_address_kartverke
 from norway_company_agent.connectors.mattilsynet import fetch_mattilsynet_inspections
 from norway_company_agent.connectors.regulatory_licenses import fetch_regulatory_licenses
 from norway_company_agent.connectors.esg_certifications import fetch_esg_certifications
+from norway_company_agent.connectors.ats_discovery import fetch_ats_jobs
 from norway_company_agent.connectors.proff_directory import resolve_commercial_directory_presence
 from norway_company_agent.connectors.lovdata import fetch_insolvency_legal_notices
 from norway_company_agent.connectors.norid import verify_norid_domain_ownership, discover_norid_domain
@@ -1345,6 +1346,41 @@ def enrich_single_company(
                         "metrics": kart_geo,
                         "strategy": "kartverket_address_geocode",
                     })
+
+    # 13j. Official Supervisory & Labour Inspection Licenses (Arbeidstilsynet & Finanstilsynet)
+    if not is_passive_entity and budget.can_proceed(reserve=5):
+        try:
+            n_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
+            n_raw = n_val.get("naeringskode1") or profile.get("industry_code") or ""
+            n_code = n_raw.get("kode") if isinstance(n_raw, dict) else str(n_raw or "")
+            reg_lics = fetch_regulatory_licenses(org, name, industry_code=n_code, budget=budget)
+            if reg_lics:
+                observations.extend(reg_lics)
+                profile["regulatory_licenses"] = [obs.get("metrics") or {} for obs in reg_lics if obs.get("metrics")]
+        except Exception:
+            pass
+
+    # 13k. Miljøfyrtårn (Eco-Lighthouse) ESG Sustainability Certification
+    if not is_passive_entity and (emp_count >= 5 or verified_website) and budget.can_proceed(reserve=5):
+        try:
+            esg_obs = fetch_esg_certifications(org, name, budget=budget)
+            if esg_obs:
+                observations.extend(esg_obs)
+                profile["esg_certifications"] = [obs.get("metrics") or {} for obs in esg_obs if obs.get("metrics")]
+        except Exception:
+            pass
+
+    # 13l. Multi-ATS Vacancy Aggregator & Job Harvester
+    if not is_passive_entity and (emp_count >= 1 or verified_website) and budget.can_proceed(reserve=5):
+        try:
+            ats_obs = fetch_ats_jobs(name, org, budget=budget, max_probes=2)
+            if ats_obs:
+                observations.extend(ats_obs)
+                profile.setdefault("hiring", {})["ats_jobs_count"] = len(ats_obs)
+                if not profile.get("hiring", {}).get("appears_to_be_hiring"):
+                    profile["hiring"]["appears_to_be_hiring"] = True
+        except Exception:
+            pass
 
     # 14. Decision-useful factual synthesis (12-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)

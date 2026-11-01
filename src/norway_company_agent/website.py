@@ -965,6 +965,144 @@ def _jsonld_organisations(metadata: dict[str, Any]) -> list[dict[str, Any]]:
 def _extraction_state(text: str, soup: BeautifulSoup) -> str:
     return "js_fallback_candidate" if len(text.strip()) < 100 and len(soup.select("script[src]")) >= 2 else "static_complete"
 
+def extract_tls_san(hostname: str | None, timeout: float = 3.0) -> list[str]:
+    """Extract DNS Subject Alternative Names from the TLS certificate."""
+    if not hostname or hostname in {"localhost", "127.0.0.1"}:
+        return []
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((hostname, 443), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
+                cert = ssock.getpeercert()
+                san = cert.get("subjectAltName", ()) if cert else ()
+                domains = [str(entry[1]).lower() for entry in san if entry and entry[0].lower() == "dns"]
+                return sorted(set(domains))
+    except Exception:
+        return []
+
+
+def detect_tech_stack(html: str, headers: Any, soup: BeautifulSoup) -> list[str]:
+    """Detect e-commerce, payment, CMS, frontend, and recruitment technologies from page signatures."""
+    tech: set[str] = set()
+    html_lower = html.lower()
+
+    header_dict = {str(k).lower(): str(v).lower() for k, v in (headers.items() if hasattr(headers, "items") else [])}
+    server = header_dict.get("server", "")
+    powered = header_dict.get("x-powered-by", "")
+
+    # E-commerce & CMS
+    if "shopify" in html_lower or "cdn.shopify.com" in html_lower:
+        tech.add("Shopify")
+    if "woocommerce" in html_lower or "wp-content/plugins/woocommerce" in html_lower:
+        tech.add("WooCommerce")
+    if "wp-content" in html_lower or "wordpress" in powered or soup.select_one('meta[name="generator"][content*="WordPress"]'):
+        tech.add("WordPress")
+    if "squarespace" in html_lower:
+        tech.add("Squarespace")
+    if "wix.com" in html_lower:
+        tech.add("Wix")
+    if "craft cms" in html_lower or "x-craft-token" in header_dict:
+        tech.add("Craft CMS")
+    if "sanity.io" in html_lower:
+        tech.add("Sanity")
+    if "contentful" in html_lower:
+        tech.add("Contentful")
+    if "hubspot" in html_lower:
+        tech.add("HubSpot")
+
+    # Payment gateways
+    if "vipps" in html_lower:
+        tech.add("Vipps")
+    if "klarna" in html_lower:
+        tech.add("Klarna")
+    if "stripe" in html_lower or "js.stripe.com" in html_lower:
+        tech.add("Stripe")
+    if "adyen" in html_lower:
+        tech.add("Adyen")
+    if "nets" in html_lower:
+        tech.add("Nets Easy")
+    if "dintero" in html_lower:
+        tech.add("Dintero")
+
+    # Frontend frameworks
+    if "react" in html_lower or "data-reactroot" in html:
+        tech.add("React")
+    if "__next" in html_lower or "/_next/" in html_lower:
+        tech.add("Next.js")
+    if "vue" in html_lower or "__nuxt" in html_lower:
+        tech.add("Vue.js")
+    if "__nuxt" in html_lower:
+        tech.add("Nuxt.js")
+
+    # ATS / Career platforms
+    if "teamtailor" in html_lower:
+        tech.add("Teamtailor")
+    if "jobylon" in html_lower:
+        tech.add("Jobylon")
+    if "webcruiter" in html_lower:
+        tech.add("Webcruiter")
+    if "recman" in html_lower:
+        tech.add("RecMan")
+    if "reachmee" in html_lower:
+        tech.add("ReachMee")
+    if "talentech" in html_lower or "easycruit" in html_lower:
+        tech.add("Talentech/Easycruit")
+
+    # Cloud & CDN
+    if "cloudflare" in server or "cf-ray" in header_dict:
+        tech.add("Cloudflare")
+    if "aws" in html_lower or "cloudfront" in server:
+        tech.add("AWS")
+    if "vercel" in server or "x-vercel-id" in header_dict:
+        tech.add("Vercel")
+    if "netlify" in server:
+        tech.add("Netlify")
+
+    return sorted(tech)
+
+
+def extract_local_business_schema(structured: dict[str, Any]) -> dict[str, Any]:
+    """Extract schema.org/LocalBusiness, Organization, Store, or Restaurant details."""
+    res: dict[str, Any] = {}
+
+    def walk(val: Any) -> None:
+        if isinstance(val, dict):
+            kind = val.get("@type")
+            kinds = set(kind if isinstance(kind, list) else [kind])
+            if kinds & {"LocalBusiness", "Organization", "Corporation", "Store", "Restaurant", "ProfessionalService"}:
+                if val.get("telephone") and not res.get("telephone"):
+                    res["telephone"] = str(val["telephone"]).strip()
+                if val.get("email") and not res.get("email"):
+                    res["email"] = str(val["email"]).strip()
+                addr = val.get("address")
+                if isinstance(addr, dict) and not res.get("address"):
+                    res["address"] = {
+                        "street": addr.get("streetAddress"),
+                        "postal_code": addr.get("postalCode"),
+                        "locality": addr.get("addressLocality"),
+                        "country": addr.get("addressCountry"),
+                    }
+                geo = val.get("geo")
+                if isinstance(geo, dict) and not res.get("geo"):
+                    res["geo"] = {
+                        "latitude": geo.get("latitude"),
+                        "longitude": geo.get("longitude"),
+                    }
+                if val.get("openingHours") and not res.get("opening_hours"):
+                    res["opening_hours"] = val.get("openingHours")
+                if val.get("priceRange") and not res.get("price_range"):
+                    res["price_range"] = val.get("priceRange")
+            for child in val.values():
+                walk(child)
+        elif isinstance(val, list):
+            for child in val:
+                walk(child)
+
+    walk(structured.get("json-ld", []))
+    walk(structured.get("microdata", []))
+    return res
+
+
 
 def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_000_000) -> tuple[dict[str, Any], dict[str, Any]]:
     supplied_url = str(url or "").strip()
@@ -1010,6 +1148,11 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
                 dedup_soc.append(s)
 
         homepage_sha = __import__("hashlib").sha256(raw).hexdigest()
+        parsed_final = urllib.parse.urlparse(final_url)
+        tls_san = extract_tls_san(parsed_final.hostname) if parsed_final.scheme == "https" else []
+        tech_stack = detect_tech_stack(html, response.headers, soup)
+        local_biz = extract_local_business_schema(structured)
+
         value = {
             "requested_url": normalized,
             "final_url": final_url,
@@ -1019,6 +1162,9 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
             "main_text_excerpt": text[:5000],
             "social_links": dedup_soc,
             "structured_organisations": _jsonld_organisations(structured),
+            "local_business_details": local_biz,
+            "tech_stack": tech_stack,
+            "tls_san_domains": tls_san,
             "content_sha256": homepage_sha,
             "extraction_state": _extraction_state(text, soup),
         }

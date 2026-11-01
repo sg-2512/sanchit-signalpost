@@ -287,7 +287,7 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
     regulatory_licenses_collected = []
     seen_lic = set()
     for item in external_observations:
-        if item.get("platform") in {"arbeidstilsynet", "finanstilsynet"} or item.get("signal_type") == "regulatory_license":
+        if item.get("platform") in {"arbeidstilsynet", "finanstilsynet"} or item.get("signal_type") in {"regulatory_license", "regulatory_license_record"}:
             metrics = item.get("metrics") or {}
             reg = metrics.get("registry") or item.get("platform") or ""
             lic_t = metrics.get("license_type") or ""
@@ -321,7 +321,7 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
     esg_collected = []
     seen_esg = set()
     for item in external_observations:
-        if item.get("platform") == "miljofyrtarn" or item.get("signal_type") == "esg_certification":
+        if item.get("platform") == "miljofyrtarn" or item.get("signal_type") in {"esg_certification", "esg_certification_record"}:
             metrics = item.get("metrics") or {}
             c_name = metrics.get("certificate_name") or ""
             c_body = metrics.get("certification_body") or "Miljøfyrtårn"
@@ -337,7 +337,7 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
                 "source": item.get("source_url") or metrics.get("url"),
                 **observation_meta(item),
             })
-    for e in (row.get("esg") or []):
+    for e in (row.get("esg_certifications") or row.get("esg") or []):
         c_name = e.get("certificate_name") or ""
         c_body = e.get("certification_body") or "Miljøfyrtårn"
         key = (c_body, c_name)

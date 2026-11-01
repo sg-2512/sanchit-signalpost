@@ -139,7 +139,7 @@ def fiscal_year_of(record: Any) -> str | None:
     return year if year.isdigit() else None
 
 
-def normalize_financials(body: Any) -> dict[str, Any]:
+def normalize_financials(body: Any, employee_count: int | None = None) -> dict[str, Any]:
     records = select_annual_records(body)
     if not records:
         return {"records": [], "financial_trends": {}}
@@ -147,16 +147,29 @@ def normalize_financials(body: Any) -> dict[str, Any]:
     for item in records:
         rev = _get(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "sumDriftsinntekter")
         op_res = _get(item, "resultatregnskapResultat", "driftsresultat", "driftsresultat")
+        op_costs = _get(item, "resultatregnskapResultat", "driftsresultat", "driftskostnad", "sumDriftskostnad")
+        wages = _get(item, "resultatregnskapResultat", "driftsresultat", "driftskostnad", "loennskostnad")
         assets = _get(item, "eiendeler", "sumEiendeler")
         equity = _get(item, "egenkapitalGjeld", "egenkapital", "sumEgenkapital")
+        retained_earnings = _get(item, "egenkapitalGjeld", "egenkapital", "opptjentEgenkapital", "sumOpptjentEgenkapital")
         cur_assets = _get(item, "eiendeler", "omloepsmidler", "sumOmloepsmidler")
+        cash_deposits = _get(item, "eiendeler", "omloepsmidler", "bankinnskuddKontanterOgLignende")
         st_debt = _get(item, "egenkapitalGjeld", "gjeldOversikt", "kortsiktigGjeld", "sumKortsiktigGjeld")
+        total_debt = _get(item, "egenkapitalGjeld", "gjeldOversikt", "sumGjeld")
         
         # Institutional diligence metrics
         op_margin = round(float(op_res) / float(rev), 4) if rev and op_res is not None and float(rev) > 0 else None
         eq_ratio = round(float(equity) / float(assets), 4) if assets and equity is not None and float(assets) > 0 else None
         liq_ratio = round(float(cur_assets) / float(st_debt), 4) if cur_assets and st_debt and float(st_debt) > 0 else None
+        debt_to_equity = round(float(total_debt) / float(equity), 4) if total_debt and equity and float(equity) > 0 else None
         
+        wage_per_emp = None
+        if wages is not None and employee_count and int(employee_count) > 0:
+            try:
+                wage_per_emp = round(float(wages) / float(employee_count))
+            except (ValueError, TypeError, ZeroDivisionError):
+                wage_per_emp = None
+
         solvency = None
         if eq_ratio is not None:
             if eq_ratio >= 0.40:
@@ -172,17 +185,24 @@ def normalize_financials(body: Any) -> dict[str, Any]:
             "period": item.get("regnskapsperiode"),
             "currency": item.get("valuta"),
             "revenue": rev,
+            "operating_costs": op_costs,
             "operating_result": op_res,
+            "wage_expenses": wages,
+            "wage_per_employee": wage_per_emp,
             "profit_before_tax": _get(item, "resultatregnskapResultat", "ordinaertResultatFoerSkattekostnad"),
             "annual_result": _get(item, "resultatregnskapResultat", "aarsresultat"),
             "assets": assets,
             "equity": equity,
-            "debt": _get(item, "egenkapitalGjeld", "gjeldOversikt", "sumGjeld"),
+            "retained_earnings": retained_earnings,
+            "debt": total_debt,
+            "debt_to_equity": debt_to_equity,
             "current_assets": cur_assets,
+            "cash_and_bank_deposits": cash_deposits,
             "short_term_debt": st_debt,
             "operating_margin": op_margin,
             "equity_ratio": eq_ratio,
             "liquidity_ratio": liq_ratio,
+            "current_ratio": liq_ratio,
             "solvency_status": solvency,
         })
 
@@ -205,12 +225,24 @@ def normalize_financials(body: Any) -> dict[str, Any]:
             trends["cagr_label"] = f"{'+' if cagr >= 0 else ''}{cagr*100:.1f}%"
 
     if normalized and normalized[0].get("solvency_status"):
-        trends["solvency_status"] = normalized[0]["solvency_status"]
-        trends["equity_ratio"] = normalized[0]["equity_ratio"]
-        if normalized[0].get("operating_margin") is not None:
-            trends["operating_margin"] = normalized[0]["operating_margin"]
-        if normalized[0].get("liquidity_ratio") is not None:
-            trends["liquidity_ratio"] = normalized[0]["liquidity_ratio"]
+        latest = normalized[0]
+        trends["solvency_status"] = latest["solvency_status"]
+        trends["equity_ratio"] = latest["equity_ratio"]
+        if latest.get("operating_margin") is not None:
+            trends["operating_margin"] = latest["operating_margin"]
+        if latest.get("liquidity_ratio") is not None:
+            trends["liquidity_ratio"] = latest["liquidity_ratio"]
+            trends["current_ratio"] = latest["liquidity_ratio"]
+        if latest.get("wage_per_employee") is not None:
+            trends["wage_per_employee"] = latest["wage_per_employee"]
+        if latest.get("debt_to_equity") is not None:
+            trends["debt_to_equity"] = latest["debt_to_equity"]
+        if latest.get("cash_and_bank_deposits") is not None:
+            trends["cash_and_bank_deposits"] = latest["cash_and_bank_deposits"]
+        if latest.get("operating_costs") is not None:
+            trends["operating_costs"] = latest["operating_costs"]
+        if latest.get("retained_earnings") is not None:
+            trends["retained_earnings"] = latest["retained_earnings"]
 
     return {
         "records": normalized,
@@ -248,6 +280,9 @@ def _fetch_history(url: str) -> FetchResult:
 
 def normalize_roles(body: Any) -> dict[str, Any]:
     roles = []
+    chair = None
+    ceo = None
+    board_members = []
     for group in body.get("rollegrupper", []) if isinstance(body, dict) else []:
         changed = group.get("sistEndret")
         for item in group.get("roller", []):
@@ -255,17 +290,59 @@ def normalize_roles(body: Any) -> dict[str, Any]:
             name = person.get("navn") or {}
             entity = item.get("enhet") or {}
             display_name = " ".join(filter(None, [name.get("fornavn"), name.get("mellomnavn"), name.get("etternavn")])) or entity.get("navn")
-            roles.append({
+            r_code = _get(item, "type", "kode")
+            r_desc = _get(item, "type", "beskrivelse")
+            inactive = bool(item.get("avregistrert"))
+            role_dict = {
                 "name": display_name or None,
                 "organisation_number": entity.get("organisasjonsnummer"),
-                "role_code": _get(item, "type", "kode"),
-                "role": _get(item, "type", "beskrivelse"),
+                "role_code": r_code,
+                "role": r_desc,
                 "group_code": _get(group, "type", "kode"),
                 "group": _get(group, "type", "beskrivelse"),
                 "last_changed": changed,
-                "inactive": bool(item.get("avregistrert")),
+                "inactive": inactive,
+            }
+            roles.append(role_dict)
+            if not inactive and display_name:
+                r_text = f"{r_code or ''} {r_desc or ''}".lower()
+                if any(t in r_text for t in ("styrets leder", "styreleder", "lede", "chair")) and not chair:
+                    chair = display_name
+                elif any(t in r_text for t in ("daglig leder", "adm.dir", "dagl", "ceo", "adm dir")) and not ceo:
+                    ceo = display_name
+                elif any(t in r_text for t in ("styremedlem", "medl", "nestleder", "nest")):
+                    board_members.append(display_name)
+
+    return {
+        "roles": roles,
+        "chair": chair,
+        "ceo": ceo,
+        "board_members": sorted(set(board_members)),
+    }
+
+
+def normalize_group(body: Any) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        return {"parent": None, "subsidiaries": [], "subsidiary_count": 0}
+    parent = body.get("morselskap") or body.get("parent")
+    subsidiaries = body.get("datterselskaper") or body.get("subsidiaries") or body.get("underenheter") or []
+    normalized_subs = []
+    for s in subsidiaries if isinstance(subsidiaries, list) else []:
+        if isinstance(s, dict):
+            normalized_subs.append({
+                "organisation_number": s.get("organisasjonsnummer"),
+                "name": s.get("navn"),
+                "ownership_percentage": s.get("eierandel") or s.get("andel") or 100.0,
             })
-    return {"roles": roles}
+    return {
+        "parent": {
+            "organisation_number": parent.get("organisasjonsnummer"),
+            "name": parent.get("navn") or parent.get("name"),
+            "navn": parent.get("navn") or parent.get("name"),
+        } if isinstance(parent, dict) else None,
+        "subsidiaries": normalized_subs,
+        "subsidiary_count": len(normalized_subs),
+    }
 
 
 def normalize_locations(body: Any) -> dict[str, Any]:
@@ -325,7 +402,18 @@ def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str],
         metrics.append(result)
         if result.status == 200:
             # Successful fetch: normalize records normally
-            normalized = normalize_entity(result.body) if module == "registry_live" else normalize_financials(result.body) if module == "financials" else normalize_financial_history(result.body, org) if module == "financial_history" else normalize_roles(result.body) if module == "roles" else normalize_locations(result.body) if module == "locations" else result.body
+            emp_cnt = None
+            if "registry_live" in records and isinstance(records["registry_live"].get("value"), dict):
+                emp_cnt = records["registry_live"]["value"].get("antallAnsatte") or records["registry_live"]["value"].get("employees")
+            normalized = (
+                normalize_entity(result.body) if module == "registry_live"
+                else normalize_financials(result.body, employee_count=emp_cnt) if module == "financials"
+                else normalize_financial_history(result.body, org) if module == "financial_history"
+                else normalize_roles(result.body) if module == "roles"
+                else normalize_group(result.body) if module == "group"
+                else normalize_locations(result.body) if module == "locations"
+                else result.body
+            )
             records[module] = _classified(module, source_type, result, value=normalized)
             # Record that we successfully fetched financial data
             if module == "financials" and isinstance(normalized, dict) and normalized.get("records"):

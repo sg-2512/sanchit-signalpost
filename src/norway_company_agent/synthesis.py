@@ -252,6 +252,22 @@ def generate_company_synthesis(
     performance_sentence = f"{fin_str}{dig_str}."
 
     hiring_assessment = hiring.get("assessment") or "No active public recruitment postings observed in checked sources."
+
+    # Regulatory, ESG, & IP compliance sentence
+    reg_notes: list[str] = []
+    reg_lic_list = [obs for obs in (observations or []) if obs.get("signal_type") == "regulatory_license_record"]
+    for r_obs in reg_lic_list[:2]:
+        auth = (r_obs.get("metrics") or {}).get("authority") or "Regulator"
+        lic_name = (r_obs.get("metrics") or {}).get("license_type") or (r_obs.get("metrics") or {}).get("status") or "Godkjent"
+        reg_notes.append(f"{auth} approved ({lic_name})")
+    esg_list = [obs for obs in (observations or []) if obs.get("signal_type") == "esg_certification_record"]
+    if esg_list:
+        reg_notes.append("Miljøfyrtårn ESG certified")
+    pat_list = [obs for obs in (observations or []) if obs.get("signal_type") == "patent_trademark_record" or obs.get("platform") == "patentstyret"]
+    if pat_list:
+        reg_notes.append(f"{len(pat_list)} registered trademark(s)/patent(s) (Patentstyret)")
+    compliance_sentence = f"Regulatory and certification status: {'; '.join(reg_notes)}." if reg_notes else ""
+
     what_changed_str = f"What changed: {'; '.join(change_items)}."
     what_remains_unknown_str = f"What remains unknown: {'; '.join(unknowns)}."
     sources_str = f"Sources: {', '.join(source_urls[:4])}."
@@ -261,10 +277,14 @@ def generate_company_synthesis(
         leadership_sentence,
         performance_sentence,
         hiring_assessment,
+    ]
+    if compliance_sentence:
+        sentences.append(compliance_sentence)
+    sentences.extend([
         what_changed_str,
         what_remains_unknown_str,
         sources_str,
-    ]
+    ])
     full_summary = " ".join(sentences)
 
     # If an LLM is available in environment and budget permits, attempt fluid synthesis while preserving required sections

@@ -19,6 +19,7 @@ No API key required. Probes are bounded by max_probes to conserve the shared
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import threading
 import time
@@ -45,9 +46,11 @@ ATS_PATTERNS = (
     "{slug}.recman.no",
     "{slug}.teamtailor.com",
     "{slug}.easycruit.com",
+    "{slug}.reachmee.com",
     "{slug}.workbuster.com",
     "{slug}.varbi.com",
     "{slug}.jobylon.com",
+    "{slug}.talentech.com",
 )
 
 _ATS_LOCK = threading.Lock()
@@ -132,7 +135,7 @@ def _looks_like_job_ad_url(url: str) -> bool:
 
 
 def _extract_ats_jobs(raw: bytes, page_url: str) -> list[dict[str, Any]]:
-    """Extract individual job ad links from an ATS page.
+    """Extract individual job ad links and Schema.org/JobPosting records from an ATS page.
 
     Returns list of {title, url} for links that look like individual job
     advertisements (not listing pages).
@@ -142,6 +145,28 @@ def _extract_ats_jobs(raw: bytes, page_url: str) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
 
+    # 1. Direct Schema.org/JobPosting JSON-LD Harvester
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                    j_title = str(item.get("title") or item.get("name") or "").strip()
+                    j_url = str(item.get("url") or item.get("sameAs") or page_url).strip()
+                    if j_title and j_url and j_url not in seen_urls:
+                        seen_urls.add(j_url)
+                        jobs.append({
+                            "title": j_title[:200],
+                            "url": j_url,
+                            "date_posted": item.get("datePosted"),
+                            "employment_type": item.get("employmentType"),
+                            "valid_through": item.get("validThrough"),
+                        })
+        except Exception:
+            pass
+
+    # 2. HTML anchor link inspection
     for link in soup.find_all("a", href=True):
         if len(jobs) >= 8:
             break
