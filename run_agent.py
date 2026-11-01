@@ -538,6 +538,7 @@ def enrich_single_company(
     requested_modules: list[str],
     budget: BudgetTracker,
     source_policy: str = OFFICIAL_SAFE,
+    max_company_requests: int = 25,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Enrich a single company profile with all available data sources.
 
@@ -678,6 +679,16 @@ def enrich_single_company(
         or (emp_count == 0 and any(tok in name_upper for tok in ("HOLDING", "INVEST", "EIENDOM")))
     )
 
+    effective_company_cap = max_company_requests + (4 if emp_count >= 20 or form_code_upper == "ASA" else 0)
+    local_reqs = len(metrics) if isinstance(metrics, list) else 0
+
+    def can_run_optional(cost: int = 1, reserve: int = 2) -> bool:
+        if not budget.can_proceed(reserve=reserve):
+            return False
+        if local_reqs + cost > effective_company_cap:
+            return False
+        return True
+
     places_obs: list[dict[str, Any]] = []
     wiki_obs: list[dict[str, Any]] = []
     patent_obs: list[dict[str, Any]] = []
@@ -718,7 +729,7 @@ def enrich_single_company(
                     verified_website = True
 
         # Level 2: Official registry corporate email domain (post@firmanavn.no -> firmanavn.no)
-        if not verified_website and budget.can_proceed(reserve=2):
+        if not verified_website and can_run_optional(cost=2, reserve=2):
             email_site = extract_email_domain_candidate(profile)
             if email_site:
                 w_rec, w_met = fetch_website(email_site)
@@ -733,7 +744,7 @@ def enrich_single_company(
                         verified_website = True
 
         # Level 3: Free heuristic .no/.com Norwegian domain probe with fast DNS pre-check
-        if not verified_website and not is_passive_entity and budget.can_proceed(reserve=2):
+        if not verified_website and not is_passive_entity and can_run_optional(cost=2, reserve=2):
             heuristic_site = probe_heuristic_domain(profile, budget=budget)
             if heuristic_site:
                 w_rec, w_met = fetch_website(heuristic_site)
@@ -829,7 +840,7 @@ def enrich_single_company(
                         break
 
         # Level 4e: Official Norid (.no National Registry) RDAP Brand Domain Discovery
-        if not verified_website and not is_passive_entity and (emp_count >= 1 or extract_email_domain_candidate(profile) or form_code_upper == "AS") and budget.can_proceed(reserve=5):
+        if not verified_website and not is_passive_entity and (emp_count >= 1 or extract_email_domain_candidate(profile) or form_code_upper == "AS") and can_run_optional(cost=2, reserve=5):
             reg_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
             bulk_val = (profile.get("evidence", {}).get("registry", {}).get("value") or {})
             c_email = (
@@ -866,7 +877,7 @@ def enrich_single_company(
 
         # Level 4f: Holding Company Unbundling (Parent -> Operating Subsidiary Linking)
         # Connect corporate holding entities to their operating subsidiaries via official group structure
-        if not verified_website and budget.can_proceed(reserve=3):
+        if not verified_website and can_run_optional(cost=2, reserve=3):
             group_val = (profile.get("evidence", {}).get("group", {}).get("value") or {})
             children = group_val.get("children") or [] if isinstance(group_val, dict) else []
             for child in children:
@@ -945,6 +956,7 @@ def enrich_single_company(
             bytes_received=website_metrics.get("bytes", 0),
             count=website_metrics.get("requests", 0),
         )
+        local_reqs += website_metrics.get("requests", 0)
 
     # Track per-company run metrics
     profile["run_metrics"] = {
@@ -973,15 +985,17 @@ def enrich_single_company(
     # 5. Google News RSS (free)
     news_obs: list[dict[str, Any]] = []
     google_news_state = {"status": "blocked"}
-    if budget.can_proceed(reserve=1):
+    if can_run_optional(cost=1, reserve=1):
         gn_limit = 2 if web_news_obs else 5
         news_obs = fetch_google_news(org, name, limit=gn_limit, years=2, budget=budget, status_out=google_news_state)
+        local_reqs += 1
 
     # 5b. Norwegian Corporate Press Wires (NTB Kommunikasjon, Mynewsdesk, Cision)
     wire_obs: list[dict[str, Any]] = []
     press_wire_state = {"status": "not_applicable"}
-    if verified_website and (len(web_news_obs) + len(news_obs) < 3) and budget.can_proceed(reserve=15):
-        wire_obs = fetch_press_wire_news(org, name, limit=3, budget=budget, status_out=press_wire_state)
+    if verified_website and emp_count >= 10 and (len(web_news_obs) + len(news_obs) < 2) and can_run_optional(cost=2, reserve=10):
+        wire_obs = fetch_press_wire_news(org, name, limit=2, budget=budget, status_out=press_wire_state)
+        local_reqs += len(wire_obs)
 
     # 6. Google Places & Wikidata & Patentstyret observations (already fetched)
     observations.extend(places_obs)
@@ -1004,9 +1018,12 @@ def enrich_single_company(
     # Probes common URL patterns on LinkedIn, Facebook, Instagram, TikTok, X
     # to find company-owned social profiles even when the website has none listed.
     soc_obs: list[dict[str, Any]] = []
-    if not is_passive_entity and budget.can_proceed(reserve=5):
-        soc_obs = fetch_social_profiles(name, org, budget=budget, max_profiles=5)
+    existing_social_platforms = {str(o.get("platform") or "").casefold() for o in web_social_obs if o.get("platform")}
+    needed_social = max(0, 3 - len(existing_social_platforms))
+    if not is_passive_entity and needed_social > 0 and can_run_optional(cost=needed_social, reserve=5):
+        soc_obs = fetch_social_profiles(name, org, budget=budget, max_profiles=needed_social, exclude_platforms=existing_social_platforms)
         observations.extend(soc_obs)
+        local_reqs += len(soc_obs)
 
     # 7b. LinkedIn guest discovery is an experiment only.  It is never called
     # in the official-safe path: identity proof cannot cure an unapproved
@@ -1304,7 +1321,7 @@ def enrich_single_company(
             profile["gleif_lei"] = gleif_obs.get("metrics") or {}
 
     # 13i. Kartverket & Matrikkelen (Official Cadastral Resolution for Operating Entities)
-    if budget.can_proceed(reserve=2):
+    if can_run_optional(cost=1, reserve=2):
         reg_l_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
         b_addr = profile.get("address") or reg_l_val.get("forretningsadresse") or (profile.get("evidence", {}).get("registry", {}).get("value") or {}).get("forretningsadresse") or {}
         if isinstance(b_addr, dict):
@@ -1348,7 +1365,7 @@ def enrich_single_company(
                     })
 
     # 13j. Official Supervisory & Labour Inspection Licenses (Arbeidstilsynet & Finanstilsynet)
-    if not is_passive_entity and budget.can_proceed(reserve=5):
+    if not is_passive_entity and can_run_optional(cost=1, reserve=5):
         try:
             n_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
             n_raw = n_val.get("naeringskode1") or profile.get("industry_code") or ""
@@ -1361,7 +1378,7 @@ def enrich_single_company(
             pass
 
     # 13k. Miljøfyrtårn (Eco-Lighthouse) ESG Sustainability Certification
-    if not is_passive_entity and (emp_count >= 5 or verified_website) and budget.can_proceed(reserve=5):
+    if not is_passive_entity and (emp_count >= 5 or verified_website) and can_run_optional(cost=1, reserve=5):
         try:
             esg_obs = fetch_esg_certifications(org, name, budget=budget)
             if esg_obs:
@@ -1371,7 +1388,8 @@ def enrich_single_company(
             pass
 
     # 13l. Multi-ATS Vacancy Aggregator & Job Harvester
-    if not is_passive_entity and (emp_count >= 1 or verified_website) and budget.can_proceed(reserve=5):
+    has_careers_url = bool((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("careers_url"))
+    if not is_passive_entity and (emp_count >= 5 or has_careers_url or profile.get("hiring", {}).get("appears_to_be_hiring")) and can_run_optional(cost=2, reserve=5):
         try:
             ats_obs = fetch_ats_jobs(name, org, budget=budget, max_probes=2)
             if ats_obs:
@@ -1379,6 +1397,7 @@ def enrich_single_company(
                 profile.setdefault("hiring", {})["ats_jobs_count"] = len(ats_obs)
                 if not profile.get("hiring", {}).get("appears_to_be_hiring"):
                     profile["hiring"]["appears_to_be_hiring"] = True
+            local_reqs += 2
         except Exception:
             pass
 
@@ -1451,7 +1470,9 @@ def main() -> int:
     # The shared concurrency reserve leaves room for in-flight requests.
     # 45 minutes wall-clock limit with safety margin (40 min / 2,400s)
     effective_max_requests = 2000  # CAPPED AT 2000 FOR BUILDERR COMPLIANCE
-    protected_request_reserve = min(200, max(25, int(effective_max_requests * 0.10)))
+    protected_request_reserve = min(80, max(25, int(args.workers * 15)))
+    usable_requests = max(0, effective_max_requests - protected_request_reserve)
+    company_budget_pace = max(12, int(usable_requests / max(1, len(orgs))))
     effective_max_time = min(args.max_time, max(2400.0, len(orgs) * 3.5)) if args.max_time == 86400.0 else args.max_time
     effective_max_cost = args.max_cost if args.max_cost != 100.0 else max(10.0, (len(orgs) / 1000.0) * 10.0)
 
@@ -1559,7 +1580,7 @@ def main() -> int:
     # Enrich pending companies in parallel
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(worker_fn, profile, fetch_modules, requested_modules, budget, args.source_policy): profile["organisation_number"]
+            pool.submit(worker_fn, profile, fetch_modules, requested_modules, budget, args.source_policy, company_budget_pace): profile["organisation_number"]
             for profile in pending_profiles
         }
         for future in as_completed(futures):

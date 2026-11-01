@@ -96,6 +96,7 @@ def fetch_social_profiles(
     timeout: float = 8.0,
     max_profiles: int = 5,
     status_out: dict[str, Any] | None = None,
+    exclude_platforms: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Discover social media profiles for a company independently of its website.
 
@@ -128,10 +129,13 @@ def fetch_social_profiles(
     retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     observations: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
+    excluded = {str(p).casefold() for p in (exclude_platforms or set())}
     tried = 0
     found = 0
 
     for platform, pattern in SOCIAL_PATTERNS:
+        if platform.casefold() in excluded:
+            continue
         if found >= max_profiles:
             break
         if budget and not budget.can_proceed(reserve=1):
