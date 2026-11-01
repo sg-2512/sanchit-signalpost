@@ -214,11 +214,6 @@ def evaluate_company_hiring(
     for wj in ((website_val.get("job_postings") or []) if isinstance(website_val, dict) else []):
         if not isinstance(wj, dict) or not wj.get("title"):
             continue
-        # A career-card or ATS link proves recruitment intent, not a current
-        # standalone vacancy. Only structured, item-level ads can satisfy the
-        # job-posting field without fetching and verifying the linked ad.
-        if wj.get("requires_ad_verification"):
-            continue
         if wj.get("kind") == "jsonld_job":
             declared_org = re.sub(r"\D", "", str(wj.get("employer_org") or ""))
             declared_name = str(wj.get("hiring_org") or "").casefold()

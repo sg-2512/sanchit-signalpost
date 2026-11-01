@@ -322,8 +322,8 @@ def fetch_google_news(
 
             decoded_url = None
             art = None
-            max_decodes = 1 if limit <= 2 else 2
-            if decode_articles and decode_attempts < max_decodes and len(output) < 2 and (budget is None or budget.can_proceed(reserve=2)):
+            max_decodes = min(5, limit)
+            if decode_articles and decode_attempts < max_decodes and (budget is None or budget.can_proceed(reserve=2)):
                 decode_attempts += 1
                 decode_request_count = [0]
                 decoded_url = decode_google_news_url(link, request_count_out=decode_request_count)
@@ -368,6 +368,7 @@ def fetch_google_news(
                 "identity_proof": [
                     {"type": "exact_legal_name_in_news_title", "value": company_name},
                     {"type": "publisher_label", "value": publisher},
+                    {"type": "organisation_number", "value": org},
                 ],
                 "acquisition_mode": "permitted_public_page",
                 "rights_status": "approved",
@@ -377,7 +378,7 @@ def fetch_google_news(
                 "evidence_span": final_title,
                 "text": final_title,
                 "publisher": publisher,
-                "strategy": "independent_news_discovery",
+                "strategy": "google_news_rss",
                 "verification": verif,
                 "name_in_article": name_in_art,
             })

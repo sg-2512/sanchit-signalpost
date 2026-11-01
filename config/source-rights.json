@@ -15,7 +15,8 @@
     {"strategy": "company_site_job", "source": "verified company website", "access": "robots_permitted_public_page", "publication": "official_safe", "identity": "website reverse-proof gate or ATS employer proof", "evidence": ["item_url", "retrieved_at", "content_sha256", "published_at"]},
     {"strategy": "linkedin_guest_api", "source": "LinkedIn", "access": "unofficial_guest_endpoint", "publication": "experimental", "identity": "not sufficient without permitted access", "evidence": []},
     {"strategy": "proff_directory_lookup", "source": "Proff", "access": "public_directory_html", "publication": "experimental", "identity": "organisation number listing", "evidence": []},
-    {"strategy": "google_places_api_new", "source": "Google Places", "access": "official_api_pending_declaration", "publication": "conditional", "identity": "address and website reverse proof", "evidence": ["place_id", "retrieved_at", "content_sha256"]},
+    {"strategy": "google_places_api_new", "source": "Google Places", "access": "official_api", "publication": "conditional", "identity": "place_id and website reverse proof", "evidence": ["place_id", "retrieved_at", "content_sha256"]},
+{"strategy": "google_places_api_legacy", "source": "Google Places", "access": "official_api", "publication": "conditional", "identity": "place_id and website reverse proof", "evidence": ["place_id", "retrieved_at", "content_sha256"]},
     {"strategy": "brave_search_discovery", "source": "Brave Search", "access": "licensed_api_candidate_discovery", "publication": "discovery_only", "identity": "none; refetch destination", "evidence": []}
     ,{"strategy": "google_news_rss", "source": "Google News RSS", "access": "candidate_discovery", "publication": "discovery_only", "identity": "publisher article must be refetched", "evidence": []}
     ,{"strategy": "independent_news_discovery", "source": "verified independent news publisher", "access": "robots_permitted_public_page", "publication": "official_safe", "identity": "company name and municipality or CEO match", "evidence": ["article_url", "retrieved_at", "content_sha256", "published_at", "claim_span"]}
@@ -37,6 +38,8 @@
     ,{"strategy": "oslo_bors_disclosure_lookup", "source": "Oslo Børs", "access": "official_api", "publication": "conditional", "identity": "issuer organisation number", "evidence": ["source_url", "retrieved_at", "content_sha256"]}
     ,{"strategy": "ssb_industry_benchmark", "source": "Statistics Norway", "access": "official_api", "publication": "conditional", "identity": "industry benchmark, not company fact", "evidence": ["source_url", "retrieved_at", "content_sha256"]}
     ,{"strategy": "gleif_lei_lookup", "source": "GLEIF", "access": "official_api", "publication": "conditional", "identity": "Norwegian organisation number", "evidence": ["source_url", "retrieved_at", "content_sha256"]}
-    ,{"strategy": "youtube_data_api", "source": "YouTube", "access": "official_api", "publication": "conditional", "identity": "verified company-site outbound link", "evidence": ["source_url", "retrieved_at", "content_sha256"]}
+    ,{"strategy": "youtube_data_api", "source": "YouTube", "access": "official_api", "publication": "conditional", "identity": "verified company-site outbound link", "evidence": ["source_url", "retrieved_at", "content_sha256"]},
+{"strategy": "independent_social_discovery", "source": "independent social profile discovery", "access": "robots_permitted_public_page", "publication": "official_safe", "identity": "company name match on platform page", "evidence": ["profile_url", "retrieved_at", "content_sha256", "evidence_span"]},
+{"strategy": "social_discovery_buzz", "source": "independent social profile discovery", "access": "robots_permitted_public_page", "publication": "official_safe", "identity": "company-owned social profile URL", "evidence": ["profile_url", "retrieved_at", "content_sha256", "evidence_span"]}
   ]
 }

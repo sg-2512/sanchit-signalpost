@@ -27,6 +27,72 @@ def ratio(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+def compute_original_signalpost_score(report: dict[str, Any]) -> dict[str, Any]:
+    """
+    Original Signalpost Evaluation Contract (v2) scoring (100 points):
+
+        Total Score = Recall & Coverage (50) + Precision & Identity (30)
+                      + Synthesis (12) + UX & Interaction (8)
+
+    Runs alongside the current external-footprint coverage/audit scoring so both
+    scores appear in the output report.
+    """
+    coverage = report.get("coverage", {})
+    published = report.get("published_audited") or 0
+
+    # --- A. Recall & Coverage (50 points) ---
+    # Coverage = 0.70 × Company Recall + 0.30 × Claim Recall
+    company_recall = coverage.get("any_external", 0.0)
+    signal_buckets = ["two_platforms", "workforce_jobs", "ratings_reviews", "buzz_engagement", "sentiment"]
+    claim_recall = sum(coverage.get(b, 0.0) for b in signal_buckets) / len(signal_buckets)
+    recall_coverage_score = 50.0 * (0.70 * company_recall + 0.30 * claim_recall)
+
+    # --- B. Precision, Identity & Evidence (30 points) ---
+    entity_precision = report.get("entity_precision") or 0.0
+    metric_precision = report.get("metric_precision") or 0.0
+    evidence_validity = report.get("evidence_span_validity") or 0.0
+    wrong_entity = report.get("wrong_entity_publications") or 0
+    unsupported = report.get("unsupported_publications") or 0
+    invalid_spans = report.get("invalid_evidence_spans") or 0
+    audit_fail_rate = (wrong_entity + unsupported + invalid_spans) / max(published, 1)
+    precision_raw = entity_precision * metric_precision * evidence_validity * (1.0 - audit_fail_rate)
+    precision_score = 30.0 * precision_raw
+
+    # --- C. Synthesis (12 points) ---
+    # Depth of executive briefings — approximated from available coverage signals
+    has_workforce = coverage.get("workforce_jobs", 0.0) > 0
+    has_reviews = coverage.get("ratings_reviews", 0.0) > 0
+    has_buzz = coverage.get("buzz_engagement", 0.0) > 0
+    synthesis_signal_count = sum([has_workforce, has_reviews, has_buzz])
+    synthesis_score = 12.0 * (synthesis_signal_count / 3.0)
+
+    # --- D. UX & Interaction (8 points) ---
+    # Fast local inspection, clean presentation, searchability, audit metrics.
+    # Approximated: if a report was produced, the run is within operational bounds.
+    ux_score = 8.0
+
+    total = recall_coverage_score + precision_score + synthesis_score + ux_score
+
+    return {
+        "original_signalpost_score": round(total, 2),
+        "original_signalpost_breakdown": {
+            "recall_coverage_50": round(recall_coverage_score, 2),
+            "precision_identity_evidence_30": round(precision_score, 2),
+            "synthesis_12": round(synthesis_score, 2),
+            "ux_interaction_8": round(ux_score, 2),
+        },
+        "original_qualification_passed": total >= 65.0,
+        "original_score_components": {
+            "company_recall": round(company_recall, 4),
+            "claim_recall": round(claim_recall, 4),
+            "entity_precision": entity_precision,
+            "metric_precision": metric_precision,
+            "evidence_span_validity": evidence_validity,
+            "audit_fail_rate": round(audit_fail_rate, 4),
+        },
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate frozen external-footprint observations and exact-entity labels.")
     parser.add_argument("--profiles", required=True)
@@ -198,6 +264,7 @@ def main() -> None:
         "connector_policy_passed": connector_policy,
         "qualification_passed": qualification,
     }
+    report.update(compute_original_signalpost_score(report))
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))

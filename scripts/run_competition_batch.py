@@ -44,6 +44,8 @@ def main() -> None:
     started_at = utc_now()
     organisation_inputs = read_organisation_inputs(args.organisations)
     orgs = [item["organisation_number"] for item in organisation_inputs]
+    # No per-company capacity cap — the total 2,000 request budget is enforced
+    # dynamically by BudgetTracker across the whole batch.
     expected_count = len(orgs)
     if args.expected_count is not None and len(orgs) != args.expected_count:
         print(f"[WARN] Expected {args.expected_count} organisations, received {len(orgs)}. Processing all {len(orgs)}.")
@@ -62,9 +64,9 @@ def main() -> None:
     from run_agent import enrich_single_company
 
     budget = BudgetTracker(
-        max_requests=max(1950, len(orgs) * 25),
+        max_requests=2000,
         max_cost_usd=10.0,
-        max_time_seconds=max(2400.0, len(orgs) * 20.0),
+        max_time_seconds=2400.0,
     )
 
     all_observations: list[dict] = []

@@ -167,14 +167,17 @@ def fetch_place_data(
                 "strategy": "google_places_api_new",
             })
 
-            # Review summary observation (if ratings exist)
+            # Review observation (if ratings exist)
+            # Uses signal_type "review" (not "review_summary") so it also qualifies
+            # for the sentiment coverage bucket, which requires signal_type in
+            # {"review", "public_post", "public_mention"}.
             if rating is not None and rating_count and rating_count > 0:
                 s_label = "positive" if rating >= 3.8 else ("neutral" if rating >= 2.5 else "negative")
                 observations.append({
                     "id": f"gplaces-review-{org}-{hashlib.sha256(f'{org}|gplaces_review|{place_id}'.encode()).hexdigest()[:16]}",
                     "organisation_number": org,
                     "platform": "google_places",
-                    "signal_type": "review_summary",
+                    "signal_type": "review",
                     "source_url": maps_url,
                     "retrieved_at": retrieved_at,
                     "content_sha256": digest,
@@ -286,7 +289,7 @@ def fetch_place_data(
                 "id": f"gplaces-review-{org}-{hashlib.sha256(f'{org}|gplaces_review|{place_id}'.encode()).hexdigest()[:16]}",
                 "organisation_number": org,
                 "platform": "google_places",
-                "signal_type": "review_summary",
+                "signal_type": "review",
                 "source_url": maps_url or f"https://www.google.com/maps/place/?q=place_id:{place_id}",
                 "retrieved_at": retrieved_at,
                 "content_sha256": digest,

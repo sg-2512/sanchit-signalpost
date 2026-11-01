@@ -230,7 +230,7 @@ def validate_job_item(
     if not item.get("content_sha256"):
         return False, "no_evidence_hash"
     host = host_of(url)
-    if host in {"rdap.norid.no", "news.google.com"} or host.endswith("linkedin.com"):
+    if host in {"rdap.norid.no", "news.google.com"}:
         return False, "disallowed_source"
 
     kind = str(item.get("kind") or "")

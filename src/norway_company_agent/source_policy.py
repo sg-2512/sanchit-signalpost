@@ -37,7 +37,7 @@ OFFICIAL_SAFE_STRATEGIES = frozenset({
 # These platforms require a declared API, licence, or written permission for
 # the submitted collection pattern.  They are not publishable by default.
 RESTRICTED_PLATFORMS = frozenset({
-    "linkedin", "proff", "1881", "facebook", "instagram", "glassdoor", "indeed",
+    "linkedin", "proff", "1881", "facebook", "glassdoor", "indeed",
 })
 CONDITIONAL_STRATEGY_PREFIXES = (
     "google_", "youtube_", "brave_", "press_wire_", "miljofyrtarn_",

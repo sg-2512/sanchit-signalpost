@@ -1044,8 +1044,10 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         fast_path_saturated = bool(len(homepage_news) >= 1 and len(homepage_jobs) >= 1 and len(social) >= 1)
         # A verified corporate domain is the highest-return external source.
         # Bounded route coverage beats a broad unverified search expansion.
-        subpage_limit = 3 if fast_path_saturated else 5
-        check_sitemap = True
+        # Reduced subpage limit to conserve the shared 2,000-request budget for
+        # Indeed/LinkedIn job discovery and press-wire news connectors.
+        subpage_limit = 1 if fast_path_saturated else 2
+        check_sitemap = False
         for page_url in _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=check_sitemap):
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(
                 page_url,

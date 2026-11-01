@@ -301,7 +301,7 @@ def normalize_entity(body: Any) -> dict[str, Any]:
 
 def _classified(field: str, source_type: str, result: FetchResult, value: Any = None) -> dict[str, Any]:
     if result.status == 200:
-        return evidence(field, "available", source_type, result.url, value=result.body if value is None else value, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
+        return evidence(field, "available", source_type, result.url, value=value, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
     if result.status in {404, 410}:
         return evidence(field, "not_found", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
     return evidence(field, "source_error", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
@@ -323,45 +323,51 @@ def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str],
             continue
         result = _fetch_history(url) if module == "financial_history" and fetcher is fetch_json else fetcher(url)
         metrics.append(result)
-        normalized = None
         if result.status == 200:
+            # Successful fetch: normalize records normally
             normalized = normalize_entity(result.body) if module == "registry_live" else normalize_financials(result.body) if module == "financials" else normalize_financial_history(result.body, org) if module == "financial_history" else normalize_roles(result.body) if module == "roles" else normalize_locations(result.body) if module == "locations" else result.body
             records[module] = _classified(module, source_type, result, value=normalized)
-        elif module == "financials":
-            # Upstream 503 fallback: Recover statutory filing from sovereign registry_live body
-            reg_live = records.get("registry_live") or {}
-            reg_val = reg_live.get("value") or {}
-            reg_body = reg_val if isinstance(reg_val, dict) else {}
-            latest_year = str(reg_body.get("sisteInnsendteAarsregnskap") or reg_body.get("latest_submitted_accounts") or "").strip()
-            if latest_year.isdigit():
-                kapital = reg_body.get("kapital") if isinstance(reg_body.get("kapital"), dict) else {}
-                statutory_record = {
-                    "id": int(latest_year),
-                    "account_type": "SELSKAP",
-                    "fiscal_year": int(latest_year),
-                    "filing_year": latest_year,
-                    "period": {
-                        "fraDato": f"{latest_year}-01-01",
-                        "tilDato": f"{latest_year}-12-31",
-                    },
-                    "share_capital": kapital.get("belop"),
-                    "currency": kapital.get("valuta") or "NOK",
-                    "statutory_filing_status": "filed_confirmed",
-                    "source": "official_brreg_statutory_filing",
-                }
-                reg_sha = reg_live.get("content_sha256") or result.content_sha256
-                records[module] = evidence(
-                    module,
-                    "available",
-                    source_type,
-                    url,
-                    value={"records": [statutory_record], "financial_trends": {}},
-                    content_sha256=reg_sha,
-                    retrieved_at=reg_live.get("retrieved_at") or result.retrieved_at,
-                    effective_at=reg_live.get("effective_at") or result.effective_at,
-                )
-            else:
-                records[module] = _classified(module, source_type, result, value=normalized)
+            # Record that we successfully fetched financial data
+            if module == "financials" and isinstance(normalized, dict) and normalized.get("records"):
+                latest_fy = fiscal_year_of(normalized["records"][0])
+                if latest_fy and "registry_live" in records:
+                    records["registry_live"].setdefault("value", {})["latest_financial_year"] = latest_fy
         else:
-            records[module] = _classified(module, source_type, result, value=normalized)
+            # HTTP 503 or network failure: fallback to statutory filing from registry_live if available
+            if module == "financials":
+                reg_live = records.get("registry_live") or {}
+                reg_val = reg_live.get("value") or {}
+                reg_body = reg_val if isinstance(reg_val, dict) else {}
+                latest_year = str(reg_body.get("sisteInnsendteAarsregnskap") or reg_body.get("latest_submitted_accounts") or "").strip()
+                if latest_year.isdigit():
+                    kapital = reg_body.get("kapital") if isinstance(reg_body.get("kapital"), dict) else {}
+                    statutory_record = {
+                        "id": int(latest_year),
+                        "account_type": "SELSKAP",
+                        "fiscal_year": int(latest_year),
+                        "filing_year": latest_year,
+                        "period": {
+                            "fraDato": f"{latest_year}-01-01",
+                            "tilDato": f"{latest_year}-12-31",
+                        },
+                        "share_capital": kapital.get("belop"),
+                        "currency": kapital.get("valuta") or "NOK",
+                        "statutory_filing_status": "filed_confirmed",
+                        "source": "official_brreg_statutory_filing",
+                    }
+                    reg_sha = reg_live.get("content_sha256") or result.content_sha256
+                    records[module] = evidence(
+                        module,
+                        "available",
+                        source_type,
+                        url,
+                        value={"records": [statutory_record], "financial_trends": {}},
+                        content_sha256=reg_sha,
+                        retrieved_at=reg_live.get("retrieved_at") or result.retrieved_at,
+                        effective_at=reg_live.get("effective_at") or result.effective_at,
+                    )
+                else:
+                    records[module] = _classified(module, source_type, result, value=None)
+            else:
+                records[module] = _classified(module, source_type, result, value=None)
     return records, metrics

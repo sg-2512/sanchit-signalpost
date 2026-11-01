@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 import urllib.parse
 from typing import Any
+
+from .verified_items import name_in_text, registered_domain
 
 
 LEGAL_AND_GENERIC = {
@@ -244,6 +247,29 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     if not is_group_parent and any(marker in candidate_text.lower() for marker in ("del av konsernet", "konsernselskap", "et selskap i", "a subsidiary of")):
         is_group_parent = True
 
+    # Zero-tolerance: if a different 9-digit org number is detected in page evidence
+    # but does not match the target org number, force not publishable.
+    if org_digits and len(org_digits) == 9:
+        # Extract any 9-digit org-like numbers from the candidate text
+        found_orgs = set(re.findall(r"\b\d{9}\b", candidate_text))
+        if found_orgs and org_digits not in found_orgs:
+            score = 0.0
+            reasons.append(f"different 9-digit organisation number found in page evidence ({sorted(found_orgs)}) but target {org_digits} not present")
+            status = "related_or_uncertain"
+            relationship = "unrelated_or_confuser"
+            return {
+                "status": status,
+                "score": score,
+                "publishable": False,
+                "legal_name_tokens": core,
+                "matched_tokens": overlap,
+                "relationship": relationship,
+                "identified_legal_entities": other_legal_entities,
+                "target_legal_entity_mentioned": mentions_target_legal_entity,
+                "reasons": reasons,
+                "method": "deterministic_name_org_evidence_v2",
+            }
+
     if score >= 0.9:
         if is_co_op and is_known_bbl:
             relationship = "housing_management_portal"
@@ -367,6 +393,10 @@ def apply_website_identity_gate(profile: dict[str, Any], website: dict[str, Any]
     temporary_profile = {**profile, "evidence": {**profile.get("evidence", {}), "website": website}}
     value = website.get("value") or {}
     assessment = assess_website_identity(temporary_profile)
+    # Zero-tolerance: if assessment flags a group parent, public brand of another entity,
+    # or unrelated/confuser, do not publish website facts regardless of score.
+    if assessment.get("relationship") in {"corporate_group_parent", "public_brand_or_related_entity", "unrelated_or_confuser"}:
+        return {"website": website, "assessment": assessment, "quarantined_social_links": 0}
     value["identity_assessment"] = assessment
     rel = assessment.get("relationship") or "exact_legal_entity"
     value["relationship_label"] = rel
@@ -407,5 +437,278 @@ def apply_website_identity_gate(profile: dict[str, Any], website: dict[str, Any]
     return {
         "website": website,
         "assessment": assessment,
+        "quarantined_social_links": len(original) - len(value["social_links"]),
+    }
+
+
+# --------------------------------------------------------------------------- multi-factor entity identity (P0 precision system)
+
+_PARKED_MARKERS = (
+    "domain is for sale", "domain for sale", "hugedomains", "parked at", "miss hosting",
+    "her flytter snart en ny gjest", "has been informing visitors",
+    "find the best information and most relevant links on all topics related to",
+    "buy this domain", "kjøp dette domenet", "domenet er til salgs",
+    "this domain is parked", "under construction / sedo", "sedo domain parking",
+    "domeneshop parkering", "parkert hos domeneshop", "dan.com",
+    "the sponsored listings displayed above", "related searches", "is parked free",
+    "velkommen til vårt nye nettsted", "siden er under konstruksjon",
+)
+
+
+def _find_org_numbers(text: str) -> set[str]:
+    """Find all 9-digit organisation-number-like strings in text."""
+    return set(re.findall(r"\b\d{9}\b", text or ""))
+
+
+def _find_legal_entities(text: str) -> set[str]:
+    """Find Norwegian legal-entity names (X AS, Y ASA, etc.) in text."""
+    entities: set[str] = set()
+    for match in re.finditer(
+        r"(?:[A-Za-zÆØÅæøå][A-Za-zÆØÅæøå&.'’\- ]{1,80})\s+(?:AS|ASA|ANS|DA|ENK|NUF)\b",
+        text or "",
+        re.I,
+    ):
+        ent = " ".join(_tokens(match.group(0).strip()))
+        if ent:
+            entities.add(ent)
+    return entities
+
+
+def assess_entity_identity(
+    profile: dict[str, Any],
+    evidence_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Multi-factor exact-entity identity assessment (P0 precision system).
+
+    Combines organisation number, legal name, domain, and address evidence into a
+    single publishable/not-publishable decision.  Hard vetoes (negative
+    disqualification rules) override any positive score.
+
+    Publishable only when:
+      * all vetoes pass, AND
+      * orgnr factor == 1.0, OR (name factor >= 0.95 AND domain factor >= 0.90),
+      * weighted multi-factor score >= 0.95.
+    """
+    org = str(profile.get("organisation_number") or "")
+    org_digits = re.sub(r"\D", "", org)
+    name = str(profile.get("name") or "")
+    core = _tokens(name)
+
+    website = (profile.get("evidence") or {}).get("website") or {}
+    w_value = website.get("value") or {}
+    final_url = w_value.get("final_url") or website.get("source_url") or ""
+    hostname = urllib.parse.urlparse(final_url).hostname or ""
+
+    # --- Collect all evidence text for cross-validation ---
+    all_text_parts: list[str] = []
+    if evidence_items:
+        for item in evidence_items:
+            for key in ("text", "title", "main_text_excerpt", "identity_text_excerpt",
+                        "description", "claim_span", "value", "evidence_span"):
+                v = item.get(key)
+                if isinstance(v, str):
+                    all_text_parts.append(v)
+                elif isinstance(v, dict):
+                    all_text_parts.append(json.dumps(v, ensure_ascii=False))
+    homepage_parts = [
+        w_value.get("title"), w_value.get("description"), w_value.get("identity_text_excerpt"),
+        hostname, w_value.get("main_text_excerpt"),
+    ]
+    all_text_parts.extend(str(p or "") for p in homepage_parts if p)
+    rendered = w_value.get("js_fallback") or {}
+    all_text_parts.append(str(rendered.get("main_text_excerpt") or ""))
+    for page in w_value.get("pages", []):
+        all_text_parts.append(str(page.get("title") or ""))
+        all_text_parts.append(str(page.get("main_text_excerpt") or ""))
+        all_text_parts.append(str(page.get("identity_text_excerpt") or ""))
+
+    combined_text = " ".join(all_text_parts)
+    normalized_text = " ".join(_tokens(combined_text))
+    candidate_tokens = set(_tokens(combined_text))
+
+    # --- Factor 1: Organisation number ---
+    found_orgs = _find_org_numbers(combined_text)
+    orgnr_match = bool(org_digits and len(org_digits) == 9 and org_digits in found_orgs)
+    orgnr_score = 1.0 if orgnr_match else 0.0
+
+    # --- Factor 2: Legal name ---
+    name_match = name_in_text(name, combined_text) if name else False
+    overlap = sorted(set(core) & candidate_tokens)
+    name_ratio = len(overlap) / len(set(core)) if core else 0.0
+    name_score = 1.0 if name_match else (name_ratio if name_ratio > 0 else 0.0)
+
+    # --- Factor 3: Domain ---
+    domain_sld = hostname.split(".")[0] if "." in hostname else hostname
+    domain_sld_alnum = re.sub(r"[^a-z0-9]", "", domain_sld)
+    domain_match = bool(
+        domain_sld_alnum
+        and len(domain_sld_alnum) >= 3
+        and domain_sld_alnum not in GENERIC_INDUSTRY_WORDS
+        and domain_sld_alnum not in LEGAL_AND_GENERIC
+        and domain_sld_alnum in combined_text.casefold()
+    )
+    domain_score = 0.95 if domain_match else 0.0
+
+    # --- Factor 4: Registered address ---
+    reg_val = (profile.get("evidence") or {}).get("registry_live") or {}
+    reg_val = reg_val or (profile.get("evidence") or {}).get("registry") or {}
+    addr_val = profile.get("address") or reg_val.get("value", {}).get("forretningsadresse") or {}
+    if isinstance(addr_val, dict):
+        raw_addr = addr_val.get("adresse") or ""
+    else:
+        raw_addr = str(addr_val or "")
+    addr_text = " ".join(raw_addr) if isinstance(raw_addr, list) else str(raw_addr or "")
+    addr_tokens = [t for t in _tokens(addr_text) if len(t) >= 4]
+    addr_match = bool(addr_text and any(t in normalized_text for t in addr_tokens))
+    addr_score = 0.85 if addr_match else 0.0
+
+    # --- Negative disqualification rules (hard vetoes) ---
+    veto_reasons: list[str] = []
+
+    # Veto 1: Different 9-digit org number in evidence, target orgnr absent
+    if org_digits and len(org_digits) == 9:
+        if found_orgs and org_digits not in found_orgs:
+            veto_reasons.append(f"different_org_number_in_evidence:{sorted(found_orgs)}")
+
+    # Veto 2: Different legal entity identified that is not the target
+    legal_name_norm = " ".join(core)
+    candidate_legal_entities = _find_legal_entities(combined_text)
+    candidate_legal_entities.discard("")
+    candidate_legal_entities.discard(legal_name_norm)
+    if candidate_legal_entities:
+        brand_tokens = {t for t in core if t not in GENERIC_INDUSTRY_WORDS and t not in GEOGRAPHIC_TOKENS}
+        other_entity_shares_brand = False
+        for other_ent in candidate_legal_entities:
+            other_toks = set(_tokens(other_ent))
+            if brand_tokens & other_toks:
+                other_entity_shares_brand = True
+                break
+        if other_entity_shares_brand and not name_match:
+            veto_reasons.append(f"different_legal_entity_in_evidence:{sorted(candidate_legal_entities)}")
+
+    # Veto 3: Parked / for-sale domain
+    if any(marker in normalized_text for marker in _PARKED_MARKERS):
+        veto_reasons.append("parked_or_for_sale_domain")
+
+    # Veto 4: Error / login page
+    is_error_or_login = any(err in final_url.lower() for err in ("error=true", "login_required", "/login", "/logg-inn"))
+    if is_error_or_login:
+        veto_reasons.append("error_or_login_page")
+
+    # Veto 5/6: Group parent or public brand of another entity without target evidence
+    if candidate_legal_entities and not name_match and not orgnr_match:
+        combined_lower = combined_text.lower()
+        has_group = any(w in combined_lower for w in ("holding", "group", "gruppen", "konsern", "morforetak"))
+        if has_group:
+            veto_reasons.append("corporate_group_parent_without_target")
+        else:
+            veto_reasons.append("public_brand_of_other_entity")
+
+    # --- Weighted multi-factor score ---
+    # Weights: orgnr (0.40), name (0.30), domain (0.20), address (0.10)
+    factors = {
+        "orgnr_match": orgnr_score,
+        "name_match": name_score,
+        "domain_match": domain_score,
+        "address_match": addr_score,
+    }
+    weights = {"orgnr_match": 0.40, "name_match": 0.30, "domain_match": 0.20, "address_match": 0.10}
+    weighted_score = sum(factors[k] * weights[k] for k in weights)
+
+    # --- Publishable decision ---
+    if veto_reasons:
+        status = "rejected"
+        publishable = False
+    elif orgnr_score >= 1.0 and name_score >= 0.9:
+        status = "exact"
+        publishable = True
+    elif orgnr_score >= 1.0 and domain_score >= 0.9:
+        status = "exact"
+        publishable = True
+    elif name_score >= 0.95 and domain_score >= 0.90 and weighted_score >= 0.95:
+        status = "exact"
+        publishable = True
+    else:
+        status = "review"
+        publishable = False
+
+    return {
+        "status": status,
+        "publishable": publishable,
+        "score": round(weighted_score, 3),
+        "orgnr_match": orgnr_score,
+        "name_match": name_score,
+        "domain_match": domain_score,
+        "address_match": addr_score,
+        "veto_reasons": veto_reasons,
+        "matched_tokens": overlap,
+        "found_org_numbers": sorted(found_orgs),
+        "candidate_legal_entities": sorted(candidate_legal_entities),
+        "target_orgnr": org_digits,
+        "method": "multi_factor_entity_identity_v1",
+    }
+
+
+def apply_entity_identity_gate(
+    profile: dict[str, Any],
+    website: dict[str, Any],
+    evidence_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Apply both website identity and multi-factor entity identity gates.
+
+    A website is publishable only when BOTH assessments pass.  This is the P0
+    precision gate: it requires multi-factor confirmation (orgnr + name + domain)
+    and applies hard vetoes that override any single-source score.
+    """
+    if website.get("status") != "available":
+        return {"website": website, "assessment": None, "entity_assessment": None, "quarantined_social_links": 0}
+
+    temporary_profile = {**profile, "evidence": {**profile.get("evidence", {}), "website": website}}
+    website_assessment = assess_website_identity(temporary_profile)
+    entity_assessment = assess_entity_identity(temporary_profile, evidence_items)
+
+    # Zero-tolerance: either assessment can veto publication
+    if not website_assessment.get("publishable") or not entity_assessment.get("publishable"):
+        return {
+            "website": website,
+            "assessment": website_assessment,
+            "entity_assessment": entity_assessment,
+            "quarantined_social_links": 0,
+            "gate_rejected": True,
+            "rejection_reasons": entity_assessment.get("veto_reasons", []),
+        }
+
+    value = website.get("value") or {}
+    value["identity_assessment"] = website_assessment
+    value["entity_identity_assessment"] = entity_assessment
+    rel = website_assessment.get("relationship") or "exact_legal_entity"
+    value["relationship_label"] = rel
+    if rel == "exact_legal_entity":
+        value["relationship_note"] = "Verified official website of target legal entity (multi-factor confirmed)."
+    elif rel == "corporate_group_parent":
+        value["relationship_note"] = "Corporate parent or group website; facts require attribution."
+    elif rel == "public_brand_or_related_entity":
+        value["relationship_note"] = "Public brand of another legal entity; not publishable as target entity facts."
+    elif rel == "housing_management_portal":
+        value["relationship_note"] = "Official residential management portal for co-operative housing entity."
+    elif rel == "unrelated_or_confuser":
+        value["relationship_note"] = "Site identifies a distinct legal entity with no verified relationship."
+    else:
+        value["relationship_note"] = "Ambiguous or partial relationship; identity evidence is incomplete."
+
+    original = list(value.get("discovered_social_links") or value.get("social_links") or [])
+    value["discovered_social_links"] = original
+    social_assessments = [assess_social_identity(profile, link) for link in original]
+    value["social_link_assessments"] = social_assessments
+    value["social_links"] = [
+        {"platform": item["platform"], "url": item["url"]}
+        for item in social_assessments
+        if website_assessment["publishable"] and item["publishable"]
+    ]
+    website["value"] = value
+    return {
+        "website": website,
+        "assessment": website_assessment,
+        "entity_assessment": entity_assessment,
         "quarantined_social_links": len(original) - len(value["social_links"]),
     }

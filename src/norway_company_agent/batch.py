@@ -273,18 +273,19 @@ def build_contract_claims_and_evidence(
     profile: dict[str, Any],
     completed_at: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    from .identity import apply_website_identity_gate
+    from .identity import apply_entity_identity_gate, apply_website_identity_gate
 
     org = str(profile.get("organisation_number") or "")
     ev = profile.get("evidence") or {}
 
-    # Re-apply website identity gate when real crawl content is present so cached profiles stay current
+    # Re-apply multi-factor entity identity gate when real crawl content is present so cached profiles stay current
     w_rec = ev.get("website") or {}
     w_val = w_rec.get("value") or {}
     if w_rec.get("status") == "available" and isinstance(w_val, dict) and (
         w_val.get("title") or w_val.get("main_text_excerpt") or w_val.get("final_url")
     ):
-        apply_website_identity_gate(profile, w_rec)
+        gated = apply_entity_identity_gate(profile, w_rec, list(ev.values()))
+        w_rec = gated["website"]
         w_val = w_rec.get("value") or {}
 
     reg_live_rec = ev.get("registry_live") or {}

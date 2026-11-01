@@ -171,7 +171,7 @@ def fetch_nav_jobs(
     query_candidates = list(dict.fromkeys(
         query for query in (" ".join(query_words), " ".join(strict_words))
         if len(query) >= 3
-    ))[:1]
+    ))[:3]
     if not query_candidates:
         query_candidates = [company_name.strip()]
     start_time = time.perf_counter()
@@ -290,17 +290,14 @@ def fetch_nav_jobs(
                 matched = True
                 match_type = "nav_employer_orgnr_match" if employer_org == str(org_number) else "nav_company_subunit_match"
             elif not employer_org and not is_generic:
+                # Zero-tolerance: only match if employer name exactly matches company core
                 if b_strict == strict_core or emp_strict == strict_core:
                     matched = True
                     match_type = "nav_company_core_match"
-                elif (
-                    len(strict_core.split()) >= 2
-                    and not any(w in strict_core.split() for w in ("holding", "invest"))
-                    and (b_strict.startswith(strict_core + " ") or emp_strict.startswith(strict_core + " "))
-                ):
-                    matched = True
-                    match_type = "nav_company_subunit_match"
-
+                else:
+                    # No name-prefix fallback - reject to enforce strict org-number gating
+                    rejected_identity += 1
+                    continue
             if not matched:
                 rejected_identity += 1
                 continue

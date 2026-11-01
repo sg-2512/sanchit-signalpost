@@ -4,7 +4,7 @@
 **Submission Version:** Final Revision (5 of 5) — Resubmission Sealed  
 **Baseline on Record:** commit `aa2f000` (Version 4)  
 **Local score status:** Historical proxy reports are not official Builderr scores or qualification.
-**Code Integrity:** Sealed Manifest (`SHA-256: 2ee46282f7e36cf5dfd04328feaf09232acf425253525d88aca9c5489d44b547`)  
+**Code Integrity:** Sealed Manifest (`SHA-256: 1cf8b5179b6e2071c7e3a7ea53b776cb9ff008d2c16c032a790bf320f8f66aec`)  
 **Test Suite:** Historical run claim only; verify against the exact submitted commit.
 **Intelligence Connectors:** Multiple experimental and production connectors; availability and usefulness vary by run.
 
