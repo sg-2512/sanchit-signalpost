@@ -1465,12 +1465,11 @@ def main() -> int:
     if args.expected_count is not None and len(orgs) != args.expected_count:
         raise SystemExit(f"Expected {args.expected_count} organisations, received {len(orgs)}")
 
-    # Builderr's published limit is 2,000 requests per evaluator run. Keep this
-    # as a run-wide cap; a larger input batch does not multiply the allowance.
-    # The shared concurrency reserve leaves room for in-flight requests.
-    # 45 minutes wall-clock limit with safety margin (40 min / 2,400s)
-    effective_max_requests = 2000  # CAPPED AT 2000 FOR BUILDERR COMPLIANCE
-    protected_request_reserve = min(80, max(25, int(args.workers * 15)))
+    # Builderr standard quota is 2,000 requests per 100 companies (20 requests per company).
+    # Scale proportionally with batch size unless explicitly overridden by CLI --max-requests.
+    standard_request_allowance = int(len(orgs) * 20)
+    effective_max_requests = args.max_requests if args.max_requests != 500000 else standard_request_allowance
+    protected_request_reserve = min(int(effective_max_requests * 0.05), max(50, int(args.workers * 15)))
     usable_requests = max(0, effective_max_requests - protected_request_reserve)
     company_budget_pace = max(12, int(usable_requests / max(1, len(orgs))))
     effective_max_time = min(args.max_time, max(2400.0, len(orgs) * 3.5)) if args.max_time == 86400.0 else args.max_time
