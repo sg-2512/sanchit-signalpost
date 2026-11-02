@@ -1410,6 +1410,7 @@ def enrich_single_company(
 def main() -> int:
     parser = argparse.ArgumentParser(description="SignalPost Live Agent — Daily Evaluation")
     parser.add_argument("--organisations", "--input", "--company-file", dest="organisations", default="smoke-companies.jsonl", help="JSONL batch of organisation numbers")
+    parser.add_argument("--org", "--organisation-number", dest="single_org", default=None, help="Directly evaluate a single company by its 9-digit organisation number without needing a file")
     parser.add_argument("--bulk", default="brreg-enheter.csv", help="Frozen BRREG bulk CSV snapshot")
     parser.add_argument("--output-dir", "--out", dest="output_dir", default="out/daily", help="Output directory")
     parser.add_argument("--output", default=None, help="Optional explicit path for envelopes.jsonl")
@@ -1458,7 +1459,13 @@ def main() -> int:
     wall_start = time.monotonic()
 
     # Read input first so budget scales cleanly for 300-company, 1,000-company, or 10,000-company evaluation batches
-    org_inputs = read_organisation_inputs(args.organisations)
+    if getattr(args, "single_org", None):
+        clean_org = "".join(c for c in str(args.single_org) if c.isdigit())
+        if len(clean_org) != 9:
+            raise SystemExit(f"Invalid Norwegian organisation number: '{args.single_org}' (must be 9 digits)")
+        org_inputs = [{"organisation_number": clean_org}]
+    else:
+        org_inputs = read_organisation_inputs(args.organisations)
     if args.max_orgs and args.max_orgs > 0:
         org_inputs = org_inputs[:args.max_orgs]
     orgs = [item["organisation_number"] for item in org_inputs]
