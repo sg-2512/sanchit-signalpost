@@ -1430,8 +1430,8 @@ def main() -> int:
     parser.add_argument("--expected-count", type=int, default=None, help="Expected number of companies")
     parser.add_argument("--max-orgs", "--limit", dest="max_orgs", type=int, default=None, help="Optional limit on number of companies")
     parser.add_argument("--workers", "--concurrency", dest="workers", type=int, default=16, help="Worker threads")
-    parser.add_argument("--max-requests", type=int, default=500000, help="Request budget (defaults to Builderr's 2,000-request run limit)")
-    parser.add_argument("--max-cost", type=float, default=100.0, help="Max API spend in USD")
+    parser.add_argument("--max-requests", type=int, default=None, help="Request budget (defaults to Builderr's 2,000 requests per 100 companies)")
+    parser.add_argument("--max-cost", type=float, default=None, help="Max API spend in USD (defaults to Builderr's $10 per 100 companies)")
     parser.add_argument("--max-time", type=float, default=86400.0, help="Max wall clock seconds")
     parser.add_argument("--resume", action="store_true", help="Resume from existing completed profiles")
     parser.add_argument("--fast-bulk", action="store_true", help="Enable high-throughput bulk enrichment for 5,000+ company stress runs")
@@ -1482,15 +1482,18 @@ def main() -> int:
     if args.expected_count is not None and len(orgs) != args.expected_count:
         raise SystemExit(f"Expected {args.expected_count} organisations, received {len(orgs)}")
 
-    # Builderr standard quota is 2,000 requests per 100 companies (20 requests per company).
-    # Scale proportionally with batch size unless explicitly overridden by CLI --max-requests.
+    # Builderr standard quotas:
+    # - 2,000 requests per 100 companies (20 requests per company)
+    # - $10.0 API spend per 100 companies ($0.10 per company, e.g. $1,000 for 10,000 companies)
+    # Scale proportionally with batch size unless explicitly overridden by CLI flags.
     standard_request_allowance = int(len(orgs) * 20)
-    effective_max_requests = args.max_requests if args.max_requests != 500000 else standard_request_allowance
+    effective_max_requests = args.max_requests if (args.max_requests is not None and args.max_requests > 0) else standard_request_allowance
     protected_request_reserve = min(int(effective_max_requests * 0.05), max(50, int(args.workers * 15)))
     usable_requests = max(0, effective_max_requests - protected_request_reserve)
     company_budget_pace = max(12, int(usable_requests / max(1, len(orgs))))
     effective_max_time = min(args.max_time, max(2400.0, len(orgs) * 3.5)) if args.max_time == 86400.0 else args.max_time
-    effective_max_cost = args.max_cost if args.max_cost != 100.0 else max(10.0, (len(orgs) / 1000.0) * 10.0)
+    standard_cost_allowance = max(10.0, (len(orgs) / 100.0) * 10.0)
+    effective_max_cost = args.max_cost if (args.max_cost is not None and args.max_cost > 0) else standard_cost_allowance
 
     # Initialize budget tracker
     budget = BudgetTracker(

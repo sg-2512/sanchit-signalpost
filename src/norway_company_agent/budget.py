@@ -61,7 +61,7 @@ class BudgetTracker:
                 effective_reserve = max(effective_reserve, min(self.request_reserve, max(0, self.max_requests - 1)))
             if self.requests + self._reserved_requests + effective_reserve >= self.max_requests:
                 return False
-            if self.cost_usd >= self.max_cost_usd:
+            if not official and self.cost_usd >= self.max_cost_usd:
                 return False
         if self.elapsed_seconds() >= self.max_time_seconds:
             return False
@@ -75,7 +75,7 @@ class BudgetTracker:
                 effective_reserve = max(effective_reserve, min(self.request_reserve, max(0, self.max_requests - 1)))
             if self.requests + self._reserved_requests + count + effective_reserve > self.max_requests:
                 return False
-            if self.cost_usd >= self.max_cost_usd:
+            if not official and self.cost_usd >= self.max_cost_usd:
                 return False
             self._reserved_requests += count
             return True
