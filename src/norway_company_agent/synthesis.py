@@ -40,7 +40,13 @@ def generate_company_synthesis(
     from .official import latest_account, fiscal_year_of
     latest_rec = latest_account(recs) if recs else {}
 
-    filing_year = fiscal_year_of(latest_rec) or latest_fin.get("filing_year") or profile.get("latest_submitted_accounts")
+    # Take the newest fiscal/filing year available across all register and financial sources
+    reg_val = (evidence.get("registry_live") or {}).get("value") or (evidence.get("registry") or {}).get("value") or {}
+    reg_year = str(profile.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap") or reg_val.get("latest_submitted_accounts") or "").strip()
+    rec_year_str = str(fiscal_year_of(latest_rec) or latest_fin.get("filing_year") or financials.get("latest_fiscal_year") or "").strip()
+
+    valid_years = [y[:4] for y in (reg_year, rec_year_str) if len(y) >= 4 and y[:4].isdigit()]
+    filing_year = max(valid_years, key=int) if valid_years else (rec_year_str or reg_year or None)
     raw_rev = latest_fin.get("revenue") if latest_fin.get("revenue") is not None else latest_rec.get("revenue")
     raw_profit = latest_fin.get("profit") if latest_fin.get("profit") is not None else (latest_rec.get("annual_result") if latest_rec.get("annual_result") is not None else latest_rec.get("operating_result"))
     try:
@@ -227,10 +233,14 @@ def generate_company_synthesis(
     eq_ratio = fin_trends.get("equity_ratio")
     growth_label = fin_trends.get("growth_label")
 
-    if filing_year and revenue is not None:
+    if filing_year and revenue is not None and rec_year_str == str(filing_year):
         rev_str = f"{revenue:,.0f} NOK revenue"
         prof_str = f"net profit of {profit:,.0f} NOK" if profit is not None else "net profit unrecorded"
         fin_str = f"Latest {filing_year} filings report {rev_str} and {prof_str}"
+    elif filing_year and revenue is not None:
+        rev_str = f"{revenue:,.0f} NOK revenue"
+        prof_str = f"net profit of {profit:,.0f} NOK" if profit is not None else "net profit unrecorded"
+        fin_str = f"Annual accounts filed through {filing_year} (prior {rec_year_str} statement reports {rev_str} and {prof_str})"
         if solv_status and eq_ratio is not None:
             fin_str += f" (financial health: {solv_status}, {eq_ratio*100:.1f}% equity ratio"
             if growth_label:

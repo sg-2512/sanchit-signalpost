@@ -369,7 +369,12 @@ def extract_profile_metrics_observation(profile: dict[str, Any]) -> list[dict[st
     name = str(profile.get("name") or reg.get("navn") or "")
     form = str(profile.get("legal_form") or reg.get("organisasjonsform.kode") or "AS")
     muni = str(profile.get("municipality") or reg.get("forretningsadresse.kommune") or "")
-    latest = str(profile.get("latest_submitted_accounts") or reg.get("sisteInnsendteAarsregnskap") or "")
+    reg_val = (ev.get("registry_live") or {}).get("value") or (ev.get("registry") or {}).get("value") or {}
+    fin_val = (ev.get("financials") or {}).get("value") or {}
+    reg_acc = str(profile.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap") or reg_val.get("latest_submitted_accounts") or reg.get("sisteInnsendteAarsregnskap") or "").strip()
+    fin_acc = str((fin_val.get("latest") or {}).get("filing_year") or fin_val.get("latest_fiscal_year") or "").strip()
+    valid_accs = [y[:4] for y in (reg_acc, fin_acc) if len(y) >= 4 and y[:4].isdigit()]
+    latest = max(valid_accs, key=int) if valid_accs else (reg_acc or fin_acc or "")
 
     source_url = f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
     retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or ""
@@ -501,7 +506,12 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
         "strategy": "official_public_notices",
     }]
 
-    latest_acc = profile.get("latest_submitted_accounts") or reg.get("sisteInnsendteAarsregnskap")
+    reg_val = (ev.get("registry_live") or {}).get("value") or (ev.get("registry") or {}).get("value") or {}
+    fin_val = (ev.get("financials") or {}).get("value") or {}
+    reg_acc = str(profile.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap") or reg_val.get("latest_submitted_accounts") or reg.get("sisteInnsendteAarsregnskap") or "").strip()
+    fin_acc = str((fin_val.get("latest") or {}).get("filing_year") or fin_val.get("latest_fiscal_year") or "").strip()
+    valid_accs = [y[:4] for y in (reg_acc, fin_acc) if len(y) >= 4 and y[:4].isdigit()]
+    latest_acc = max(valid_accs, key=int) if valid_accs else (reg_acc or fin_acc or None)
     if latest_acc:
         acc_year = str(latest_acc)[:4] if str(latest_acc)[:4].isdigit() else "2024"
         acc_url = f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}"

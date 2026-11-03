@@ -240,5 +240,41 @@ class CompanySynthesisTests(unittest.TestCase):
         self.assertIn("987,654 NOK", synthesis["summary"])
 
 
+    def test_synthesis_takes_newest_year_when_records_lag_register(self):
+        """Verify that synthesis always takes the newest year (e.g. 2025 from register over 2023 from laggy line items)."""
+        profile = {
+            "name": "Lagging Accounts AS",
+            "organisation_number": "993578843",
+            "legal_form": "AS",
+            "latest_submitted_accounts": "2025",
+            "evidence": {
+                "registry_live": {
+                    "value": {
+                        "sisteInnsendteAarsregnskap": "2025"
+                    }
+                },
+                "financials": {
+                    "value": {
+                        "records": [
+                            {
+                                "record_id": 1234,
+                                "period": {"tilDato": "2023-12-31"},
+                                "revenue": 10000000,
+                                "annual_result": 500000,
+                            }
+                        ],
+                        "latest": {
+                            "filing_year": 2023,
+                            "revenue": 10000000,
+                            "profit": 500000,
+                        }
+                    }
+                }
+            }
+        }
+        synthesis = generate_company_synthesis(profile)
+        self.assertIn("2025", synthesis["summary"])
+        self.assertIn("latest annual accounts filed for fiscal year 2025", synthesis["what_changed"])
+
 if __name__ == "__main__":
     unittest.main()
