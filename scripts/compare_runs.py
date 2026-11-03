@@ -10,7 +10,18 @@ from typing import Any
 
 
 def rows(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    items = []
+    if not path.exists():
+        return items
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line_str = line.strip()
+            if line_str:
+                try:
+                    items.append(json.loads(line_str))
+                except Exception:
+                    pass
+    return items
 
 
 def summarize(directory: Path) -> dict[str, Any]:
