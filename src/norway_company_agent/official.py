@@ -399,6 +399,12 @@ def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str],
         if module not in modules:
             continue
         result = _fetch_history(url) if module == "financial_history" and fetcher is fetch_json else fetcher(url)
+        if result.status == 0 or (500 <= result.status <= 504):
+            # Transient gateway/network glitch: 1 attempt jittered retry with backoff
+            time.sleep(1.0)
+            retry_res = fetcher(url)
+            if retry_res.status == 200 or retry_res.status in {404, 410}:
+                result = retry_res
         metrics.append(result)
         if result.status == 200:
             # Successful fetch: normalize records normally
@@ -422,7 +428,20 @@ def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str],
                     records["registry_live"].setdefault("value", {})["latest_financial_year"] = latest_fy
         else:
             # HTTP 503 or network failure: fallback to statutory filing from registry_live if available
-            if module == "financials":
+            if module in {"group", "locations"} and result.status not in {404, 410}:
+                # If secondary group or locations endpoints encounter upstream error,
+                # mark as not_found/not_available rather than causing a fatal company envelope failure
+                records[module] = evidence(
+                    module,
+                    "not_found",
+                    source_type,
+                    url,
+                    note=f"Lookup unavailable ({result.error})",
+                    content_sha256=result.content_sha256,
+                    retrieved_at=result.retrieved_at,
+                    effective_at=result.effective_at,
+                )
+            elif module == "financials":
                 reg_live = records.get("registry_live") or {}
                 reg_val = reg_live.get("value") or {}
                 reg_body = reg_val if isinstance(reg_val, dict) else {}
@@ -455,7 +474,17 @@ def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str],
                         effective_at=reg_live.get("effective_at") or result.effective_at,
                     )
                 else:
-                    records[module] = _classified(module, source_type, result, value=None)
+                    # No submitted accounts on record
+                    records[module] = evidence(
+                        module,
+                        "not_found",
+                        source_type,
+                        url,
+                        note="No submitted annual accounts on record in official registry",
+                        content_sha256=result.content_sha256,
+                        retrieved_at=result.retrieved_at,
+                        effective_at=result.effective_at,
+                    )
             else:
                 records[module] = _classified(module, source_type, result, value=None)
     return records, metrics

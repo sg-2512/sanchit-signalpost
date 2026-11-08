@@ -36,15 +36,18 @@ def fetch_brreg_kunngjoringer(
     retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     observations: list[dict[str, Any]] = []
 
-    # Query official open data announcement search
-    url = f"https://w2.brreg.no/kunngjoring/hent_alle.jsp?orgnr={clean_org}"
+    # Query official open data announcement search (POST to hent.jsp provides authoritative dated records)
+    url = "https://w2.brreg.no/kunngjoring/hent.jsp"
+    post_data = urllib.parse.urlencode({"orgnr": clean_org}).encode("iso-8859-1")
 
     try:
         req = urllib.request.Request(
             url,
+            data=post_data,
             headers={
                 "User-Agent": USER_AGENT,
                 "Accept": "text/html,application/xhtml+xml",
+                "Content-Type": "application/x-www-form-urlencoded",
             },
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -60,23 +63,27 @@ def fetch_brreg_kunngjoringer(
 
         # Parse announcement entries
         import re
-        date_pattern = re.compile(r"(\d{2}\.\d{2}\.\d{4})")
+        date_pattern = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 
         found_notices: list[dict[str, str]] = []
+        seen_notices: set[tuple[str, str]] = set()
 
         try:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(text, "html.parser")
-            elements = [elem.get_text(strip=True) for elem in soup.find_all(["p", "td", "li", "div"]) if elem.get_text(strip=True)]
-            for i, elem_text in enumerate(elements):
-                match = date_pattern.search(elem_text)
-                if match and i + 1 < len(elements):
-                    date_str = match.group(1)
-                    desc = elements[i + 1]
-                    if len(desc) > 3 and "brreg" not in desc.lower():
-                        found_notices.append({"date": date_str, "description": desc})
-                        if len(found_notices) >= max_records:
+            for tr in soup.find_all("tr"):
+                cells = [td.get_text(" ", strip=True) for td in tr.find_all("td") if td.get_text(strip=True)]
+                for i, c in enumerate(cells):
+                    if date_pattern.match(c) and i + 1 < len(cells):
+                        desc = cells[i + 1]
+                        if len(desc) >= 3 and "brreg" not in desc.lower():
+                            k = (c, desc)
+                            if k not in seen_notices:
+                                seen_notices.add(k)
+                                found_notices.append({"date": c, "description": desc})
                             break
+                if len(found_notices) >= max_records:
+                    break
         except Exception:
             pass
 

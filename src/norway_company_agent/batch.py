@@ -202,17 +202,23 @@ def evidence_terminal_state(record: dict[str, Any] | None) -> str:
     if not record:
         return "failed"
     status = record.get("status")
+    field = record.get("field")
     if status == "available":
         return "available"
     if status == "not_applicable":
         return "not_applicable"
-    if status == "not_found":
+    if status in {"not_found", "absent", "not_available"}:
         return "not_available"
     if status == "blocked":
         return "blocked"
-    if status == "budget_exhausted":
-        return "failed"
     if status == "source_error":
+        # Optional external modules (website, jobs, news) or subsidiary lookups
+        # (group, locations) that encounter upstream remote errors are classified as
+        # not_available external data, preventing external site blips from failing the company.
+        if field in {"website", "jobs", "news", "group", "locations"}:
+            return "not_available"
+        return "failed"
+    if status == "budget_exhausted":
         return "failed"
     return "failed"
 
@@ -1104,15 +1110,30 @@ def terminal_envelope(
     reg_live_status = (profile.get("evidence", {}).get("registry_live") or {}).get("status")
     reg_module_state = module_states.get("registry", {}).get("state")
 
-    if (
-        entity_state == "failed"
-        or reg_status in {"submission_error", "source_error"}
+    core_registry_ok = (
+        reg_status == "available"
+        or reg_live_status == "available"
+        or (profile.get("name") and not str(profile.get("name")).startswith("Organisation "))
+    )
+
+    if not core_registry_ok and (
+        reg_status in {"submission_error", "source_error"}
         or reg_live_status in {"submission_error", "source_error"}
-        or reg_module_state == "failed"
-        or any(s.get("state") == "failed" for s in module_states.values())
     ):
         company_availability = "failed"
         entity_state = "failed"
+    elif any(s.get("state") == "failed" for s in module_states.values()):
+        # If core official identity is verified and healthy, do not drop the envelope
+        # over an optional or secondary module
+        if core_registry_ok and not any(
+            module_states.get(m, {}).get("state") == "failed"
+            for m in ("registry", "registry_live")
+        ):
+            company_availability = "available"
+            entity_state = "available"
+        else:
+            company_availability = "failed"
+            entity_state = "failed"
     elif reg_status == "not_found" and reg_live_status in {None, "not_found", "absent"}:
         company_availability = "not_available"
     elif reg_status == "blocked" or reg_live_status == "blocked":
@@ -1121,9 +1142,7 @@ def terminal_envelope(
         company_availability = "not_applicable"
     elif reg_status == "ambiguous":
         company_availability = "ambiguous"
-    elif profile.get("name") and not str(profile.get("name")).startswith("Organisation "):
-        company_availability = "available"
-    elif reg_status == "available" or reg_live_status == "available":
+    elif core_registry_ok:
         company_availability = "available"
     else:
         company_availability = "not_available"

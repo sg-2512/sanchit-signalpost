@@ -1411,6 +1411,39 @@ def enrich_single_company(
         except Exception:
             pass
 
+    # 13l. Doffin (Norwegian Public Procurement Contracts & Tender Awards - B2G performance signals)
+    if not is_passive_entity and can_run_optional(cost=1, reserve=4):
+        try:
+            doffin_obs = fetch_doffin_procurement(org, name, budget=budget, max_records=3)
+            if doffin_obs:
+                observations.extend(doffin_obs)
+                profile["public_procurement"] = [obs.get("metrics") or {} for obs in doffin_obs if obs.get("metrics")]
+        except Exception:
+            pass
+        local_reqs += 1
+
+    # 13m. Oslo Børs / Euronext Oslo Disclosures (Stock Exchange Filings for Listed ASAs)
+    if form_code_upper == "ASA" and can_run_optional(cost=1, reserve=4):
+        try:
+            bors_obs = fetch_oslo_bors_disclosures(org, name, budget=budget, max_records=3)
+            if bors_obs:
+                observations.extend(bors_obs)
+                profile["stock_exchange_disclosures"] = [obs.get("metrics") or {} for obs in bors_obs if obs.get("metrics")]
+        except Exception:
+            pass
+        local_reqs += 1
+
+    # 13n. Innovasjon Norge Grants (Public Commercialization & Innovation Subsidies)
+    if not is_passive_entity and (emp_count >= 5 or verified_website) and can_run_optional(cost=1, reserve=4):
+        try:
+            in_obs = fetch_innovasjon_norge_grants(org, name, budget=budget, max_records=3)
+            if in_obs:
+                observations.extend(in_obs)
+                profile["innovation_grants"] = [obs.get("metrics") or {} for obs in in_obs if obs.get("metrics")]
+        except Exception:
+            pass
+        local_reqs += 1
+
     # 14. Decision-useful factual synthesis (12-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
 
