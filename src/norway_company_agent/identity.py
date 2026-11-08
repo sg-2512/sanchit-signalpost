@@ -188,6 +188,9 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     elif is_declared_hjemmeside and substantive_homepage and len(core) >= 2 and ratio >= 0.99:
         score = 0.95
         reasons.append("all normalized legal-name tokens appear on declared registry website")
+    elif is_declared_hjemmeside and len(core) == 1 and core_compact and domain_sld_alnum == core_compact and substantive_homepage:
+        score = 0.94
+        reasons.append("declared registry homepage domain SLD matches single legal-name token")
     elif len(core) == 1 and exact_homepage_name and substantive_homepage and not other_legal_entities:
         score = 0.95
         reasons.append("single distinctive legal-name token appears in homepage identity evidence with substantive content")

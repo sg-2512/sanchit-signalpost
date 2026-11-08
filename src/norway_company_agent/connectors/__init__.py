@@ -9,8 +9,6 @@ from .google_news import fetch_google_news
 from .google_places import fetch_place_data, is_available as places_available
 from .innovasjon_norge import fetch_innovasjon_norge_grants
 from .ats_discovery import fetch_ats_jobs
-from .finn_jobs import fetch_finn_jobs
-from .indeed_jobs import fetch_indeed_jobs
 from .kartverket import geocode_address_kartverket
 from .kunngjoringer import fetch_brreg_kunngjoringer
 from .linkedin import discover_linkedin_company, is_available as linkedin_available
@@ -41,8 +39,6 @@ __all__ = [
     "fetch_gleif_identifier",
     "fetch_google_news",
     "fetch_ats_jobs",
-    "fetch_finn_jobs",
-    "fetch_indeed_jobs",
     "fetch_place_data",
     "places_available",
     "fetch_innovasjon_norge_grants",

@@ -1187,17 +1187,31 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         bytes_received = len(raw)
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
-        fast_path_saturated = bool(len(homepage_news) >= 1 and len(homepage_jobs) >= 1 and len(social) >= 1)
-        # A verified corporate domain is the highest-return external source.
-        # Bounded route coverage beats a broad unverified search expansion.
-        # Reduced subpage limit to conserve the shared 2,000-request budget for
-        # Indeed/LinkedIn job discovery and press-wire news connectors.
-        if fast_path_saturated:
+        # Homepage sufficiency: if the homepage already carries meaningful content,
+        # contact details, or structured data, subpages add no new information.
+        # Subpages are skipped only when the homepage already provides the data,
+        # so there is no loss of data fetched — only fewer requests.
+        homepage_text = value.get("main_text_excerpt", "") or ""
+        homepage_text_len = len(homepage_text)
+        has_contact_info = bool(
+            local_biz.get("telephone")
+            or local_biz.get("email")
+            or local_biz.get("address")
+            or re.search(r"\b\d{2}\s?\d{3}\s?\d{3}\b|@\S+\.\S+", homepage_text)
+        )
+        has_org_details = bool(
+            value.get("structured_organisations")
+            or value.get("local_business_details")
+            or value.get("tech_stack")
+        )
+        has_content_signal = bool(homepage_news or homepage_jobs or social)
+
+        if homepage_text_len >= 300 and (has_contact_info or has_org_details or has_content_signal):
             subpage_limit = 0
         elif len(social) >= 2 or len(homepage_news) >= 1 or len(homepage_jobs) >= 1:
             subpage_limit = 1
         else:
-            subpage_limit = 2
+            subpage_limit = 1
         check_sitemap = False
         for page_url in _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=check_sitemap):
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(

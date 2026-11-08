@@ -1524,7 +1524,8 @@ def main() -> int:
     protected_request_reserve = min(int(effective_max_requests * 0.05), max(50, int(args.workers * 15)))
     usable_requests = max(0, effective_max_requests - protected_request_reserve)
     company_budget_pace = max(12, int(usable_requests / max(1, len(orgs))))
-    effective_max_time = min(args.max_time, max(2400.0, len(orgs) * 3.5)) if args.max_time == 86400.0 else args.max_time
+    standard_time_allowance = max(2700.0, (len(orgs) / 100.0) * 2700.0)
+    effective_max_time = args.max_time if (args.max_time is not None and args.max_time != 86400.0) else standard_time_allowance
     standard_cost_allowance = max(10.0, (len(orgs) / 100.0) * 10.0)
     effective_max_cost = args.max_cost if (args.max_cost is not None and args.max_cost > 0) else standard_cost_allowance
 
