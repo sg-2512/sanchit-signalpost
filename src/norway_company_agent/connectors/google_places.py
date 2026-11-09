@@ -104,8 +104,16 @@ def fetch_place_data(
             _CONSECUTIVE_429 = 0
             break
         except urllib.error.HTTPError as exc:
+            err_msg = ""
+            try:
+                err_msg = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
             if exc.code == 429:
                 _CONSECUTIVE_429 += 1
+                if "Quota exceeded" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or _CONSECUTIVE_429 >= _MAX_CONSECUTIVE_429:
+                    _QUOTA_EXHAUSTED = True
+                    return []
                 backoff = min(0.6 * (2 ** attempt) + random.uniform(0.1, 0.4), 4.0)
                 time.sleep(backoff)
                 continue

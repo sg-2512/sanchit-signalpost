@@ -120,6 +120,24 @@ Open-source code does not grant permission to scrape a platform. Follow each sou
 
 Read `docs/competition-control-loop.md`, `docs/external-connectors.md` and the public source policy before adding connectors.
 
+## Optional API Keys & Configuration
+
+The agent is designed to be **100% self-contained and reproducible without any required API keys**. By default, it operates completely free on official Norwegian state registers and open public sources (Brønnøysundregistrene, Kartverket Matrikkelen, NAV Arbeidsplassen, Doffin Public Procurement, and Norid RDAP).
+
+If evaluators wish to enable optional external connectors, copy `.env.example` to `.env` or export environment variables:
+
+```bash
+cp .env.example .env
+```
+
+| Environment Variable | Connector | Description | Default / Fallback |
+| :--- | :--- | :--- | :--- |
+| `GOOGLE_PLACES_API_KEY` | Google Places API (New) | Ratings, customer reviews, place data | Off ($0.00) / Official Kartverket cadastre |
+| `YOUTUBE_API_KEY` | YouTube Data API v3 | Official video channel metrics & engagement | Off ($0.00) / Website-linked channels |
+| `PATENTSTYRET_API_KEY`| Patentstyret API | Norwegian patents & registered trademarks | Off ($0.00) / Bulk NIPO records |
+| `BRAVE_API_KEY` | Brave Search API | Fallback search discovery for missing websites | Off ($0.00) / Norid RDAP & heuristic engine |
+| `OPENAI_API_KEY` | OpenAI API (gpt-4o) | LLM executive narrative synthesis | Off ($0.00) / 12-point deterministic rubric |
+
 ## Submission contract
 
 Submit a repository with:
