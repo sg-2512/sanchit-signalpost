@@ -35,9 +35,15 @@ def test_official_safe_quarantines_linkedin_even_when_row_claims_approved():
 
 
 def test_official_safe_quarantines_undeclared_keyed_route():
-    result = observation_decision(observation(platform="google_places", strategy="google_places_api_new"))
+    result = observation_decision(observation(platform="wikidata", strategy="wikidata_p2333"))
     assert not result.publishable
     assert result.reason.startswith("registry_conditional:")
+
+
+def test_official_safe_accepts_google_places_route():
+    result = observation_decision(observation(platform="google_places", strategy="google_places_api_new"))
+    assert result.publishable
+    assert result.reason == "source_rights_registry_official_safe"
 
 
 def test_experimental_mode_keeps_candidates_for_measurement():

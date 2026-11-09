@@ -84,6 +84,18 @@ def fetch_brreg_kunngjoringer(
                             break
                 if len(found_notices) >= max_records:
                     break
+            if not found_notices:
+                p_elements = [p.get_text(" ", strip=True) for p in soup.find_all(["p", "div", "li"]) if p.get_text(strip=True)]
+                for i, p_txt in enumerate(p_elements):
+                    if date_pattern.match(p_txt) and i + 1 < len(p_elements):
+                        desc = p_elements[i + 1]
+                        if len(desc) >= 3 and "brreg" not in desc.lower():
+                            k = (p_txt, desc)
+                            if k not in seen_notices:
+                                seen_notices.add(k)
+                                found_notices.append({"date": p_txt, "description": desc})
+                    if len(found_notices) >= max_records:
+                        break
         except Exception:
             pass
 
