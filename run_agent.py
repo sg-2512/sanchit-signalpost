@@ -1459,6 +1459,11 @@ def main() -> int:
     parser.add_argument("--output", default=None, help="Optional explicit path for envelopes.jsonl")
     parser.add_argument("--profiles-output", default=None, help="Optional explicit path for profiles.jsonl")
     parser.add_argument("--report", default=None, help="Optional explicit path for batch-report.json")
+    parser.add_argument(
+        "--audit-labels",
+        default=None,
+        help="Optional completed independent-review JSONL. Without it, the run exports an unreviewed audit queue and reports audit status as not measured.",
+    )
     parser.add_argument("--run-id", default="daily-001", help="Unique run identifier")
     parser.add_argument("--expected-count", type=int, default=None, help="Expected number of companies")
     parser.add_argument("--max-orgs", "--limit", dest="max_orgs", type=int, default=None, help="Optional limit on number of companies")
@@ -1544,6 +1549,7 @@ def main() -> int:
     envelopes_out = Path(args.output) if args.output else (out_dir / "envelopes.jsonl")
     observations_out = out_dir / "all-observations.jsonl"
     labels_out = out_dir / "external-audit-labels.jsonl"
+    audit_labels_path = Path(args.audit_labels) if args.audit_labels else None
     batch_report_out = Path(args.report) if args.report else (out_dir / "batch-report.json")
     external_report_out = out_dir / "external-report.json"
     score_report_out = out_dir / "score-report.json"
@@ -1775,6 +1781,7 @@ def main() -> int:
     }
 
     external_report = {
+        "audit_status": "not_requested",
         "qualification_passed": False,
         "audit_size_gate": audit_passed,
         "exact_company_precision": None,
@@ -1787,7 +1794,7 @@ def main() -> int:
         "published_audited": 0,
         "incomplete_audit_rows": len(label_rows),
         "connector_policy_passed": None,
-        "fresh_coverage": len(publishable) / max(len(orgs), 1),
+        "fresh_coverage": len(external_orgs) / max(len(orgs), 1),
         "coverage": coverage,
         "platforms": sorted(external_platforms),
         "total_observations": len(all_observations),
@@ -1931,27 +1938,31 @@ def main() -> int:
     write_jsonl(out_dir / "quarantined-observations.jsonl", quarantined_observations)
     write_jsonl(labels_out, label_rows)
 
-    try:
-        from scripts.external_audit_gate import call_external_audit
-        matched_labels_path = out_dir / "external-audit-labels-matched.jsonl"
-        labels_path = matched_labels_path if matched_labels_path.exists() else labels_out
-        external_report_path = out_dir / "external-report.json"
-
-        if labels_path.exists() and labels_path.stat().st_size > 0:
-            print(f"[INFO] Running external audit gate on {len(profiles)} profiles...")
+    if audit_labels_path is None:
+        print(f"[INFO] External audit not requested; wrote {len(label_rows)} unreviewed rows to {labels_out}")
+    else:
+        try:
+            if not audit_labels_path.exists():
+                raise FileNotFoundError(f"Audit labels do not exist: {audit_labels_path}")
+            from scripts.external_audit_gate import call_external_audit
+            external_report_path = out_dir / "external-report.json"
+            print(f"[INFO] Running external audit gate with independent labels from {audit_labels_path}...")
             audit_report = call_external_audit(
                 profiles_path=profiles_out,
                 observations_path=observations_out,
-                labels_path=labels_path,
+                labels_path=audit_labels_path,
                 output_path=external_report_path,
                 min_audit=min(100, len(label_rows)),
                 source_policy=args.source_policy,
             )
             external_qualified = audit_report.get("qualification_passed", False)
+            audit_report["audit_status"] = "completed"
             print(f"[INFO] External audit completed: qualification_passed={external_qualified}")
             external_report.update(audit_report)
-    except Exception as exc:
-        print(f"[WARN] External audit gate skipped or failed: {exc}")
+        except Exception as exc:
+            external_report["audit_status"] = "failed"
+            external_report["audit_error"] = str(exc)
+            print(f"[WARN] External audit failed: {exc}")
     awardable_score = None
 
     score_report = {

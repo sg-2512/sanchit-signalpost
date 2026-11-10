@@ -14,11 +14,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--universe", required=True, help="Public .jsonl or .jsonl.gz universe")
     parser.add_argument("--output", required=True, help="Output JSONL manifest")
-    parser.add_argument("--count", type=int, default=1000, help="At least 1000 for a valid entry")
+    parser.add_argument("--count", type=int, default=100, help="Number of companies for a local smoke or scale test")
     parser.add_argument("--seed", type=int, default=20260823)
     args = parser.parse_args()
-    if args.count < 1000:
-        raise SystemExit("Signalpost entries must cover at least 1,000 companies")
+    if args.count < 1:
+        raise SystemExit("--count must be at least 1")
 
     path = Path(args.universe)
     opener = gzip.open if path.suffix == ".gz" else open

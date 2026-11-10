@@ -6,7 +6,7 @@ This document details the evaluation protocol, corpus partitioning, metrics calc
 
 - **Public Universe:** All 411,160 active Norway-registered entities with observed annual accounts (`b82d6a3e7231...`).
 - **Smoke-Test Batch:** 100 randomly sampled representative companies across industries and legal forms (`out/fresh-100/`).
-- **Official Evaluation Batch:** 1,000 companies supplied dynamically by Builderr at run time (`tests/fixtures/batch-orgs-1.txt` or evaluator-provided file).
+- **Official Evaluation Batch:** A fresh shared batch supplied dynamically by Builderr at run time (currently 1,000 companies and may grow). Local fixtures are never the official input.
 - **Extension / Zero-Overlap Set:** Blind held-out validation batch used to guard against overfitting.
 
 ## 2. Scoring Formula (100 Points Total)
@@ -44,7 +44,7 @@ An entry qualifies when:
 
 ```bash
 # Run unit & integration tests
-uv run python -m unittest discover tests
+uv run --group dev python -m pytest tests/ -q
 
 # Run 100-company evaluation and generate artifacts
 uv run python first_run.py

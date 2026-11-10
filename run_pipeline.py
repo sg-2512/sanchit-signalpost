@@ -43,6 +43,7 @@ def main() -> int:
     parser.add_argument("--max-orgs", "--limit", dest="max_orgs", type=int, default=None, help="Optional limit on number of companies")
     parser.add_argument("--workers", "--concurrency", dest="workers", type=int, default=16, help="Worker threads for batch requests")
     parser.add_argument("--resume", action="store_true", help="Resume from existing completed profiles")
+    parser.add_argument("--audit-labels", help="Optional completed independent-review JSONL for the final merged observation set")
     args, _ = parser.parse_known_args()
 
     out_dir = ROOT / args.output_dir
@@ -230,19 +231,17 @@ def main() -> int:
             encoding="utf-8",
         )
 
-    # Generate audit labels for verified observations
-    label_rows = []
-    for obs in observations:
-        label_rows.append({
-            "id": obs["id"],
-            "exact_entity": bool(obs.get("exact_entity", True)),
-            "metric_correct": True,
-            "sentiment_correct": True,
-        })
-    external_labels_out.write_text(
-        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in label_rows),
-        encoding="utf-8"
-    )
+    # Build a blank, deterministic review queue. Never derive reviewer verdicts
+    # from the agent's own observations.
+    prepare_audit_cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "prepare_external_audit.py"),
+        "--profiles", str(profiles_out),
+        "--observations", str(all_observations_out),
+        "--output", str(external_labels_out),
+        "--sample-size", "100",
+    ]
+    run_step("Preparing independent external-evidence audit queue", prepare_audit_cmd)
 
     # -------------------------------------------------------------
     # Step 5: Refresh Replay (Change Detection)
@@ -260,18 +259,27 @@ def main() -> int:
     # -------------------------------------------------------------
     # Step 6: External Footprint Evaluation
     # -------------------------------------------------------------
-    run_step(
-        "6. Evaluating External Footprint",
-        [
+    if args.audit_labels:
+        run_step(
+            "6. Evaluating External Footprint with independent labels",
+            [
             sys.executable,
             str(ROOT / "scripts" / "evaluate_external_footprint.py"),
             "--profiles", str(profiles_out),
             "--observations", str(all_observations_out),
-            "--labels", str(external_labels_out),
+            "--labels", str(ROOT / args.audit_labels),
             "--output", str(external_report_out),
-            "--minimum-audit", str(min(len(label_rows), 100)),
-        ]
-    )
+            "--minimum-audit", "100",
+            ]
+        )
+    else:
+        external_report_out.write_text(json.dumps({
+            "audit_status": "not_requested",
+            "qualification_passed": False,
+            "audit_queue_rows": 100,
+            "note": "Independent labels were not supplied. The generated queue is unreviewed and must not be scored as an audit.",
+        }, indent=2) + "\n", encoding="utf-8")
+        print(f"[INFO] External audit not requested; review queue written to {external_labels_out}")
 
     # -------------------------------------------------------------
     # Step 7: Sentiment Benchmark Evaluation

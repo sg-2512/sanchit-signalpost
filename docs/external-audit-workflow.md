@@ -1,6 +1,6 @@
 # Independent external evidence audit
 
-The agent writes `external-audit-labels.jsonl` as a review queue. For an existing run, prepare the queue without repeating collection:
+The agent writes `external-audit-labels.jsonl` as an unreviewed review queue and reports audit status as `not_requested` unless completed reviewer labels are explicitly supplied. For an existing run, prepare the fixed-size queue without repeating collection:
 
 ```powershell
 uv run python scripts/prepare_external_audit.py `
@@ -27,7 +27,7 @@ Verdict fields must be literal JSON booleans (`true` or `false`). Rows with a mi
 
 ## Run the evaluator
 
-After independently completing at least 100 queue rows, run from the repository root:
+After independently completing at least 100 queue rows, run from the repository root. You may also pass the completed file directly to `run_agent.py --audit-labels <completed-labels.jsonl>` on a rerun of the same input.
 
 ```powershell
 uv run python scripts/evaluate_external_footprint.py `

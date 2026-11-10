@@ -2,7 +2,7 @@
 
 This is a runnable starting point for the Signalpost company-research challenge. It is intentionally a solid baseline, not a winning submission.
 
-The public universe contains 411,160 eligible companies. A valid entry must process at least 1,000; you may process 10,000 or the full universe.
+The public universe contains 411,160 eligible companies. Before submitting, run a 100-company local smoke test. Builderr supplies the fresh official batch for scoring; it is currently 1,000 companies and may grow.
 
 ## What it already does
 
@@ -52,8 +52,8 @@ The printed request counts are reads from saved responses, not network calls.
 ## Next: research live companies
 
 Requires Python 3.12+ and `uv`. This step downloads data and makes live requests.
-The manifest selector requires at least 1,000 companies for a full entry. You can
-use its first ten rows for a private smoke test before running the full batch.
+The manifest selector can create a local batch of any size. Use 100 companies for
+the required smoke test; Builderr supplies the fresh official batch for scoring.
 
 ```bash
 uv sync --locked
@@ -62,11 +62,10 @@ curl -L 'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' -o signa
 
 uv run python select_entry_batch.py \
   --universe signalpost-universe.jsonl.gz \
-  --count 1000 \
+  --count 100 \
   --output entry-companies.jsonl
 
-# Start with ten companies before the full 1,000-company run.
-head -n 10 entry-companies.jsonl > smoke-companies.jsonl
+# The selected 100 companies are a local smoke test only.
 
 # Primary evaluation entrypoint (processes any JSONL batch of 10, 100, 300, or 1,000+ companies):
 uv run python run_agent.py \
@@ -90,16 +89,16 @@ uv run python scripts/run_competition_batch.py \
   --output out/envelopes.jsonl \
   --report out/run-report.json \
   --run-id local-001 \
-  --expected-count 1000
+  --expected-count 100
 
-uv run --with pytest pytest -q
+uv run --group dev python -m pytest -q
 ```
 
 The published archive was clean-room verified on August 24, 2026: 104 tests and 5 subtests passed, followed by a one-company live BRREG smoke run with one terminal envelope, five requests and zero silent drops. That historical verification does not establish current challenge qualification.
 
 The local score reports are optimization proxies only. Their generated audit labels are not independent judgments, so proxy scores must never be described as official scores or qualification. Only Builderr's verified run can establish either.
 
-Increase `--count` and `--expected-count` together if you want to publish more than the 1,000-company minimum. The ten-row smoke test above is practice only. Do not set `select_entry_batch.py --count 10`: the selector enforces the 1,000-company entry minimum.
+Increase `--count` and `--expected-count` together for larger local experiments. These local profiles are not submitted for scoring: Builderr supplies the official company batch at run time.
 
 ## The improvement loop
 
@@ -142,7 +141,7 @@ cp .env.example .env
 
 Submit a repository with:
 
-- at least 1,000 completed company profiles and the exact organisation-number manifest used;
+- a 100-company smoke-test result or run report;
 - one documented command that accepts a JSONL batch of organisation numbers;
 - exactly one terminal envelope per input;
 - pinned dependencies and reproducible setup;
@@ -151,3 +150,7 @@ Submit a repository with:
 - declared models, APIs, licences and source-rights assumptions.
 
 Email the repository URL, run command, models/APIs and expected cost per 100-company run to `submit@builderr.ai`.
+
+## Independent audit (optional local evidence)
+
+Every run writes an unreviewed `external-audit-labels.jsonl` queue. This is not a failed audit and it must not be self-labelled. To measure local exact-company precision, create a fixed 100-observation sample with `scripts/prepare_external_audit.py`, have an independent reviewer complete it, then pass that file to `run_agent.py --audit-labels <completed-labels.jsonl>`. See `docs/external-audit-workflow.md`.
