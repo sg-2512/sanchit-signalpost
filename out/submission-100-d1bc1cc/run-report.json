@@ -1,0 +1,149 @@
+{
+  "run_id": "daily-001",
+  "started_at": "2026-11-10T10:31:51.306912Z",
+  "completed_at": "2026-11-10T10:39:20.861225Z",
+  "wall_clock_seconds": 449.6,
+  "expected_count": 100,
+  "emitted_envelopes": 100,
+  "profiles_fetched_this_run": 100,
+  "resumed_profiles": 0,
+  "modules": [
+    "registry",
+    "accounting_obligation",
+    "registry_live",
+    "financials",
+    "roles",
+    "group",
+    "locations",
+    "website"
+  ],
+  "source_policy": "official_safe",
+  "registry": {
+    "registry_snapshot_sha256": "90d394deca1e12a3808e4f87fee4ab01a31c23c849f4b44271cad7208d751e12",
+    "registry_rows_scanned": 1170184,
+    "requested": 100,
+    "selected": 100
+  },
+  "operations": {
+    "requests": 1926,
+    "bytes": 131409174,
+    "p50_ms": 987,
+    "p95_ms": 5473,
+    "third_party_cost_usd": 0.658
+  },
+  "resource_budget_passed": true,
+  "measurements": {
+    "exact_company_precision": null,
+    "wrong_company_publications": null,
+    "evidence_span_validity": null,
+    "crawl_completion": 1.0,
+    "refresh_correctness": 1.0,
+    "false_change_rate": 0.0,
+    "cost_per_company": 0.0066,
+    "request_count": 1926,
+    "p50_ms": 987,
+    "p95_ms": 5473,
+    "per_field_precision_recall_coverage": {
+      "legal_identity": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "official_website": {
+        "company_coverage": 0.2,
+        "precision": 1.0,
+        "recall": 0.2
+      },
+      "annual_accounts": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "roles": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "operating_locations": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "hiring_status": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "accounting_obligation": {
+        "company_coverage": 1.0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "dated_news": {
+        "company_coverage": 0.16,
+        "precision": 1.0,
+        "recall": 0.16
+      },
+      "job_postings": {
+        "company_coverage": 0.0,
+        "precision": 1.0,
+        "recall": 0.0
+      }
+    },
+    "abstention": {
+      "total": 695,
+      "by_state": {
+        "not_available": 647,
+        "blocked": 46,
+        "ambiguous": 2
+      },
+      "by_field": {
+        "official_website": 80,
+        "website": 80,
+        "hiring_signal": 99,
+        "dated_news": 84,
+        "news": 84,
+        "job_postings": 100,
+        "jobs": 100,
+        "social_profiles": 34,
+        "social_profile": 34
+      }
+    }
+  },
+  "budget": {
+    "total_requests": 1926,
+    "max_requests": 2000,
+    "remaining_requests": 74,
+    "protected_request_reserve": 100,
+    "total_cost_usd": 0.658,
+    "max_cost_usd": 10.0,
+    "total_bytes": 131409174,
+    "elapsed_seconds": 451.3,
+    "p50_ms": 987,
+    "p95_ms": 5473
+  },
+  "external_connectors": {
+    "google_news_rss": true,
+    "news_credibility_engine": true,
+    "linkedin_guest_discovery": false,
+    "google_places_api": false,
+    "youtube_data_api": true,
+    "brave_search_api": false,
+    "social_discovery": true,
+    "wikidata_sparql_p2333": true,
+    "brreg_kunngjoringer": true,
+    "enhetsregisteret_subunits": true,
+    "patentstyret_nipo": true
+  },
+  "validation": {
+    "passed": true,
+    "checks": {
+      "exact_expected_count": true,
+      "unique_organisation_numbers": true,
+      "all_entity_states_terminal": true,
+      "all_module_states_terminal": true,
+      "zero_silent_drops": true
+    },
+    "invalid_states": []
+  }
+}

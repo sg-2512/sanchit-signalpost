@@ -1,0 +1,13 @@
+{
+  "report_kind": "submission_readiness_v1",
+  "input_companies": 100,
+  "emitted_envelopes": 100,
+  "available_claims": 805,
+  "available_claims_with_linked_evidence": 805,
+  "source_policy": "official_safe",
+  "run_report_present": true,
+  "source_rights_registry_present": true,
+  "passed": true,
+  "errors": [],
+  "note": "Passing this check verifies the local output contract only. Builderr independently determines score and qualification."
+}
