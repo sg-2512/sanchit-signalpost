@@ -27,7 +27,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import Any, Iterable
 from bs4 import BeautifulSoup
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36"
@@ -112,6 +112,61 @@ def _fetch(url: str, *, timeout: float = 10.0) -> tuple[bytes | None, int]:
             return raw, len(raw)
     except Exception:
         return None, 0
+
+
+def _fetch_workday_jobs(landing_url: str, *, timeout: float = 10.0) -> tuple[list[dict[str, Any]], bytes, str]:
+    """Read individual vacancies from a Workday portal linked by a company site.
+
+    Workday renders listings client-side. Its public CXS endpoint returns the
+    same individual openings visible in that portal. This is deliberately
+    called only with a career URL found on a verified company website.
+    """
+    parsed = urllib.parse.urlparse(landing_url)
+    host = (parsed.hostname or "").lower()
+    site_parts = [part for part in parsed.path.split("/") if part]
+    tenant = host.split(".")[0]
+    if not host.endswith(".myworkdayjobs.com") or not tenant or not site_parts:
+        return [], b"", ""
+    site = site_parts[-1]
+    endpoint = f"{parsed.scheme or 'https'}://{host}/wday/cxs/{tenant}/{site}/jobs"
+    body = json.dumps({"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""}).encode("utf-8")
+    _pace_ats_request()
+    try:
+        request = urllib.request.Request(
+            endpoint,
+            data=body,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read(1_000_000)
+        payload = json.loads(raw.decode("utf-8", errors="replace"))
+    except Exception:
+        return [], b"", endpoint
+
+    postings = payload.get("jobPostings") if isinstance(payload, dict) else []
+    if not isinstance(postings, list):
+        return [], raw, endpoint
+    origin = f"{parsed.scheme or 'https'}://{host}/{site}"
+    jobs: list[dict[str, Any]] = []
+    for posting in postings[:8]:
+        if not isinstance(posting, dict):
+            continue
+        title = str(posting.get("title") or "").strip()
+        external_path = str(posting.get("externalPath") or "").strip()
+        if not title or not external_path.startswith("/job/"):
+            continue
+        jobs.append({
+            "title": title[:200],
+            "url": origin + external_path,
+            "date_posted": str(posting.get("postedOn") or "") or None,
+            "location": str(posting.get("locationsText") or "") or None,
+            "workday_endpoint": endpoint,
+        })
+    return jobs, raw, endpoint
 
 
 def _looks_like_job_ad_url(url: str) -> bool:
@@ -205,15 +260,21 @@ def fetch_ats_jobs(
     timeout: float = 10.0,
     max_probes: int = 3,
     max_results: int = 5,
+    seed_urls: Iterable[str] = (),
+    linked_from: str = "",
+    probe_patterns: bool = True,
     status_out: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Probe common ATS URL patterns for active job postings.
+    """Find active job postings from a company-linked ATS or bounded probes.
 
     Strict entity gate: requires ATS tenant subdomain to match company brand,
     and the ATS page to mention the company name (confirming it is this
     company's ATS tenant, not a different company with a similar slug).
 
-    Returns observations with kind="ats_ad" for validate_job_item compatibility.
+    ``seed_urls`` are recruitment pages linked directly by the verified company
+    website.  They are preferred over guessed URLs and carry that source chain
+    into the evidence record.  Guessed tenant probes remain available only for
+    private discovery callers.
     """
     if status_out is not None:
         status_out["status"] = "not_applicable" if not company_name else "blocked"
@@ -237,7 +298,22 @@ def fetch_ats_jobs(
     observations: list[dict[str, Any]] = []
     probes_done = 0
 
-    for pattern in ATS_PATTERNS:
+    candidates: list[tuple[str, bool]] = []
+    seen_candidates: set[str] = set()
+    for seed in seed_urls:
+        clean_seed = str(seed or "").strip()
+        if clean_seed.startswith(("https://", "http://")) and clean_seed not in seen_candidates:
+            candidates.append((clean_seed, True))
+            seen_candidates.add(clean_seed)
+    seed_candidate_count = len(candidates)
+    if probe_patterns:
+        for pattern in ATS_PATTERNS:
+            candidate = f"https://{pattern.format(slug=slug)}"
+            if candidate not in seen_candidates:
+                candidates.append((candidate, False))
+                seen_candidates.add(candidate)
+
+    for url, is_company_linked in candidates:
         if len(observations) >= max_results:
             break
         if probes_done >= max_probes:
@@ -245,8 +321,55 @@ def fetch_ats_jobs(
         if budget and not budget.can_proceed(reserve=1):
             break
 
-        url = f"https://{pattern.format(slug=slug)}"
         probes_done += 1
+
+        # Workday's landing page is client-rendered, but its public endpoint
+        # returns individual advertisements.  The company-site link and
+        # tenant-name match are both required before accepting any response.
+        if is_company_linked and urllib.parse.urlparse(url).hostname and urllib.parse.urlparse(url).hostname.lower().endswith(".myworkdayjobs.com"):
+            jobs, workday_raw, endpoint = _fetch_workday_jobs(url, timeout=timeout)
+            if budget:
+                budget.record_request(bytes_received=len(workday_raw), elapsed_ms=0, cost_usd=0.0)
+            host = urllib.parse.urlparse(url).hostname.lower().removeprefix("www.")
+            tenant = host.split(".")[0]
+            tenant_match = any(tok in tenant for tok in core_tokens if len(tok) >= 4)
+            if not tenant_match:
+                continue
+            digest = hashlib.sha256(workday_raw).hexdigest() if workday_raw else ""
+            for job in jobs:
+                if len(observations) >= max_results:
+                    break
+                title = str(job["title"])
+                job_url = str(job["url"])
+                obs_id = "ats-job-" + hashlib.sha256(f"{org_number}|{job_url}|{title}".encode()).hexdigest()[:24]
+                observations.append({
+                    "id": obs_id,
+                    "organisation_number": str(org_number),
+                    "platform": "job_board",
+                    "signal_type": "job_posting",
+                    "source_url": job_url,
+                    "retrieved_at": retrieved_at,
+                    "published_at": job.get("date_posted"),
+                    "content_sha256": digest,
+                    "exact_entity": True,
+                    "kind": "ats_ad",
+                    "employer_org": "",
+                    "employer_name": tenant,
+                    "match_type": "company_site_linked_ats_tenant_match",
+                    "identity_proof": [
+                        {"type": "ats_tenant_match", "employer_name": tenant, "ats_host": host, "query": company_name},
+                        {"type": "company_site_career_link", "source_url": linked_from, "ats_landing_url": url},
+                        {"type": "workday_public_jobs_endpoint", "source_url": endpoint},
+                    ],
+                    "job_title": title,
+                    "evidence_span": f"Company-linked Workday opening '{title}' at {job_url}",
+                    "metrics": {"location": job.get("location"), "workday_endpoint": endpoint},
+                    "source_class": "company_site",
+                    "rights_status": "approved",
+                    "acquisition_mode": "permitted_public_page",
+                    "strategy": "company_site_job",
+                })
+            continue
 
         raw, bytes_received = _fetch(url, timeout=timeout)
         if not raw:
@@ -325,14 +448,19 @@ def fetch_ats_jobs(
                         "employer_name": employer_name,
                         "ats_host": host,
                         "query": company_name,
-                    }
+                    },
+                    *([{
+                        "type": "company_site_career_link",
+                        "source_url": linked_from,
+                        "ats_landing_url": url,
+                    }] if is_company_linked and linked_from else []),
                 ],
                 "job_title": title,
                 "evidence_span": f"Active ATS job posting '{title}' at {job_url}",
-                "source_class": "commercial_job_board",
+                "source_class": "company_site" if is_company_linked and linked_from else "commercial_job_board",
                 "rights_status": "approved",
                 "acquisition_mode": "permitted_public_page",
-                "strategy": "ats_discovery_probe",
+                "strategy": "company_site_job" if is_company_linked and linked_from else "ats_discovery_probe",
             })
 
     if status_out is not None:
@@ -341,6 +469,7 @@ def fetch_ats_jobs(
             "slug": slug,
             "probes_done": probes_done,
             "matched_active_ads": len(observations),
+            "company_linked_seed_urls": seed_candidate_count,
         })
 
     return observations

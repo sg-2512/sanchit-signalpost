@@ -985,6 +985,32 @@ def enrich_single_company(
     web_news_obs = extract_website_news_observations(profile)
     web_jobs_obs = extract_website_job_observations(profile)
 
+    # Follow only recruitment pages that the verified company site linked to.
+    # A generic careers/ATS landing page is never published itself; the ATS
+    # connector must extract an individual ad and prove the employer tenant.
+    ats_obs: list[dict[str, Any]] = []
+    website_value = (profile.get("evidence", {}).get("website", {}).get("value") or {})
+    linked_ats_items = [
+        item for item in (website_value.get("job_postings") or [])
+        if item.get("requires_ad_verification") and str(item.get("url") or "").startswith(("https://", "http://"))
+    ]
+    linked_ats_urls = list(dict.fromkeys(str(item["url"]) for item in linked_ats_items))[:2]
+    linked_from = str(linked_ats_items[0].get("source_url") or profile.get("website") or "") if linked_ats_items else ""
+    if verified_website and linked_ats_urls and can_run_optional(cost=len(linked_ats_urls), reserve=5):
+        try:
+            ats_obs = fetch_ats_jobs(
+                name,
+                org,
+                budget=budget,
+                max_probes=len(linked_ats_urls),
+                seed_urls=linked_ats_urls,
+                linked_from=linked_from,
+                probe_patterns=False,
+            )
+            local_reqs += len(linked_ats_urls)
+        except Exception:
+            ats_obs = []
+
     # Official registry observations
     observations.extend(extract_workforce_observation(profile))
     observations.extend(extract_profile_metrics_observation(profile))
@@ -1113,7 +1139,7 @@ def enrich_single_company(
     observations.extend(buzz_obs)
 
     # 8. Multi-Source Hiring & Recruitment Intelligence (NAV, LinkedIn, Website, Brreg)
-    hiring_block, hiring_obs = evaluate_company_hiring(profile, observations + list(web_jobs_obs), budget=budget)
+    hiring_block, hiring_obs = evaluate_company_hiring(profile, observations + list(web_jobs_obs) + list(ats_obs), budget=budget)
     profile["hiring"] = hiring_block
 
     # 9. Populate evidence records for news, jobs, and hiring
@@ -1191,7 +1217,7 @@ def enrich_single_company(
         }
 
     # Only verified single job postings are populated into jobs
-    raw_jobs = [o for o in hiring_obs if o.get("signal_type") == "job_posting"] + list(web_jobs_obs)
+    raw_jobs = [o for o in hiring_obs if o.get("signal_type") == "job_posting"] + list(web_jobs_obs) + list(ats_obs)
     all_job_obs = []
     loc_rec_temp = (profile.get("evidence") or {}).get("locations") or {}
     sub_orgs_hiring = [str(u.get("organisation_number")) for u in ((loc_rec_temp.get("value") or {}).get("locations") or []) if u.get("organisation_number")]
@@ -1396,20 +1422,6 @@ def enrich_single_company(
             if esg_obs:
                 observations.extend(esg_obs)
                 profile["esg_certifications"] = [obs.get("metrics") or {} for obs in esg_obs if obs.get("metrics")]
-        except Exception:
-            pass
-
-    # 13l. Multi-ATS Vacancy Aggregator & Job Harvester
-    has_careers_url = bool((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("careers_url"))
-    if not is_passive_entity and (emp_count >= 5 or has_careers_url or profile.get("hiring", {}).get("appears_to_be_hiring")) and can_run_optional(cost=2, reserve=5):
-        try:
-            ats_obs = fetch_ats_jobs(name, org, budget=budget, max_probes=2)
-            if ats_obs:
-                observations.extend(ats_obs)
-                profile.setdefault("hiring", {})["ats_jobs_count"] = len(ats_obs)
-                if not profile.get("hiring", {}).get("appears_to_be_hiring"):
-                    profile["hiring"]["appears_to_be_hiring"] = True
-            local_reqs += 2
         except Exception:
             pass
 

@@ -607,6 +607,7 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
         "varbi.com", "jobylon.com", "homerun.co", "talentech.com", "talentech.io",
         "karriere.no", "personio.de", "personio.com", "bamboohr.com", "lever.co",
         "greenhouse.io", "workable.com", "smartrecruiters.com", "arbeidsplassen.nav.no/stillinger/stilling/",
+        "myworkdayjobs.com",
     )
     candidate_elements = soup.select("a[href]") + soup.select("iframe[src]")
     for anchor in candidate_elements:

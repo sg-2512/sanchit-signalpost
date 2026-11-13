@@ -175,6 +175,7 @@ ATS_HOST_SUFFIXES = (
     "talentech.com", "talentech.io", "personio.de", "personio.com", "bamboohr.com", "lever.co",
     "greenhouse.io", "workable.com", "smartrecruiters.com", "hrmanager.no", "hr-manager.net",
     "cvpartner.com", "emply.com", "emply.net", "jobs.dayforce.com",
+    "myworkdayjobs.com",
 )
 
 
