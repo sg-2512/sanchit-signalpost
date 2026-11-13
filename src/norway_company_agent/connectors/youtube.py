@@ -122,10 +122,19 @@ def fetch_youtube_data(
         stats = channel.get("statistics", {})
         snippet = channel.get("snippet", {})
 
+        channel_title = snippet.get("title", "")
+        # Precision check: if channel was found via search query rather than verified website link,
+        # ensure channel title contains significant company name tokens
+        if not known_url:
+            clean_c = re.sub(r"\b(AS|ASA|BA|DA|ANS|ENK|NUF|SF|IKS|KF)\b", "", company_name, flags=re.I).strip().casefold()
+            clean_t = channel_title.casefold()
+            c_words = [w for w in clean_c.split() if len(w) >= 3]
+            if c_words and not any(w in clean_t for w in c_words):
+                return []
+
         subscriber_count = int(stats.get("subscriberCount", 0))
         video_count = int(stats.get("videoCount", 0))
         view_count = int(stats.get("viewCount", 0))
-        channel_title = snippet.get("title", "")
         channel_url = known_url or f"https://youtube.com/channel/{channel_id}"
 
         digest = hashlib.sha256(stats_raw).hexdigest()

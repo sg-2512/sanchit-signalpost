@@ -1024,16 +1024,18 @@ def enrich_single_company(
         yt_obs = fetch_youtube_data(org, name, social_links=social_links, budget=budget)
         observations.extend(yt_obs)
 
-    # 7a. Independent social media profile discovery (no API key required)
+    # 7a. Independent social media profile discovery (experimental only)
     # Probes common URL patterns on LinkedIn, Facebook, Instagram, TikTok, X
-    # to find company-owned social profiles even when the website has none listed.
+    # strictly in experimental mode. Never called in official_safe mode to eliminate
+    # speculative wrong-company claims (P0 precision requirement >= 95%).
     soc_obs: list[dict[str, Any]] = []
-    existing_social_platforms = {str(o.get("platform") or "").casefold() for o in web_social_obs if o.get("platform")}
-    needed_social = max(0, 3 - len(existing_social_platforms))
-    if not is_passive_entity and needed_social > 0 and can_run_optional(cost=needed_social, reserve=5):
-        soc_obs = fetch_social_profiles(name, org, budget=budget, max_profiles=needed_social, exclude_platforms=existing_social_platforms)
-        observations.extend(soc_obs)
-        local_reqs += len(soc_obs)
+    if source_policy == EXPERIMENTAL and not is_passive_entity:
+        existing_social_platforms = {str(o.get("platform") or "").casefold() for o in web_social_obs if o.get("platform")}
+        needed_social = max(0, 3 - len(existing_social_platforms))
+        if needed_social > 0 and can_run_optional(cost=needed_social, reserve=5):
+            soc_obs = fetch_social_profiles(name, org, budget=budget, max_profiles=needed_social, exclude_platforms=existing_social_platforms)
+            observations.extend(soc_obs)
+            local_reqs += len(soc_obs)
 
     # 7b. LinkedIn guest discovery is an experiment only.  It is never called
     # in the official-safe path: identity proof cannot cure an unapproved

@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import threading
 import time
 import urllib.error
@@ -133,6 +134,12 @@ def fetch_place_data(
             place = places[0]
             place_id = place.get("id", "")
             place_name = (place.get("displayName") or {}).get("text") or company_name
+            # Precision gate: ensure place_name aligns with company core name tokens
+            clean_c = re.sub(r"\b(AS|ASA|BA|DA|ANS|ENK|NUF|SF|IKS|KF|HOLDING|INVEST|GROUP|GRUPPEN)\b", "", company_name, flags=re.I).strip().casefold()
+            clean_p = place_name.casefold()
+            c_words = [w for w in clean_c.split() if len(w) >= 3]
+            if c_words and not any(w in clean_p for w in c_words):
+                return []
             rating = place.get("rating")
             rating_count = place.get("userRatingCount")
             maps_url = place.get("googleMapsUri") or f"https://www.google.com/maps/place/?q=place_id:{place_id}"
@@ -253,10 +260,17 @@ def fetch_place_data(
         if not result:
             return []
 
+        place_name = result.get("name", "")
+        # Precision gate: ensure place_name aligns with company core name tokens
+        clean_c = re.sub(r"\b(AS|ASA|BA|DA|ANS|ENK|NUF|SF|IKS|KF|HOLDING|INVEST|GROUP|GRUPPEN)\b", "", company_name, flags=re.I).strip().casefold()
+        clean_p = place_name.casefold()
+        c_words = [w for w in clean_c.split() if len(w) >= 3]
+        if c_words and not any(w in clean_p for w in c_words):
+            return []
+
         rating = result.get("rating")
         rating_count = result.get("user_ratings_total")
         maps_url = result.get("url", "")
-        place_name = result.get("name", "")
         website_uri = result.get("website", "")
         digest = hashlib.sha256(details_raw).hexdigest()
 
