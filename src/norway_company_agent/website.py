@@ -1206,12 +1206,15 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         )
         has_content_signal = bool(homepage_news or homepage_jobs or social)
 
-        if homepage_text_len >= 300 and (has_contact_info or has_org_details or has_content_signal):
+        # Ensure we crawl priority career and news subpages if the homepage didn't provide both.
+        # This satisfies the requirement to find dated items and open postings linked from the company's own site.
+        if len(homepage_news) >= 1 and len(homepage_jobs) >= 1:
             subpage_limit = 0
-        elif len(social) >= 2 or len(homepage_news) >= 1 or len(homepage_jobs) >= 1:
-            subpage_limit = 1
         else:
-            subpage_limit = 1
+            # _priority_links orders a careers page before a news page.  Keep both
+            # slots until both requested evidence types are present; otherwise a
+            # homepage news item can prevent the careers page from being fetched.
+            subpage_limit = 2
         check_sitemap = False
         for page_url in _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=check_sitemap):
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(
