@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
 import re
+import threading
 import unicodedata
 import urllib.parse
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -31,10 +35,16 @@ def _read_candidate_page(url: str, budget: Any, timeout: float) -> tuple[str, st
 
 BLOCKED_DISCOVERY_HOSTS = {
     "proff.no", "purehelp.no", "1881.no", "gulesider.no", "firmalisten.no", "companywall.no",
+    "brreg.no",
     "firmadatabasen.no", "sokfirma.no", "yra.no", "northdata.com", "nor47business.com",
     "linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "youtube.com", "tiktok.com",
 }
 GENERIC_NAME_TOKENS = {"as", "asa", "ans", "da", "enk", "sa", "nuf", "company", "norge", "norway", "gruppen", "group"}
+
+TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+_KEYLESS_SEARCH_LOCK = threading.Lock()
+_KEYLESS_SEARCH_REQUESTS = 0
+_KEYLESS_SEARCH_DISABLED = False
 
 
 def build_company_search_query(profile: dict[str, Any]) -> str:
@@ -87,6 +97,8 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
     org = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
     evidence_digits = re.sub(r"\D", "", f"{result.get('title', '')} {result.get('snippet', '')}")
     municipality_tokens = set(_tokens(profile.get("municipality")))
+    path_parts = [part.casefold() for part in urllib.parse.urlparse(normalized).path.split("/") if part]
+    directory_path = any(part in {"selskap", "firma", "bedrift", "company", "business", "orgnr"} for part in path_parts)
 
     org_match = bool(org and org in evidence_digits)
     all_name_tokens = bool(name_tokens and set(name_tokens).issubset(evidence_tokens))
@@ -114,7 +126,12 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
     # Registry/directory pages routinely reproduce both the legal name and org
     # number. A candidate must therefore also have the distinctive company name
     # in its hostname before it is worth crawling as a company-owned website.
-    publishable_candidate = score >= 0.75 and name_in_host and (org_match or all_name_tokens_in_title)
+    # Search is discovery, never evidence. Exact organisation-number plus legal-name
+    # evidence can therefore nominate a differently branded domain for a crawl; the
+    # fetched site must still pass the strict legal-operator publication gate.
+    exact_search_identity = org_match and all_name_tokens and not directory_path
+    name_domain_identity = name_in_host and (org_match or all_name_tokens_in_title)
+    publishable_candidate = score >= 0.75 and (exact_search_identity or name_domain_identity)
     return {
         "status": "accepted_for_crawl" if publishable_candidate else "review" if score >= 0.6 else "rejected",
         "score": score,
@@ -141,6 +158,141 @@ def choose_search_candidate(profile: dict[str, Any], results: list[dict[str, Any
     }
 
 
+def keyless_search_available() -> bool:
+    """Whether bounded, candidate-only keyless search is enabled for this run."""
+    enabled = str(os.getenv("SIGNALPOST_KEYLESS_SEARCH", "1")).strip().casefold()
+    if enabled in {"0", "false", "no", "off"}:
+        return False
+    with _KEYLESS_SEARCH_LOCK:
+        return not _KEYLESS_SEARCH_DISABLED
+
+
+def candidate_site_origin(url: str) -> str:
+    """Crawl a search hit's site operator, not a third-party company listing."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        raise ValueError("Search candidate needs a public HTTP(S) origin")
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, "/", "", ""))
+
+
+def discover_company_websites_keyless(
+    profile: dict[str, Any],
+    *,
+    budget: Any | None = None,
+    timeout: float = 12.0,
+    max_candidates: int = 2,
+) -> list[str]:
+    """Return strict website crawl candidates from Tavily's keyless search route.
+
+    Search-result text is transient discovery metadata. It is never emitted as a
+    company fact. Every returned URL must be fetched independently and pass the
+    normal exact-company website identity gate before publication.
+    """
+    global _KEYLESS_SEARCH_REQUESTS, _KEYLESS_SEARCH_DISABLED
+
+    if not keyless_search_available():
+        return []
+    try:
+        request_cap = max(0, int(os.getenv("SIGNALPOST_KEYLESS_SEARCH_MAX", "30")))
+    except ValueError:
+        request_cap = 30
+    with _KEYLESS_SEARCH_LOCK:
+        if _KEYLESS_SEARCH_DISABLED or _KEYLESS_SEARCH_REQUESTS >= request_cap:
+            return []
+        if budget is not None and not budget.try_start_request():
+            return []
+        _KEYLESS_SEARCH_REQUESTS += 1
+
+    query = build_company_search_query(profile)
+    body = json.dumps({
+        "query": query,
+        "max_results": 6,
+        "search_depth": "basic",
+        "country": "norway",
+        "include_answer": False,
+        "include_raw_content": False,
+        "include_images": False,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        TAVILY_SEARCH_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Tavily-Access-Mode": "keyless",
+            "User-Agent": USER_AGENT,
+        },
+    )
+    raw = b""
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read(500_000)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403, 429}:
+            with _KEYLESS_SEARCH_LOCK:
+                _KEYLESS_SEARCH_DISABLED = True
+        return []
+    except (OSError, ValueError):
+        return []
+    finally:
+        if budget is not None:
+            budget.record_request(count=0, bytes_received=len(raw))
+
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    parsed = []
+    for rank, result in enumerate(payload.get("results") or [], start=1):
+        if not isinstance(result, dict) or not result.get("url"):
+            continue
+        parsed.append({
+            "url": result.get("url"),
+            "title": result.get("title") or "",
+            "snippet": result.get("content") or result.get("description") or "",
+            "rank": rank,
+            "provider": "tavily_keyless",
+            "query": query,
+        })
+    assessed = [score_search_candidate(profile, result) for result in parsed]
+    assessed.sort(key=lambda item: (-item.get("score", 0.0), item.get("rank") or 10_000))
+    return [str(item["url"]) for item in assessed if item.get("publishable_candidate")][:max_candidates]
+
+
+def _domain_slugs(name: str) -> list[str]:
+    """Generate conservative Norwegian domain labels without treating them as proof."""
+    clean_name = re.sub(r"\b(?:AS|ASA|ANS|DA|ENK|NUF|SA)\b", " ", name, flags=re.I)
+    clean_name = " ".join(clean_name.split())
+    ascii_name = unicodedata.normalize(
+        "NFKD",
+        clean_name.translate(str.maketrans({"æ": "ae", "ø": "o", "å": "a", "Æ": "AE", "Ø": "O", "Å": "A"})),
+    ).encode("ascii", "ignore").decode().casefold()
+    unicode_name = clean_name.casefold()
+    variants: list[str] = []
+    for text in (ascii_name, unicode_name):
+        words = [word for word in re.findall(r"[\w]+", text, re.UNICODE) if len(word) > 1 or word == "i"]
+        if not words:
+            continue
+        for label in ("".join(words), "-".join(words) if len(words) > 1 else ""):
+            label = label.strip("-")
+            if not label or len(label) < 3:
+                continue
+            try:
+                encoded = label.encode("idna").decode("ascii")
+            except UnicodeError:
+                continue
+            if len(encoded) <= 63 and encoded not in variants:
+                variants.append(encoded)
+    if variants:
+        base = variants[0]
+        for suffix in ("as", "-as"):
+            label = base + suffix
+            if len(label) <= 63 and label not in variants:
+                variants.append(label)
+    return variants
+
+
 def probe_heuristic_domain(
     profile: dict[str, Any],
     *,
@@ -150,9 +302,9 @@ def probe_heuristic_domain(
 ) -> str | None:
     """Heuristic Level-3 Norwegian domain probe (e.g. equinor.no, kongsberg.no).
 
-    Generates high-probability Norwegian .no domain candidates from company legal name,
-    probes them via HTTP GET, and verifies that the company's 9-digit org number appears on the page.
-    Completely free ($0.00 spend, zero API keys needed).
+    Generates high-probability Norwegian .no domain candidates from the legal name.
+    When ``accept_candidate`` is supplied, DNS is only a cheap pre-filter and the
+    caller performs the authoritative crawl and identity gate.
     """
     name = str(profile.get("name") or "")
     org = str(profile.get("organisation_number") or "")
@@ -163,23 +315,23 @@ def probe_heuristic_domain(
     if not tokens:
         return None
 
-    # Also extract tokens preserving 1-letter Norwegian connector 'i' (e.g. 'Musikk i Innlandet' -> 'musikkiinnlandet')
-    raw_ascii = unicodedata.normalize(
-        "NFKD",
-        name.translate(str.maketrans({"ø": "o", "å": "a", "æ": "ae", "Ø": "O", "Å": "A", "Æ": "AE"})),
-    ).encode("ascii", "ignore").decode().casefold()
-    words_with_i = [w for w in re.findall(r"[a-z0-9]+", raw_ascii) if w not in GENERIC_NAME_TOKENS and (len(w) > 1 or w == "i")]
-
-    candidates: list[str] = []
-    for cand in (
-        "".join(words_with_i),
-        "".join(tokens),
-        "-".join(words_with_i) if len(words_with_i) >= 2 else "",
-        "-".join(tokens) if len(tokens) >= 2 else "",
-        tokens[0] if len(tokens[0]) >= 4 else "",
-    ):
+    candidates = _domain_slugs(name)
+    for cand in (tokens[0] if len(tokens[0]) >= 6 else "",):
         if cand and len(cand) >= 3 and cand not in candidates:
-            candidates.append(cand)
+            candidates.insert(min(2, len(candidates)), cand)
+    # Registered workplaces sometimes trade under a shorter name. Their
+    # domains are only crawl hints; the parent company's identity gate still
+    # decides whether the website can be attributed to the requested entity.
+    location_rows = (((profile.get("evidence") or {}).get("locations") or {}).get("value") or {}).get("locations") or []
+    for location in location_rows[:3]:
+        if not isinstance(location, dict):
+            continue
+        subunit_name = str(location.get("name") or "")
+        if subunit_name.casefold() == name.casefold():
+            continue
+        for cand in _domain_slugs(subunit_name)[:1]:
+            if cand not in candidates:
+                candidates.append(cand)
 
     org_clean = re.sub(r"\D", "", org)
     org_spaced = f"{org_clean[:3]} {org_clean[3:6]} {org_clean[6:]}" if len(org_clean) == 9 else org_clean
@@ -200,22 +352,27 @@ def probe_heuristic_domain(
             ex.shutdown(wait=False, cancel_futures=True)
             return False
 
-    for slug in candidates[:3]:
+    for slug in candidates[:8]:
         if len(slug) < 3:
             continue
         domains_to_try = [f"{slug}.no"]
-        if is_intl_scale:
+        if is_intl_scale and slug == candidates[0]:
             domains_to_try.append(f"{slug}.com")
         for dom in domains_to_try:
-            # Fast DNS pre-check with 2.0s hard timeout (costs 0 HTTP requests if domain does not exist)
-            if not hasattr(urllib.request.urlopen, "_mock_name"):
-                if not _dns_resolves(dom, 2.0):
+            url = f"https://{dom}"
+            if not hasattr(urllib.request.urlopen, "_mock_name") and not _dns_resolves(dom, 2.0):
+                www_host = f"www.{dom}"
+                if not _dns_resolves(www_host, 2.0):
                     continue
-
-            for url in (f"https://{dom}", f"https://www.{dom}"):
-                if budget and not budget.can_proceed(reserve=5):
-                    return None
-                page = _read_candidate_page(url, budget, timeout)
+                url = f"https://{www_host}"
+            if accept_candidate is not None:
+                if accept_candidate(url):
+                    return url
+                continue
+            if budget and not budget.can_proceed(reserve=5):
+                return None
+            for candidate_url in (url,):
+                page = _read_candidate_page(candidate_url, budget, timeout)
                 if page is None:
                     continue
                 raw, final_url = page
@@ -226,9 +383,7 @@ def probe_heuristic_domain(
                     or name.lower() in raw_lower
                     or (len(clean_core) >= 5 and clean_core in raw_lower)
                 ):
-                    if accept_candidate is None or accept_candidate(final_url):
-                        return final_url
-                break
+                    return final_url
 
     return None
 
@@ -253,6 +408,15 @@ def extract_email_domain_candidate(profile: dict[str, Any]) -> str | None:
     reg_live = (ev.get("registry_live") or {}).get("value") or {}
     reg_bulk = (ev.get("registry") or {}).get("value") or {}
     email = reg_live.get("epostadresse") or reg_bulk.get("epostadresse") or profile.get("email") or ""
+    
+    # Also check subunits if parent has no email
+    if not email:
+        loc_val = (ev.get("locations") or {}).get("value") or {}
+        for sub in loc_val.get("locations") or []:
+            if sub.get("epostadresse"):
+                email = sub["epostadresse"]
+                break
+
     if not email or "@" not in str(email):
         return None
     domain = str(email).split("@")[-1].lower().strip()

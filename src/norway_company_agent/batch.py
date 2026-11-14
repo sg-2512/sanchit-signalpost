@@ -289,9 +289,9 @@ def build_contract_claims_and_evidence(
     # Re-apply multi-factor entity identity gate when real crawl content is present so cached profiles stay current
     w_rec = ev.get("website") or {}
     w_val = w_rec.get("value") or {}
-    if w_rec.get("status") == "available" and isinstance(w_val, dict) and (
-        w_val.get("title") or w_val.get("main_text_excerpt") or w_val.get("final_url")
-    ):
+    if (w_rec.get("status") == "available" and isinstance(w_val, dict)
+            and (w_val.get("identity_assessment") or {}).get("publishable")
+            and (w_val.get("title") or w_val.get("main_text_excerpt") or w_val.get("final_url"))):
         gated = apply_entity_identity_gate(profile, w_rec, list(ev.values()))
         w_rec = gated["website"]
         w_val = w_rec.get("value") or {}
@@ -815,7 +815,12 @@ def build_contract_claims_and_evidence(
             "published_at": norm_pub,
             "content_sha256": cand_sha,
             "verification": cand.get("verification") or ("site_listing" if is_site_news else ("article_fetched" if name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}") else "")),
-            "name_in_article": cand.get("name_in_article") or (not is_site_news and name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}")),
+            "name_in_article": (
+                bool(cand.get("name_in_article"))
+                or (is_site_news and cand.get("verification") == "article_fetched"
+                    and name_in_text(profile.get("name") or "", str(cand.get("article_text_excerpt") or "")))
+                or (not is_site_news and name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}"))
+            ),
             "_is_site": is_site_news,
             "_is_generic_prefix": lower_t.startswith(("nyheter ", "aktuelt ", "news ", "presse ")),
         }

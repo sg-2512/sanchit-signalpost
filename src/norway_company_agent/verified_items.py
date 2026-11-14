@@ -388,9 +388,14 @@ def validate_news_item(
         if is_company_site and url.rstrip("/") == str(item.get("source_url") or "").rstrip("/") and any(token in path for token in ("nyhet", "news", "aktuelt", "pressemelding", "press")):
             return True, "company_inline_newsroom_item"
         return False, "unverified_inline_newsroom"
-    if is_hub_url(url):
-        return False, "hub_or_listing_url"
     verification = str(item.get("verification") or "")
+    article_leaf = bool(
+        verification == "article_fetched" and item.get("name_in_article")
+        and len(path_segments(url)) >= 2
+        and path_segments(url)[-1].casefold() not in _PATH_HUB_TOKENS
+    )
+    if is_hub_url(url) and not article_leaf:
+        return False, "hub_or_listing_url"
     if verification == "article_fetched" or item.get("name_in_article"):
         if not item.get("name_in_article"):
             return False, "company_not_named_in_article"

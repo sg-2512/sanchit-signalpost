@@ -411,7 +411,7 @@ def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) ->
     for index, page in enumerate(pages):
         identity_text = str(page.get("identity_text_excerpt") or "")
         for match in re.finditer(
-            r"\b(?:org\.?\s*(?:nr\.?|nummer|no\.?)|organisasjonsnummer|organisation\s+number|organization\s+number|VAT\s*(?:no\.?|number))\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0]*){8}\d)(?!\d)",
+            r"\b(?:org\.?\s*(?:nr\.?|nummer|no\.?)|organisasjonsnummer|organisation\s+number|organization\s+number|VAT\s*(?:no\.?|number)|MVA)\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0-]*){8}\d)(?!\d)",
             identity_text,
             re.I,
         ):
@@ -511,8 +511,18 @@ _PARKED_MARKERS = (
 
 
 def _find_org_numbers(text: str) -> set[str]:
-    """Find all 9-digit organisation-number-like strings in text."""
-    return set(re.findall(r"\b\d{9}\b", text or ""))
+    """Find all 9-digit organisation-number-like strings in text, including MVA/VAT formats."""
+    results: set[str] = set()
+    raw = text or ""
+    # Standard 3-3-3 with spaces, dots, dashes, NBSP
+    for match in re.finditer(r"(?<!\d)(\d{3})[\s.\u00a0-]*(\d{3})[\s.\u00a0-]*(\d{3})(?!\d)", raw):
+        results.add("".join(match.groups()))
+    # MVA prefixed or suffixed formats: e.g. NO 999 999 999 MVA, NO999999999MVA, MVA: 999999999
+    for match in re.finditer(r"(?:NO|MVA|ORG\.?NR\.?|ORG\.?)\s*:?\s*(\d{3}[\s.\u00a0-]*\d{3}[\s.\u00a0-]*\d{3})\b", raw, re.I):
+        digits = re.sub(r"\D", "", match.group(1))
+        if len(digits) == 9:
+            results.add(digits)
+    return results
 
 
 def _find_legal_entities(text: str) -> set[str]:
@@ -582,8 +592,11 @@ def assess_entity_identity(
     candidate_tokens = set(_tokens(combined_text))
 
     # --- Factor 1: Organisation number ---
+    loc_val = (profile.get("evidence") or {}).get("locations") or {}
+    subunit_orgs = {str(u.get("organisation_number")) for u in ((loc_val.get("value") or {}).get("locations") or []) if u.get("organisation_number")}
+    allowed_orgs = ({org_digits} if org_digits and len(org_digits) == 9 else set()) | subunit_orgs
     found_orgs = _find_org_numbers(combined_text)
-    orgnr_match = bool(org_digits and len(org_digits) == 9 and org_digits in found_orgs)
+    orgnr_match = bool(allowed_orgs and bool(found_orgs & allowed_orgs))
     orgnr_score = 1.0 if orgnr_match else 0.0
 
     # --- Factor 2: Legal name ---
@@ -622,8 +635,9 @@ def assess_entity_identity(
 
     # Veto 1: Different 9-digit org number in evidence, target orgnr absent
     if org_digits and len(org_digits) == 9:
-        if found_orgs and org_digits not in found_orgs:
-            veto_reasons.append(f"different_org_number_in_evidence:{sorted(found_orgs)}")
+        conflicting_orgs = found_orgs - allowed_orgs
+        if conflicting_orgs and not (found_orgs & allowed_orgs):
+            veto_reasons.append(f"different_org_number_in_evidence:{sorted(conflicting_orgs)}")
 
     # Veto 2: Different legal entity identified that is not the target
     legal_name_norm = " ".join(core)

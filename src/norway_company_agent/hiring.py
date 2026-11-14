@@ -105,6 +105,7 @@ def evaluate_company_hiring(
     observations: list[dict[str, Any]] | None = None,
     *,
     budget: Any | None = None,
+    nav_feed_jobs: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Perform multi-source hiring assessment for a company.
 
@@ -184,11 +185,18 @@ def evaluate_company_hiring(
     loc_val = (profile.get('evidence', {}).get('locations', {}).get('value') or {}) if isinstance(profile, dict) else {}
     subunit_orgs = [str(u.get('organisation_number')) for u in (loc_val.get('locations') or []) if u.get('organisation_number')]
     # 3. NAV Arbeidsplassen Live Job Search
-    nav_jobs: list[dict[str, Any]] = []
-    nav_status = {"status": "blocked" if budget else "not_applicable"}
-    if budget and budget.can_proceed(reserve=1):
+    nav_jobs: list[dict[str, Any]] = list(nav_feed_jobs or [])
+    feed_state = str((profile.get("nav_feed_diagnostics") or {}).get("feed_state") or "not_requested")
+    nav_status = {"status": (
+        "available" if nav_jobs or feed_state == "complete" else
+        "blocked" if feed_state.startswith("partial") else
+        "failed" if feed_state.startswith("failed") else
+        "not_applicable" if nav_feed_jobs is not None else
+        "blocked" if budget else "not_applicable"
+    ), "feed_state": feed_state}
+    if nav_feed_jobs is None and budget and budget.can_proceed(reserve=1):
         nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=subunit_orgs, budget=budget, status_out=nav_status)
-        for job in nav_jobs:
+    for job in nav_jobs:
             signals.append({
                 "source": "nav_arbeidsplassen",
                 "type": "official_job_posting",
@@ -200,7 +208,7 @@ def evaluate_company_hiring(
                 "employer_name": job.get("employer_name"),
                 "kind": "nav_ad",
             })
-        new_obs.extend(nav_jobs)
+    new_obs.extend(nav_jobs)
 
     # 4. Verified single job ads discovered on the company's verified website / ATS tenant.
     #    Listing pages, career hubs and other employers' ads are rejected by validate_job_item.

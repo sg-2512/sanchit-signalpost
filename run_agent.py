@@ -82,7 +82,13 @@ from norway_company_agent.identity import apply_website_identity_gate, apply_ent
 from norway_company_agent.official import fetch_official_modules
 from norway_company_agent.website import fetch_website
 from norway_company_agent.verified_items import validate_job_item, validate_news_item
-from norway_company_agent.discovery import extract_email_domain_candidate, probe_heuristic_domain
+from norway_company_agent.discovery import (
+    candidate_site_origin,
+    discover_company_websites_keyless,
+    extract_email_domain_candidate,
+    keyless_search_available,
+    probe_heuristic_domain,
+)
 
 # External connectors (activate based on env vars)
 from norway_company_agent.connectors.google_news import fetch_google_news
@@ -130,6 +136,7 @@ from norway_company_agent.connectors.ssb_benchmarks import fetch_ssb_industry_be
 from norway_company_agent.connectors.gleif import fetch_gleif_identifier
 from norway_company_agent.connectors.miljodirektoratet import fetch_miljodirektoratet_permits
 from norway_company_agent.hiring import evaluate_company_hiring
+from norway_company_agent.connectors.nav_feed import nav_feed_jobs_for_company
 from norway_company_agent.synthesis import generate_company_synthesis
 
 
@@ -715,7 +722,22 @@ def enrich_single_company(
     patent_obs: list[dict[str, Any]] = []
 
     def gate_website(record: dict[str, Any]) -> dict[str, Any]:
-        gated = apply_entity_identity_gate(profile, record)
+        # Discovery pages can reproduce an exact org number without being the
+        # company's website. Require on-site legal-operator proof before the
+        # broader entity corroboration step, and keep a rejection terminal.
+        operator_gated = apply_website_identity_gate(profile, record, require_legal_operator=True)
+        operator_assessment = ((operator_gated["website"].get("value") or {}).get("identity_assessment") or {})
+        if not operator_assessment.get("publishable"):
+            gated = operator_gated
+        else:
+            gated = apply_entity_identity_gate(profile, operator_gated["website"])
+            value = gated["website"].get("value") or {}
+            if gated.get("gate_rejected"):
+                value["identity_assessment"] = {**operator_assessment, "publishable": False,
+                                                "reasons": [*operator_assessment.get("reasons", []), "entity corroboration failed"]}
+            else:
+                value["identity_assessment"] = operator_assessment
+            gated["website"]["value"] = value
         value = gated["website"].get("value") or {}
         assessment = value.get("identity_assessment") or {}
         profile.setdefault("website_attempts", []).append({
@@ -761,9 +783,25 @@ def enrich_single_company(
         return record, metrics
 
     verified_website = False
+    nav_feed_jobs: list[dict[str, Any]] = []
+    nav_feed_homepages: list[str] = []
+    nav_feed_diagnostics: dict[str, Any] = {"feed_state": "not_requested"}
     if "website" in requested_modules and budget.can_proceed(reserve=2):
         target_site = profile.get("website")
-        cached_site = str((profile.get("verified_site_cache") or {}).get("url") or "")
+        cached_site_raw = str((profile.get("verified_site_cache") or {}).get("url") or "")
+        try:
+            cached_site = candidate_site_origin(cached_site_raw) if cached_site_raw else ""
+        except ValueError:
+            cached_site = ""
+
+        # NAV's vacancy feed is indexed once for the whole batch. An employer
+        # homepage from a currently ACTIVE ad with an exact org-number match is
+        # a discovery hint only; the website still passes the normal gate.
+        if source_policy == OFFICIAL_SAFE and budget.max_requests >= 200 and budget.can_proceed(reserve=2):
+            nav_feed_jobs, nav_feed_homepages, nav_feed_diagnostics = nav_feed_jobs_for_company(
+                name, org, subunits=location_val.get("locations") or [], budget=budget,
+            )
+        profile["nav_feed_diagnostics"] = nav_feed_diagnostics
 
         # Level 1: Official registry URL
         if target_site:
@@ -811,6 +849,22 @@ def enrich_single_company(
                         verified_website = True
                         break
 
+        # Level 2b: Employer homepage from a live, exact-entity NAV vacancy.
+        if not verified_website:
+            for candidate in nav_feed_homepages[:2]:
+                if site_requests >= site_limit:
+                    break
+                w_rec, w_met = fetch_company_site(candidate)
+                website_metrics["requests"] += w_met.get("requests", 0)
+                website_metrics["bytes"] += w_met.get("bytes", 0)
+                gated = gate_website(w_rec)["website"]
+                val = gated.get("value") or {}
+                if gated.get("status") == "available" and val.get("identity_assessment", {}).get("publishable"):
+                    profile["evidence"]["website"] = gated
+                    profile["website"] = val.get("final_url") or candidate
+                    verified_website = True
+                    break
+
         # Level 3: Free heuristic .no/.com Norwegian domain probe with fast DNS pre-check
         if not verified_website and not is_passive_entity and can_run_optional(cost=2, reserve=2):
             def accept_heuristic_site(heuristic_site: str) -> bool:
@@ -830,6 +884,33 @@ def enrich_single_company(
                 return verified_website
 
             probe_heuristic_domain(profile, budget=budget, accept_candidate=accept_heuristic_site)
+
+        # Free, rate-limited search proposes candidates only. Search text is never
+        # evidence; every destination is crawled and must pass the exact legal-
+        # operator gate before any website fact can be published.
+        if (
+            not verified_website
+            and not is_passive_entity
+            and keyless_search_available()
+            and (emp_count >= 1 or bool(target_site) or bool(extract_email_domain_candidate(profile)))
+            and can_run_optional(cost=1, reserve=5)
+        ):
+            for search_site in discover_company_websites_keyless(profile, budget=budget):
+                if site_requests >= site_limit:
+                    break
+                search_origin = candidate_site_origin(search_site)
+                w_rec, w_met = fetch_company_site(search_origin)
+                website_metrics["requests"] += w_met.get("requests", 0)
+                website_metrics["bytes"] += w_met.get("bytes", 0)
+                gated = gate_website(w_rec)
+                if gated["website"].get("status") != "available":
+                    continue
+                val = gated["website"].get("value") or {}
+                if val.get("identity_assessment", {}).get("publishable"):
+                    profile["evidence"]["website"] = gated["website"]
+                    profile["website"] = val.get("final_url") or search_origin
+                    verified_website = True
+                    break
 
         # Use Places for candidate discovery when the official website is still unknown.
         if not is_passive_entity and places_available() and budget.can_proceed(reserve=4) and (not verified_website or source_policy == EXPERIMENTAL):
@@ -1210,6 +1291,7 @@ def enrich_single_company(
     # 8. Multi-Source Hiring & Recruitment Intelligence (NAV, LinkedIn, Website, Brreg)
     hiring_block, hiring_obs = evaluate_company_hiring(
         profile, observations + web_jobs_obs, budget=budget,
+        nav_feed_jobs=nav_feed_jobs if source_policy == OFFICIAL_SAFE else None,
     )
     profile["hiring"] = hiring_block
 
@@ -1935,6 +2017,7 @@ def main() -> int:
             "youtube_data_api": args.source_policy == EXPERIMENTAL and youtube_available(),
             "youtube_linked_channel_api": youtube_available(),
             "brave_search_api": brave_available(),
+            "tavily_keyless_candidate_search": keyless_search_available(),
             "social_discovery": args.source_policy == EXPERIMENTAL,
             "wikidata_sparql_p2333": True,
             "brreg_kunngjoringer": True,
@@ -1944,6 +2027,10 @@ def main() -> int:
         "connector_diagnostics": {
             "google_places": places_status(),
             "brave_search": {"configured": brave_available()},
+            "tavily_keyless_search": {
+                "configured": keyless_search_available(),
+                "publication": "candidate discovery only; destination must pass exact-company verification",
+            },
             "public_job_boards": {"providers": ["greenhouse", "lever", "ashby"], "requires": "verified company-site link and exact advert employer"},
         },
         "validation": validation,

@@ -314,7 +314,7 @@ def extract_feed_news(feed_bytes: bytes, feed_url: str, base_url: str) -> list[d
         items.append({
             "title": title[:200],
             "url": abs_link,
-            "verification": "site_listing",
+            "verification": "feed_listing",
             "article_url": abs_link,
             "source_url": feed_url,
             "published_at": norm_date,
@@ -357,7 +357,7 @@ def extract_feed_news(feed_bytes: bytes, feed_url: str, base_url: str) -> list[d
         items.append({
             "title": title[:200],
             "url": abs_link,
-            "verification": "site_listing",
+            "verification": "feed_listing",
             "article_url": abs_link,
             "source_url": feed_url,
             "published_at": norm_date,
@@ -397,7 +397,7 @@ def extract_wp_json_news(raw_bytes: bytes, api_url: str, base_url: str) -> list[
             items.append({
                 "title": title[:200],
                 "url": link,
-                "verification": "site_listing",
+                "verification": "feed_listing",
                 "article_url": link,
                 "source_url": api_url,
                 "published_at": pub_date,
@@ -1260,6 +1260,11 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2
             "title": title[:500],
             "main_text_excerpt": text[:5000],
             "content_sha256": value["content_sha256"],
+            "news_feed_links": [
+                urllib.parse.urljoin(final_url, str(link["href"]))
+                for link in soup.select('link[rel="alternate"][href]')
+                if str(link.get("type", "")).lower() in {"application/rss+xml", "application/atom+xml"}
+            ],
             "news_items": homepage_news,
             "job_postings": homepage_jobs,
         }]
@@ -1304,7 +1309,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2
             elif page_error:
                 crawl_errors.append({"url": page_url, "error": page_error})
         if not any(item.get("published_at") for item in all_news_items):
-            for feed in (link for page in pages[1:] for link in page.get("news_feed_links", [])):
+            for feed in (link for page in pages for link in page.get("news_feed_links", [])):
                 if not feed.startswith("https://") or _registered_domain(feed) != homepage_domain or feed.rstrip("/") in seen_pages:
                     continue
                 feed_page, _, count, size, latency, error = _fetch_secondary_page(
@@ -1320,6 +1325,33 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2
                 elif error:
                     crawl_errors.append({"url": feed, "error": error})
                 break
+        # A feed is a discovery source, not article evidence. Re-fetch a small
+        # number of its posts so the publication gate can check the article's
+        # own text for the exact company name.
+        checked_articles = 0
+        for item in all_news_items:
+            if item.get("verification") != "feed_listing" or checked_articles >= 2:
+                continue
+            article_url = str(item.get("url") or "")
+            if not article_url.startswith("https://") or _registered_domain(article_url) != homepage_domain:
+                continue
+            checked_articles += 1
+            article, _, count, size, latency, error = _fetch_secondary_page(
+                article_url, homepage_domain=homepage_domain, timeout=timeout,
+                max_bytes=min(max_bytes, 1_000_000),
+            )
+            requests += count
+            bytes_received += size
+            if latency:
+                page_latencies.append(latency)
+            if article and len(str(article.get("main_text_excerpt") or "")) >= 80:
+                pages.append(article)
+                item["verification"] = "article_fetched"
+                item["article_text_excerpt"] = article["main_text_excerpt"]
+                item["source_url"] = article["url"]
+                item["content_sha256"] = article["content_sha256"]
+            elif error:
+                crawl_errors.append({"url": article_url, "error": error})
         value["pages"] = pages
         value["social_links"] = list({(item["platform"], item["url"]): item for item in social}.values())
 

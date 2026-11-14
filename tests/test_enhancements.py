@@ -288,7 +288,9 @@ class GooglePlacesWebsiteTests(unittest.TestCase):
 
         with patch("run_agent.places_available", return_value=True), patch(
             "run_agent.fetch_place_data", return_value=fake_place_obs
-        ) as mock_fetch_places, patch("run_agent.fetch_website") as mock_fetch_web:
+        ) as mock_fetch_places, patch("run_agent.fetch_website") as mock_fetch_web, patch(
+            "run_agent.probe_heuristic_domain", return_value=None
+        ), patch("run_agent.keyless_search_available", return_value=False):
             mock_fetch_web.return_value = (
                 {
                     "status": "available",

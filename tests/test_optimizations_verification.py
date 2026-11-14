@@ -169,8 +169,11 @@ class OptimizationsVerificationTests(unittest.TestCase):
         self.assertEqual(rss_items[0]["title"], "Signerte ny rammeavtale med Statnett")
         self.assertEqual(rss_items[0]["url"], "https://www.example.no/nyheter/statnett-avtale")
         self.assertEqual(rss_items[0]["published_at"], "2026-09-15")
-        self.assertEqual(rss_items[0]["verification"], "site_listing")
+        self.assertEqual(rss_items[0]["verification"], "feed_listing")
         self.assertEqual(len(rss_items[0]["content_sha256"]), 64)
+        from norway_company_agent.verified_items import validate_news_item
+        ok, reason = validate_news_item(rss_items[0], company_name="Example AS", site_url="https://www.example.no")
+        self.assertFalse(ok, reason)
 
         atom_xml = b"""<?xml version="1.0" encoding="utf-8"?>
         <feed xmlns="http://www.w3.org/2005/Atom">

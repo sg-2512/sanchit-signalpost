@@ -109,14 +109,24 @@ DEFAULT_FRAMEWORK_FILES = [
 ]
 
 DEFAULT_CONNECTOR_FILES = [
+    "config/source-rights.json",
+    "run_agent.py",
+    "src/norway_company_agent/batch.py",
+    "src/norway_company_agent/connectors/ats_discovery.py",
+    "src/norway_company_agent/connectors/job_boards.py",
     "src/norway_company_agent/connectors/brave_search.py",
     "src/norway_company_agent/connectors/google_places.py",
     "src/norway_company_agent/connectors/nav_jobs.py",
+    "src/norway_company_agent/connectors/nav_feed.py",
     "src/norway_company_agent/connectors/google_news.py",
     "src/norway_company_agent/connectors/youtube.py",
     "src/norway_company_agent/connectors/linkedin.py",
     "src/norway_company_agent/budget.py",
+    "src/norway_company_agent/hiring.py",
     "src/norway_company_agent/identity.py",
+    "src/norway_company_agent/synthesis.py",
+    "src/norway_company_agent/verified_items.py",
+    "src/norway_company_agent/website.py",
 ]
 
 
