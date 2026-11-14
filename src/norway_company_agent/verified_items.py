@@ -147,7 +147,10 @@ def brand_tokens(company_name: str, site_url: str = "") -> set[str]:
     return tokens
 
 
-def name_in_text(company_name: str, text: str, *, min_tokens: int = 1) -> bool:
+def name_in_text(
+    company_name: str, text: str, *, min_tokens: int = 1,
+    allow_short_single_token: bool = False,
+) -> bool:
     """True when the full distinctive company name appears in ``text`` (token-sequence match)."""
     table = str.maketrans({"ø": "o", "å": "a", "æ": "ae", "Ø": "o", "Å": "a", "Æ": "ae"})
     name_words = re.findall(r"[a-z0-9]+", str(company_name or "").translate(table).casefold())
@@ -157,7 +160,7 @@ def name_in_text(company_name: str, text: str, *, min_tokens: int = 1) -> bool:
         return False
     text_words = re.findall(r"[a-z0-9]+", str(text or "").translate(table).casefold())
     n = len(name_words)
-    if n == 1 and len(name_words[0]) < 5:
+    if n == 1 and len(name_words[0]) < 5 and not allow_short_single_token:
         return False
     for i in range(len(text_words) - n + 1):
         if text_words[i:i + n] == name_words:
@@ -385,21 +388,16 @@ def validate_news_item(
         return False, "too_old"
     if item.get("verification") == "inline_newsroom":
         path = urllib.parse.urlsplit(url).path.casefold()
-        if is_company_site and url.rstrip("/") == str(item.get("source_url") or "").rstrip("/") and any(token in path for token in ("nyhet", "news", "aktuelt", "pressemelding", "press")):
+        if (is_company_site and item.get("name_in_article")
+                and url.rstrip("/") == str(item.get("source_url") or "").rstrip("/")
+                and any(token in path for token in ("nyhet", "news", "aktuelt", "pressemelding", "press"))):
             return True, "company_inline_newsroom_item"
         return False, "unverified_inline_newsroom"
     verification = str(item.get("verification") or "")
-    article_leaf = bool(
-        verification == "article_fetched" and item.get("name_in_article")
-        and len(path_segments(url)) >= 2
-        and path_segments(url)[-1].casefold() not in _PATH_HUB_TOKENS
-    )
-    if is_hub_url(url) and not article_leaf:
+    if is_hub_url(url):
         return False, "hub_or_listing_url"
-    if verification == "article_fetched" or item.get("name_in_article"):
-        if not item.get("name_in_article"):
-            return False, "company_not_named_in_article"
-        return True, "article_verified"
-    if (verification == "site_listing" or not verification) and is_company_site:
-        return True, "company_newsroom_item"
-    return False, "unverified_source"
+    if verification != "article_fetched":
+        return False, "article_not_refetched"
+    if not item.get("name_in_article"):
+        return False, "company_not_named_in_article"
+    return True, "article_verified"

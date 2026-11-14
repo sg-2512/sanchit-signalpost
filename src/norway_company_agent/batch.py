@@ -818,7 +818,11 @@ def build_contract_claims_and_evidence(
             "name_in_article": (
                 bool(cand.get("name_in_article"))
                 or (is_site_news and cand.get("verification") == "article_fetched"
-                    and name_in_text(profile.get("name") or "", str(cand.get("article_text_excerpt") or "")))
+                    and name_in_text(profile.get("name") or "", str(cand.get("article_text_excerpt") or ""),
+                                     allow_short_single_token=True))
+                or (is_site_news and cand.get("verification") == "inline_newsroom"
+                    and name_in_text(profile.get("name") or "", str(cand.get("excerpt") or ""),
+                                     allow_short_single_token=True))
                 or (not is_site_news and name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}"))
             ),
             "_is_site": is_site_news,

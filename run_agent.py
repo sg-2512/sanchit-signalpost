@@ -81,7 +81,7 @@ from norway_company_agent.source_policy import (
 from norway_company_agent.identity import apply_website_identity_gate, apply_entity_identity_gate
 from norway_company_agent.official import fetch_official_modules
 from norway_company_agent.website import fetch_website
-from norway_company_agent.verified_items import validate_job_item, validate_news_item
+from norway_company_agent.verified_items import name_in_text, validate_job_item, validate_news_item
 from norway_company_agent.discovery import (
     candidate_site_origin,
     discover_company_websites_keyless,
@@ -231,6 +231,22 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
         evidence_url = str(item.get("source_url") or item.get("listing_url") or url).strip()
         if not title or len(title) < 5:
             continue
+        verification = str(item.get("verification") or "site_listing")
+        article_text = (
+            str(item.get("excerpt") or "") if verification == "inline_newsroom"
+            else str(item.get("article_text_excerpt") or "")
+        )
+        name_in_article = name_in_text(
+            profile.get("name") or "", article_text,
+            allow_short_single_token=True,
+        )
+        valid, _ = validate_news_item(
+            {**item, "url": url, "verification": verification,
+             "name_in_article": name_in_article},
+            company_name=profile.get("name") or "", site_url=site_url,
+        )
+        if not valid:
+            continue
         key = title.casefold()
         if key in seen:
             continue
@@ -250,7 +266,8 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
             "published_at": published_at,
             "content_sha256": digest,
             "exact_entity": True,
-            "verification": str(item.get("verification") or "site_listing"),
+            "verification": verification,
+            "name_in_article": name_in_article,
             "article_url": url,
             "identity_proof": [
                 {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
@@ -1313,7 +1330,7 @@ def enrich_single_company(
             "content_sha256": sha,
             "published_at": o.get("published_at"),
             "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
-            "name_in_article": o.get("name_in_article") or bool(o.get("exact_entity")),
+            "name_in_article": bool(o.get("name_in_article")),
         }
         ok, _ = validate_news_item(cand, company_name=c_name, site_url=site_url)
         if ok:
@@ -1340,7 +1357,7 @@ def enrich_single_company(
                         "published_at": o.get("published_at"),
                         "content_sha256": o.get("content_sha256"),
                         "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
-                        "name_in_article": o.get("name_in_article") or bool(o.get("exact_entity")),
+                        "name_in_article": bool(o.get("name_in_article")),
                     }
                     for o in all_news_obs
                 ],

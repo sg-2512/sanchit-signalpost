@@ -316,7 +316,7 @@ def probe_heuristic_domain(
         return None
 
     candidates = _domain_slugs(name)
-    for cand in (tokens[0] if len(tokens[0]) >= 6 else "",):
+    for cand in (tokens[0] if len(tokens[0]) >= 5 else "",):
         if cand and len(cand) >= 3 and cand not in candidates:
             candidates.insert(min(2, len(candidates)), cand)
     # Registered workplaces sometimes trade under a shorter name. Their

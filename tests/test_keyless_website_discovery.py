@@ -4,8 +4,11 @@ import json
 from unittest.mock import MagicMock, patch
 
 from norway_company_agent import discovery
-from norway_company_agent.identity import apply_entity_identity_gate
+from norway_company_agent.identity import apply_entity_identity_gate, assess_entity_identity
 from norway_company_agent.discovery import candidate_site_origin
+from norway_company_agent.website import _priority_links, _site_identity_text
+from norway_company_agent.verified_items import name_in_text
+from bs4 import BeautifulSoup
 
 
 def test_search_result_company_listing_is_crawled_at_operator_root() -> None:
@@ -130,4 +133,48 @@ def test_norwegian_mva_footer_is_exact_legal_operator_proof() -> None:
     assessed = apply_entity_identity_gate(profile, website)
     assert assessed["website"]["value"]["identity_assessment"]["publishable"] is True
     assert assessed["entity_assessment"]["found_org_numbers"] == ["827340162"]
+
+
+def test_about_and_contact_get_legal_proof_slots_before_news_and_careers() -> None:
+    soup = BeautifulSoup(
+        '<a href="/news">News</a><a href="/careers">Careers</a>'
+        '<a href="/Omoss.html">Om oss</a><a href="/kontakt">Kontakt</a>',
+        "html.parser",
+    )
+    assert _priority_links("https://example.no/", soup, limit=4) == [
+        "https://example.no/kontakt",
+        "https://example.no/Omoss.html",
+        "https://example.no/careers",
+        "https://example.no/news",
+    ]
+
+
+def test_legal_number_in_div_with_strong_label_is_retained() -> None:
+    soup = BeautifulSoup(
+        "<div><strong>Foretaksnr.:</strong>&nbsp;923 609 016</div>",
+        "html.parser",
+    )
+    assert "Foretaksnr.: 923 609 016" in _site_identity_text(soup)
+
+
+def test_short_brand_needs_its_exact_number_in_same_operator_block() -> None:
+    profile = {
+        "name": "ACME AS", "organisation_number": "923609016",
+        "evidence": {"website": {"status": "available", "value": {
+            "final_url": "https://acme.no/",
+            "title": "ACME",
+            "main_text_excerpt": "Download software ACME AS",
+            "identity_text_excerpt": "ACME AS. Org nr 923 609 016",
+            "pages": [],
+        }}},
+    }
+    assert assess_entity_identity(profile)["publishable"]
+    profile["evidence"]["website"]["value"]["identity_text_excerpt"] = "ACME AS. Org nr 987 654 321"
+    assert not assess_entity_identity(profile)["publishable"]
+
+
+def test_short_brand_article_match_is_opt_in_for_verified_company_sites() -> None:
+    article = "The new integration from ACME sends orders to accounting automatically."
+    assert not name_in_text("ACME AS", article)
+    assert name_in_text("ACME AS", article, allow_short_single_token=True)
 

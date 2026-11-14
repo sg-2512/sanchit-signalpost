@@ -18,8 +18,9 @@ def test_inline_newsroom_requires_dated_entry_and_matching_source():
     assert len(items) == 1
     item = items[0]
     args = {"company_name": "Example AS", "site_url": "https://example.no", "today": datetime(2026, 11, 14).date()}
-    assert validate_news_item(item, **args)[0]
-    assert not validate_news_item({**item, "source_url": "https://other.no/news"}, **args)[0]
+    assert not validate_news_item(item, **args)[0]
+    assert validate_news_item({**item, "name_in_article": True}, **args)[0]
+    assert not validate_news_item({**item, "name_in_article": True, "source_url": "https://other.no/news"}, **args)[0]
 
 
 @pytest.mark.parametrize("board", ["https://example.teamtailor.com", "https://job-boards.eu.greenhouse.io/example"])

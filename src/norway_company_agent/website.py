@@ -132,11 +132,29 @@ def _site_identity_text(soup: BeautifulSoup) -> str:
     """Keep operator details that article-text extraction usually drops."""
     blocks = soup.select("footer, [role='contentinfo'], address")[:12]
     snippets = [block.get_text(" ", strip=True)[:1600] for block in blocks]
+    legal_label = re.compile(
+        r"\b(?:org\.?\s*(?:nr|nummer|no\.?)|organisasjonsnummer|foretaks\s*(?:nr|nummer)|organi[sz]ation\s+number|VAT\s*(?:no|number)|MVA\b)",
+        re.I,
+    )
+    formatted_number = re.compile(r"(?<!\d)\d{3}[\s.\u00a0-]*\d{3}[\s.\u00a0-]*\d{3}(?!\d)")
     for block in soup.select("p, address, li, td"):
         text = block.get_text(" ", strip=True)
-        if len(text) <= 1200 and re.search(r"\b(?:org\.?\s*(?:nr|nummer|no\.?)|organisasjonsnummer|organi[sz]ation\s+number|VAT\s*(?:no|number))", text, re.I):
+        if len(text) <= 1200 and legal_label.search(text):
             if text not in snippets:
                 snippets.append(text)
+    # Older sites often place the label in <strong> and its number in a
+    # neighbouring text node inside a div, outside p/td/footer elements.
+    for node in soup.find_all(string=legal_label):
+        parent = node.parent
+        for _ in range(4):
+            if parent is None or parent.name in {"body", "html"}:
+                break
+            text = parent.get_text(" ", strip=True)
+            if len(text) <= 1200 and formatted_number.search(text):
+                if text not in snippets:
+                    snippets.append(text)
+                break
+            parent = parent.parent
     return "\n".join(snippets)[:10000]
 
 
@@ -829,7 +847,7 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
     base_reg_domain = _registered_domain(base_url)
     career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
     news_terms = ("aktuelt", "nyheter", "siste-nytt", "news", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "artikler", "blogg", "press", "presse", "media", "publikasjoner")
-    about_terms = ("kontakt", "contact", "personvern", "privacy", "legal", "vilkar", "vilkår", "terms", "om-oss", "om_oss", "about", "ledelse", "management", "team", "people", "locations", "lokasjoner", "avdelinger", "butikker")
+    about_terms = ("kontakt", "contact", "om-oss", "om_oss", "om oss", "omoss", "about", "personvern", "privacy", "legal", "vilkar", "vilkår", "terms", "ledelse", "management", "team", "people", "locations", "lokasjoner", "avdelinger", "butikker")
 
     career_cands: dict[str, int] = {}
     news_cands: dict[str, int] = {}
@@ -903,14 +921,12 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
 
     selected: list[str] = []
     for bucket in (
+        sorted_others[:2],
         sorted_careers[:1],
-        sorted_others[:1],
         sorted_news[:1],
-        sorted_careers[1:2],
-        sorted_news[1:2],
-        sorted_news[2:3],
-        sorted_careers[2:3],
-        sorted_others[1:],
+        sorted_others[2:],
+        sorted_careers[1:],
+        sorted_news[1:],
     ):
         for u in bucket:
             if u not in selected and len(selected) < limit:
@@ -1173,7 +1189,7 @@ def extract_local_business_schema(structured: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_000_000, budget: Any = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_000_000, budget: Any = None) -> tuple[dict[str, Any], dict[str, Any]]:
     context = {"budget": budget, "requests": 0} if budget is not None else None
     token = _REQUEST_CONTEXT.set(context)
     try:
@@ -1185,7 +1201,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         _REQUEST_CONTEXT.reset(token)
 
 
-def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_000_000) -> tuple[dict[str, Any], dict[str, Any]]:
+def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_000_000) -> tuple[dict[str, Any], dict[str, Any]]:
     supplied_url = str(url or "").strip()
     supplied_scheme = bool(re.match(r"^https?://", supplied_url, re.I))
     normalized = normalize_homepage(url)
@@ -1275,7 +1291,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
         # A homepage careers link can be a portal rather than an individual job.
-        subpage_limit = 3
+        subpage_limit = 4
         pending_pages = _priority_links(final_url, soup, limit=subpage_limit)
         if "cdn.shopify.com" in html or "Shopify.theme" in html:
             legal_notice = urllib.parse.urljoin(final_url, "/policies/legal-notice")
@@ -1325,33 +1341,44 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2
                 elif error:
                     crawl_errors.append({"url": feed, "error": error})
                 break
-        # A feed is a discovery source, not article evidence. Re-fetch a small
-        # number of its posts so the publication gate can check the article's
-        # own text for the exact company name.
+        # Listings and feeds propose articles; only the article page supplies
+        # publication evidence. Reuse pages already fetched for site discovery.
         checked_articles = 0
+        article_pages = {str(page.get("url") or "").rstrip("/"): page for page in pages}
         for item in all_news_items:
-            if item.get("verification") != "feed_listing" or checked_articles >= 2:
+            if item.get("verification") not in {"feed_listing", "site_listing"}:
                 continue
             article_url = str(item.get("url") or "")
-            if not article_url.startswith("https://") or _registered_domain(article_url) != homepage_domain:
+            if (not article_url.startswith("https://")
+                    or _registered_domain(article_url) != homepage_domain
+                    or is_hub_url(article_url)):
                 continue
-            checked_articles += 1
-            article, _, count, size, latency, error = _fetch_secondary_page(
-                article_url, homepage_domain=homepage_domain, timeout=timeout,
-                max_bytes=min(max_bytes, 1_000_000),
-            )
-            requests += count
-            bytes_received += size
-            if latency:
-                page_latencies.append(latency)
-            if article and len(str(article.get("main_text_excerpt") or "")) >= 80:
-                pages.append(article)
+            article = article_pages.get(article_url.rstrip("/"))
+            if article is None:
+                if checked_articles >= 2:
+                    continue
+                checked_articles += 1
+                article, _, count, size, latency, error = _fetch_secondary_page(
+                    article_url, homepage_domain=homepage_domain, timeout=timeout,
+                    max_bytes=min(max_bytes, 1_000_000),
+                )
+                requests += count
+                bytes_received += size
+                if latency:
+                    page_latencies.append(latency)
+                if article:
+                    pages.append(article)
+                    article_pages[article_url.rstrip("/")] = article
+                elif error:
+                    crawl_errors.append({"url": article_url, "error": error})
+            article_title = str(article.get("title") or "") if article else ""
+            listing_title = str(item.get("title") or "")
+            if (article and len(str(article.get("main_text_excerpt") or "")) >= 80
+                    and listing_title and listing_title.casefold() in article_title.casefold()):
                 item["verification"] = "article_fetched"
                 item["article_text_excerpt"] = article["main_text_excerpt"]
                 item["source_url"] = article["url"]
                 item["content_sha256"] = article["content_sha256"]
-            elif error:
-                crawl_errors.append({"url": article_url, "error": error})
         value["pages"] = pages
         value["social_links"] = list({(item["platform"], item["url"]): item for item in social}.values())
 

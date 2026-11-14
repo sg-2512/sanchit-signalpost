@@ -411,7 +411,7 @@ def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) ->
     for index, page in enumerate(pages):
         identity_text = str(page.get("identity_text_excerpt") or "")
         for match in re.finditer(
-            r"\b(?:org\.?\s*(?:nr\.?|nummer|no\.?)|organisasjonsnummer|organisation\s+number|organization\s+number|VAT\s*(?:no\.?|number)|MVA)\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0-]*){8}\d)(?!\d)",
+            r"\b(?:org\.?\s*(?:nr\.?|nummer|no\.?)|organisasjonsnummer|foretaks\s*(?:nr\.?|nummer)|organisation\s+number|organization\s+number|VAT\s*(?:no\.?|number)|MVA)\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0-]*){8}\d)(?!\d)",
             identity_text,
             re.I,
         ):
@@ -601,6 +601,16 @@ def assess_entity_identity(
 
     # --- Factor 2: Legal name ---
     name_match = name_in_text(name, combined_text) if name else False
+    if not name_match and orgnr_match and len(core) == 1 and len(core[0]) >= 3:
+        # The generic text matcher deliberately rejects short one-word brands.
+        # An exact number and that brand in the same on-site operator block is
+        # stronger evidence than a loose name match across the entire crawl.
+        operator_blocks = [str(w_value.get("identity_text_excerpt") or "")]
+        operator_blocks.extend(str(page.get("identity_text_excerpt") or "") for page in w_value.get("pages", []))
+        name_match = any(
+            _find_org_numbers(block) == {org_digits} and core[0] in _tokens(block)
+            for block in operator_blocks if block
+        )
     overlap = sorted(set(core) & candidate_tokens)
     name_ratio = len(overlap) / len(set(core)) if core else 0.0
     name_score = 1.0 if name_match else (name_ratio if name_ratio > 0 else 0.0)
