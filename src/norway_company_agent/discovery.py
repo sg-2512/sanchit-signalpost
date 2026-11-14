@@ -6,7 +6,27 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from .website import normalize_homepage, _safe_urlopen
+from .website import normalize_homepage, _safe_urlopen, _robots_allowed, assert_public_url, _REQUEST_CONTEXT, USER_AGENT
+
+
+def _read_candidate_page(url: str, budget: Any, timeout: float) -> tuple[str, str] | None:
+    context = {"budget": budget, "requests": 0} if budget is not None else None
+    token = _REQUEST_CONTEXT.set(context)
+    try:
+        assert_public_url(url)
+        if not _robots_allowed(url, timeout):
+            return None
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with _safe_urlopen(request, timeout=timeout) as response:
+            raw = response.read(250_000)
+            final_url = response.geturl() or url
+        if budget is not None:
+            budget.record_request(count=0, bytes_received=len(raw))
+        return raw.decode("utf-8", errors="replace"), final_url
+    except (OSError, ValueError):
+        return None
+    finally:
+        _REQUEST_CONTEXT.reset(token)
 
 
 BLOCKED_DISCOVERY_HOSTS = {
@@ -126,6 +146,7 @@ def probe_heuristic_domain(
     *,
     budget: Any | None = None,
     timeout: float = 4.0,
+    accept_candidate: Any = None,
 ) -> str | None:
     """Heuristic Level-3 Norwegian domain probe (e.g. equinor.no, kongsberg.no).
 
@@ -194,35 +215,20 @@ def probe_heuristic_domain(
             for url in (f"https://{dom}", f"https://www.{dom}"):
                 if budget and not budget.can_proceed(reserve=5):
                     return None
-                try:
-                    req = urllib.request.Request(
-                        url,
-                        headers={"User-Agent": "Mozilla/5.0 (compatible; SignalpostAgent/1.0; +https://builderr.ai)"},
-                    )
-                    try:
-                        cm = urllib.request.urlopen(req, timeout=timeout)
-                    except Exception as exc:
-                        if "ssl" in str(exc).lower() or "cert" in str(exc).lower():
-                            cm = _safe_urlopen(req, timeout=timeout)
-                        else:
-                            raise
-                    with cm as resp:
-                        if resp.status in (200, 301, 302):
-                            raw = resp.read(250_000).decode("utf-8", errors="replace")
-                            if budget:
-                                budget.record_request(bytes_received=len(raw), cost_usd=0.0)
-                            raw_lower = raw.lower()
-                            if (
-                                (org_clean and org_clean in raw)
-                                or (org_spaced and org_spaced in raw)
-                                or name.lower() in raw_lower
-                                or (len(clean_core) >= 5 and clean_core in raw_lower)
-                            ):
-                                return resp.geturl() or url
-                            # Domain responded with 200 OK but did not match; no need to retry www. variant
-                            break
-                except Exception:
+                page = _read_candidate_page(url, budget, timeout)
+                if page is None:
                     continue
+                raw, final_url = page
+                raw_lower = raw.lower()
+                if (
+                    (org_clean and org_clean in raw)
+                    or (org_spaced and org_spaced in raw)
+                    or name.lower() in raw_lower
+                    or (len(clean_core) >= 5 and clean_core in raw_lower)
+                ):
+                    if accept_candidate is None or accept_candidate(final_url):
+                        return final_url
+                break
 
     return None
 

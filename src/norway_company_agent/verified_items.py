@@ -235,6 +235,55 @@ def validate_job_item(
         return False, "disallowed_source"
 
     kind = str(item.get("kind") or "")
+    if kind == "verified_career_ad":
+        source_domain = registered_domain(str(item.get("career_source_url") or ""))
+        site_domain = registered_domain(site_url)
+        if not site_publishable or not source_domain or source_domain != site_domain:
+            return False, "career_link_not_verified"
+        public_board_hosts = {"boards.greenhouse.io", "job-boards.greenhouse.io", "jobs.lever.co", "jobs.eu.lever.co", "jobs.ashbyhq.com"}
+        linked_html_board = host == "job-boards.eu.greenhouse.io" or (host.endswith(".teamtailor.com") and host not in {"app.teamtailor.com", "tt.teamtailor.com", "www.teamtailor.com"})
+        if linked_html_board:
+            link = str(item.get("career_link_url") or "")
+            segments = path_segments(url)
+            linked_segments = path_segments(link)
+            if host_of(link) != host:
+                return False, "career_board_mismatch"
+            if host == "job-boards.eu.greenhouse.io":
+                valid_path = len(segments) == 3 and segments[:1] == linked_segments[:1] and segments[1] == "jobs" and segments[2].isdigit()
+            else:
+                valid_path = len(segments) == 2 and segments[0] == "jobs" and bool(re.fullmatch(r"[0-9]+(?:-.+)?", segments[1]))
+            if not valid_path:
+                return False, "not_supported_career_ad"
+        elif is_hub_url(url) or (registered_domain(url) != site_domain and not host.endswith(".myworkdayjobs.com") and host not in public_board_hosts):
+            return False, "not_supported_career_ad"
+        employer_org = str(item.get("employer_org") or "")
+        if employer_org and employer_org not in {str(org), *(str(value) for value in subunit_orgs or ())}:
+            return False, "career_employer_org_mismatch"
+        employer_name = str(item.get("employer_name") or "")
+        if host.endswith(".myworkdayjobs.com"):
+            employer_name = re.sub(r"^\d{1,6}\s+", "", employer_name)
+        if not employer_org and " ".join(employer_name.casefold().split()) != " ".join(company_name.casefold().split()):
+            return False, "career_employer_name_mismatch"
+        posted = parse_iso_date(item.get("published_at"))
+        closes = parse_iso_date(item.get("valid_through"))
+        today = datetime.now(timezone.utc).date()
+        from .connectors.job_boards import board_endpoint
+        listing = item.get("active_listing") or {}
+        linked_endpoint = board_endpoint(str(item.get("career_link_url") or ""))
+        live_listing = bool(
+            isinstance(listing, dict) and linked_endpoint
+            and listing.get("source_url") == linked_endpoint == board_endpoint(url)
+            and listing.get("advert_url") == url
+            and parse_iso_date(listing.get("retrieved_at")) == today
+            and re.fullmatch(r"[0-9a-f]{64}", str(listing.get("content_sha256") or ""))
+        )
+        expired_or_future = (closes is not None and closes <= today) or (posted is not None and posted > today)
+        if expired_or_future or not (live_listing or (posted and closes and posted <= today < closes)):
+            return False, "career_ad_not_current"
+        if not re.fullmatch(r"[0-9a-f]{64}", str(item.get("content_sha256") or "")):
+            return False, "invalid_evidence_hash"
+        return True, "verified_individual_career_ad"
+
     if kind == "nav_ad" or host == "arbeidsplassen.nav.no":
         if not _NAV_AD_RE.match(url.split("?")[0].split("#")[0]):
             return False, "nav_not_single_ad"
@@ -334,6 +383,11 @@ def validate_news_item(
         return False, "future_date"
     if (ref - pub).days > max_age_days:
         return False, "too_old"
+    if item.get("verification") == "inline_newsroom":
+        path = urllib.parse.urlsplit(url).path.casefold()
+        if is_company_site and url.rstrip("/") == str(item.get("source_url") or "").rstrip("/") and any(token in path for token in ("nyhet", "news", "aktuelt", "pressemelding", "press")):
+            return True, "company_inline_newsroom_item"
+        return False, "unverified_inline_newsroom"
     if is_hub_url(url):
         return False, "hub_or_listing_url"
     verification = str(item.get("verification") or "")

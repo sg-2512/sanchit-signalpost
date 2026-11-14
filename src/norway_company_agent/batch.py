@@ -278,6 +278,8 @@ def _normalize_date_str(val: Any) -> str | None:
 def build_contract_claims_and_evidence(
     profile: dict[str, Any],
     completed_at: str,
+    *,
+    first_party_activity_only: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     from .identity import apply_entity_identity_gate, apply_website_identity_gate
 
@@ -789,14 +791,17 @@ def build_contract_claims_and_evidence(
         cand_sha = str(cand.get("content_sha256") or "")
         site_reg_dom = registered_domain(website_url) if website_url else ""
         cand_reg_dom = registered_domain(c_url)
-        is_site_news = bool(site_reg_dom) and (cand_reg_dom == site_reg_dom)
+        is_site_news = bool(has_valid_site_ev and site_reg_dom and cand_reg_dom == site_reg_dom)
+        is_official = "brreg" in c_src or "brreg.no" in lower_u or "offisiell registrering" in lower_t or "kunngjøring" in lower_t
+        if first_party_activity_only and not is_site_news and not is_official:
+            continue
         if is_site_news:
             cand_src_url = str(cand.get("source_url") or (w_rec.get("source_url") if has_valid_site_ev else c_url))
             source_sha = crawled_page_shas.get(cand_src_url.rstrip("/"))
             if source_sha:
-                # A listing/feed hash is valid evidence when its URL is the source page
-                # that supplied the dated article listing. Do not substitute the homepage hash.
                 cand_sha = source_sha
+            elif not cand_sha:
+                cand_sha = str(w_rec.get("content_sha256") or "")
         else:
             cand_src_url = str(cand.get("source_url") or c_url)
         if not cand_sha:
@@ -923,8 +928,11 @@ def build_contract_claims_and_evidence(
     raw_job_candidates: list[dict[str, Any]] = []
     if j_status == "available" and j_val.get("items"):
         raw_job_candidates.extend(j_val.get("items") or [])
-    if is_publishable and w_val.get("job_postings"):
-        raw_job_candidates.extend(w_val.get("job_postings") or [])
+    if is_publishable:
+        if w_val.get("verified_job_adverts"):
+            raw_job_candidates.extend(w_val.get("verified_job_adverts") or [])
+        if w_val.get("job_postings"):
+            raw_job_candidates.extend(w_val.get("job_postings") or [])
     if hiring.get("signals"):
         for sig in hiring.get("signals", []):
             if sig.get("type") in {"official_job_posting", "corporate_job_posting"} and sig.get("title"):
@@ -953,6 +961,8 @@ def build_contract_claims_and_evidence(
     for cand in raw_job_candidates:
         if not isinstance(cand, dict):
             continue
+        if cand.get("requires_ad_verification"):
+            continue
         raw_t = str(cand.get("title") or cand.get("job_title") or "").replace("\\&", "&").strip()
         j_u = str(cand.get("url") or cand.get("source_url") or "").strip()
         if not raw_t or not j_u.startswith(("http://", "https://")):
@@ -974,7 +984,7 @@ def build_contract_claims_and_evidence(
             continue
         seen_job_keys.add(dedup_k)
 
-        is_verified_board = "arbeidsplassen.nav.no/stillinger/stilling/" in lower_u or "linkedin.com/jobs/view/" in lower_u
+        is_verified_board = cand.get("kind") == "verified_career_ad" or "arbeidsplassen.nav.no/stillinger/stilling/" in lower_u or "linkedin.com/jobs/view/" in lower_u
         j_cand_sha = str(cand.get("content_sha256") or "")
         if not is_verified_board and has_valid_site_ev and j_cand_sha not in valid_page_sha_set:
             j_cand_sha = str(w_rec.get("content_sha256"))
@@ -998,6 +1008,10 @@ def build_contract_claims_and_evidence(
             "employer_name": cand.get("employer_name") or "",
             "match_type": cand.get("match_type") or "",
             "hiring_org_match": cand.get("hiring_org_match"),
+            "valid_through": cand.get("valid_through"),
+            "career_source_url": cand.get("career_source_url"),
+            "career_link_url": cand.get("career_link_url"),
+            "active_listing": cand.get("active_listing"),
             "_priority": 2 if "arbeidsplassen.nav.no" in lower_u else (1 if "linkedin.com/jobs/view/" in lower_u else 0),
         })
 
@@ -1013,11 +1027,6 @@ def build_contract_claims_and_evidence(
 
     # Only single job advertisements posted by this company are published as job_postings;
     # listing pages, career hubs, open application placeholders, and other employers' ads are never published.
-
-    if is_publishable and isinstance(w_val, dict):
-        w_val["job_postings"] = clean_job_items
-    if isinstance(j_val, dict) and clean_job_items:
-        j_val["items"] = clean_job_items
 
     jobs_ev_id = f"ev-jobs-{org}"
     if clean_job_items:
@@ -1048,6 +1057,50 @@ def build_contract_claims_and_evidence(
             "confidence": 0.95,
             "evidence_ids": [jobs_ev_id],
         })
+        if primary_job.get("kind") == "verified_career_ad":
+            job_evidence_ids = [jobs_ev_id]
+            for index, item in enumerate(clean_job_items):
+                listing = item.get("active_listing")
+                if listing:
+                    listing_id = f"{jobs_ev_id}-listing-{index + 1}"
+                    evidence_items.append({
+                        "id": listing_id,
+                        "source_url": listing["source_url"],
+                        "source_class": "job_board",
+                        "retrieved_at": listing["retrieved_at"],
+                        "content_sha256": listing["content_sha256"],
+                        "claim_span": f"Published job listing includes {item['url']}",
+                    })
+                    job_evidence_ids.append(listing_id)
+                career_url = str(item.get("career_source_url") or "")
+                career_sha = crawled_page_shas.get(career_url.rstrip("/"))
+                if index:
+                    advert_id = f"{jobs_ev_id}-{index + 1}"
+                    evidence_items.append({
+                        "id": advert_id,
+                        "source_url": item["url"],
+                        "source_class": "job_board",
+                        "retrieved_at": j_rec.get("retrieved_at") or completed_at,
+                        "content_sha256": item["content_sha256"],
+                        "claim_span": f"Active job vacancy: {item['title']}",
+                    })
+                    job_evidence_ids.append(advert_id)
+                if career_sha and career_url and not any(
+                    ev_item.get("source_url") == career_url and ev_item.get("content_sha256") == career_sha
+                    and ev_item["id"] in job_evidence_ids for ev_item in evidence_items
+                ):
+                    career_id = f"{jobs_ev_id}-career-{index + 1}"
+                    evidence_items.append({
+                        "id": career_id,
+                        "source_url": career_url,
+                        "source_class": "company_site",
+                        "retrieved_at": w_rec.get("retrieved_at") or completed_at,
+                        "content_sha256": career_sha,
+                        "claim_span": f"Official recruitment link: {item.get('career_link_url') or item['url']}",
+                    })
+                    job_evidence_ids.append(career_id)
+            for claim in claims[-2:]:
+                claim["evidence_ids"] = job_evidence_ids
         existing_job = next((item for item in evidence_items if item["id"] == jobs_ev_id), None)
         if existing_job:
             existing_job["content_sha256"] = j_sha
@@ -1093,6 +1146,7 @@ def terminal_envelope(
     modules: Iterable[str],
     started_at: str,
     completed_at: str,
+    first_party_activity_only: bool = False,
 ) -> dict[str, Any]:
     org = str(profile.get("organisation_number") or "")
     module_states = {}
@@ -1161,7 +1215,9 @@ def terminal_envelope(
         except Exception:
             pass
 
-    claims, evidence_list = build_contract_claims_and_evidence(profile, completed_at)
+    claims, evidence_list = build_contract_claims_and_evidence(
+        profile, completed_at, first_party_activity_only=first_party_activity_only,
+    )
     run_metrics = profile.get("run_metrics") or {}
 
     synth = profile.get("synthesis")

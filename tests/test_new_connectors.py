@@ -181,6 +181,10 @@ class NewConnectorsUnitTests(unittest.TestCase):
         self.assertEqual(o["signal_type"], "patent_trademark_record")
         self.assertEqual(o["exact_entity"], True)
         self.assertEqual(o["metrics"]["application_number"], "202401234")
+        import hashlib
+        self.assertEqual(o["content_sha256"], hashlib.sha256(raw_bytes).hexdigest())
+        self.assertIn("CompanyNumber=999888777", o["source_url"])
+        self.assertIsNone(o["metrics"]["filing_date"])
 
     # ------------------------------------------------------------------------
     # 5. Budget Guard Enforcement

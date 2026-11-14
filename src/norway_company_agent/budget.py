@@ -98,6 +98,13 @@ class BudgetTracker:
             if latency:
                 self.latencies_ms.append(latency)
 
+    def try_start_request(self, *, reserve: int = 0) -> bool:
+        """Charge a single bounded request before sending it, across all workers."""
+        if self.elapsed_seconds() >= self.max_time_seconds or not self._reserve_request_slots(1, reserve=reserve):
+            return False
+        self._release_and_record(1, actual=1, cost_usd=0.0, bytes_received=0, elapsed_ms=0)
+        return True
+
     def fetch_json(self, url: str, *, timeout: float = 20.0, attempts: int = 3, cost_per_request: float = 0.0, reserve: int = 0) -> FetchResult:
         """Budget-aware wrapper around http.fetch_json.
 

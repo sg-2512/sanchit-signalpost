@@ -22,7 +22,6 @@ OFFICIAL_SAFE_STRATEGIES = frozenset({
     "official_subunit_workforce",
     "brreg_kunngjoringer_announcements",
     "brreg_kunngjoringer_ledger",
-    "nav_arbeidsplassen_search",
     "norid_rdap_verification",
     "wikidata_p2333",
     "company_site_activity",

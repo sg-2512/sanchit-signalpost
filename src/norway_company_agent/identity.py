@@ -390,16 +390,68 @@ def assess_social_identity(profile: dict[str, Any], link: dict[str, str]) -> dic
     }
 
 
-def apply_website_identity_gate(profile: dict[str, Any], website: dict[str, Any]) -> dict[str, Any]:
+def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) -> bool:
+    """Require an on-site operator identifier without dropping legal-name tokens."""
+    org = str(profile.get("organisation_number") or "")
+    legal_name = str(profile.get("name") or "")
+
+    def words(text: str) -> list[str]:
+        return re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", text).casefold())
+
+    legal_words = words(legal_name)
+    if not re.fullmatch(r"\d{9}", org) or len(legal_words) < 2:
+        return False
+    legal_pattern = r"(?<!\w)" + r"[\W_]+".join(re.escape(word) for word in legal_words) + r"(?!\w)"
+    landing_path = urllib.parse.urlsplit(str(value.get("final_url") or "")).path.strip("/")
+    # A named listing on a shared site can carry the store name in its title.
+    operator_title = str(value.get("title") or "") if landing_path.casefold() in {"", "no", "nb", "nn", "en", "en-us", "en-gb"} else ""
+    pages = [value, *(value.get("pages") or [])]
+    explicit_orgs = set()
+    name_match = False
+    for index, page in enumerate(pages):
+        identity_text = str(page.get("identity_text_excerpt") or "")
+        for match in re.finditer(
+            r"\b(?:org\.?\s*(?:nr\.?|nummer|no\.?)|organisasjonsnummer|organisation\s+number|organization\s+number|VAT\s*(?:no\.?|number))\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0]*){8}\d)(?!\d)",
+            identity_text,
+            re.I,
+        ):
+            explicit_orgs.add(re.sub(r"\D", "", match.group(1)))
+        for text in (operator_title if index == 0 else "", identity_text):
+            normalized = unicodedata.normalize("NFKC", text).casefold()
+            name_match |= bool(re.search(legal_pattern, normalized))
+        if index == 0:
+            for operator in page.get("structured_organisations") or []:
+                name_match |= words(str(operator.get("legalName") or operator.get("name") or "")) == legal_words
+    if explicit_orgs:
+        return explicit_orgs == {org}
+    return name_match
+
+
+def apply_website_identity_gate(
+    profile: dict[str, Any], website: dict[str, Any], *, require_legal_operator: bool = False,
+) -> dict[str, Any]:
     if website.get("status") != "available":
         return {"website": website, "assessment": None, "quarantined_social_links": 0}
     temporary_profile = {**profile, "evidence": {**profile.get("evidence", {}), "website": website}}
     value = website.get("value") or {}
     assessment = assess_website_identity(temporary_profile)
-    # Zero-tolerance: if assessment flags a group parent, public brand of another entity,
-    # or unrelated/confuser, do not publish website facts regardless of score.
+    if require_legal_operator:
+        reasons = assessment.get("reasons", [])
+        unusable_page = any(reason.startswith(("captured page is a parked", "captured URL redirected", "business sports-club")) for reason in reasons)
+        exact = not unusable_page and _has_legal_operator_proof(profile, value)
+        assessment = {
+            **assessment,
+            "publishable": exact,
+            "score": 0.99 if exact else min(assessment["score"], 0.75),
+            "status": "exact" if exact else "related_or_uncertain",
+            "relationship": "exact_legal_entity" if exact else "ambiguous_or_unproven",
+            "reasons": ["Website operator matches the legal name or organisation number"] if exact else [
+                *reasons, "Website operator could not be tied to the exact legal entity",
+            ],
+            "method": "onsite_legal_operator_v1",
+        }
     if assessment.get("relationship") in {"corporate_group_parent", "public_brand_or_related_entity", "unrelated_or_confuser"}:
-        return {"website": website, "assessment": assessment, "quarantined_social_links": 0}
+        assessment["publishable"] = False
     value["identity_assessment"] = assessment
     rel = assessment.get("relationship") or "exact_legal_entity"
     value["relationship_label"] = rel

@@ -68,6 +68,7 @@ from norway_company_agent.budget import BudgetTracker
 from norway_company_agent.evidence import utc_now
 from norway_company_agent.external_footprint import (
     aggregate_footprint,
+    INDEPENDENT_SENTIMENT_CLASSES,
     publishable_observation,
     validate_observation,
 )
@@ -77,7 +78,7 @@ from norway_company_agent.source_policy import (
     filter_publishable_observations,
     validate_policy_name,
 )
-from norway_company_agent.identity import apply_website_identity_gate
+from norway_company_agent.identity import apply_website_identity_gate, apply_entity_identity_gate
 from norway_company_agent.official import fetch_official_modules
 from norway_company_agent.website import fetch_website
 from norway_company_agent.verified_items import validate_job_item, validate_news_item
@@ -90,9 +91,11 @@ from norway_company_agent.connectors.social_discovery import fetch_social_profil
 from norway_company_agent.connectors.google_places import (
     fetch_place_data,
     is_available as places_available,
+    connector_status as places_status,
 )
 from norway_company_agent.connectors.youtube import (
     fetch_youtube_data,
+    fetch_linked_youtube_data,
     is_available as youtube_available,
 )
 from norway_company_agent.connectors.brave_search import (
@@ -115,7 +118,7 @@ from norway_company_agent.connectors.kartverket import geocode_address_kartverke
 from norway_company_agent.connectors.mattilsynet import fetch_mattilsynet_inspections
 from norway_company_agent.connectors.regulatory_licenses import fetch_regulatory_licenses
 from norway_company_agent.connectors.esg_certifications import fetch_esg_certifications
-from norway_company_agent.connectors.ats_discovery import fetch_ats_jobs
+from norway_company_agent.connectors.ats_discovery import verified_career_jobs
 from norway_company_agent.connectors.proff_directory import resolve_commercial_directory_presence
 from norway_company_agent.connectors.lovdata import fetch_insolvency_legal_notices
 from norway_company_agent.connectors.norid import verify_norid_domain_ownership, discover_norid_domain
@@ -270,19 +273,18 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
     if website.get("status") != "available" or not identity.get("publishable"):
         return []
 
-    job_postings = list(value.get("job_postings") or [])
+    job_postings = list(value.get("verified_job_adverts") or []) + list(value.get("job_postings") or [])
     if not job_postings and value.get("pages"):
         for page in value.get("pages", []):
             if page.get("job_postings"):
                 job_postings.extend(page["job_postings"])
-
     if not job_postings:
         return []
 
     site_url = str(value.get("final_url") or website.get("source_url") or "")
     retrieved_at = website.get("retrieved_at") or utc_now()
     observations = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
 
     for item in job_postings:
         title = str(item.get("title") or "Ledig stilling").strip()
@@ -308,9 +310,18 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
             "published_at": published_at,
             "content_sha256": digest,
             "exact_entity": True,
+            "kind": item.get("kind"),
+            "employer_name": item.get("employer_name"),
+            "employer_org": item.get("employer_org"),
+            "hiring_org_match": item.get("hiring_org_match"),
+            "valid_through": item.get("valid_through"),
+            "career_source_url": item.get("career_source_url"),
+            "career_link_url": item.get("career_link_url"),
+            "active_listing": item.get("active_listing"),
             "identity_proof": [
                 {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
-                {"type": "company_career_page", "parent_website": site_url},
+                {"type": "company_career_page", "source_url": item.get("career_source_url"), "linked_url": item.get("career_link_url")},
+                {"type": "job_advert_employer", "name": item.get("employer_name"), "organisation_number": item.get("employer_org")},
             ],
             "acquisition_mode": "permitted_public_page",
             "rights_status": "approved",
@@ -319,7 +330,7 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
             "evidence_span": f"Active recruitment notice '{title}' at {url}",
             "text": title,
             "metrics": {"job_title": title, "url": url, "published_at": published_at},
-            "strategy": "website_jobs_discovery",
+            "strategy": "company_site_job",
         })
     return observations
 
@@ -703,8 +714,52 @@ def enrich_single_company(
     wiki_obs: list[dict[str, Any]] = []
     patent_obs: list[dict[str, Any]] = []
 
+    def gate_website(record: dict[str, Any]) -> dict[str, Any]:
+        gated = apply_entity_identity_gate(profile, record)
+        value = gated["website"].get("value") or {}
+        assessment = value.get("identity_assessment") or {}
+        profile.setdefault("website_attempts", []).append({
+            "source_url": record.get("source_url"), "final_url": value.get("final_url"),
+            "status": gated["website"].get("status"), "publishable": bool(assessment.get("publishable")),
+            "reasons": assessment.get("reasons") or [record.get("note") or record.get("error") or "no usable page"],
+        })
+        return gated
+
     # 3. Fetch and verify company website via multi-level waterfall
     website_metrics = {"requests": 0, "bytes": 0, "latencies_ms": []}
+    # Share a per-company website allowance across every discovery route. A
+    # rejected domain must not be re-fetched for each trademark/email hint.
+    import copy
+    from types import SimpleNamespace
+    from urllib.parse import urlsplit
+    site_records: dict[str, Any] = {}
+    site_requests = 0
+    site_limit = max(0, effective_company_cap - local_reqs - 4)
+
+    def start_site_request(**kwargs: Any) -> bool:
+        nonlocal site_requests
+        if site_requests >= site_limit or not budget.try_start_request(**kwargs):
+            return False
+        site_requests += 1
+        return True
+
+    site_budget = SimpleNamespace(try_start_request=start_site_request)
+
+    def site_key(url: str) -> str:
+        parsed = urlsplit(url if "://" in url else "https://" + url)
+        return (parsed.hostname or "").lower() + parsed.path.rstrip("/") + ("?" + parsed.query if parsed.query else "")
+
+    def fetch_company_site(url: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        key = site_key(url)
+        if key in site_records:
+            return copy.deepcopy(site_records[key]), {"requests": 0, "bytes": 0}
+        record, metrics = fetch_website(url, budget=site_budget)
+        site_records[key] = copy.deepcopy(record)
+        final_url = (record.get("value") or {}).get("final_url")
+        if final_url:
+            site_records[site_key(final_url)] = copy.deepcopy(record)
+        return record, metrics
+
     verified_website = False
     if "website" in requested_modules and budget.can_proceed(reserve=2):
         target_site = profile.get("website")
@@ -712,10 +767,10 @@ def enrich_single_company(
 
         # Level 1: Official registry URL
         if target_site:
-            w_rec, w_met = fetch_website(target_site)
+            w_rec, w_met = fetch_company_site(target_site)
             website_metrics["requests"] += w_met.get("requests", 0)
             website_metrics["bytes"] += w_met.get("bytes", 0)
-            gated = apply_website_identity_gate(profile, w_rec)
+            gated = gate_website(w_rec)
             profile["evidence"]["website"] = gated["website"]
             if gated["website"].get("status") == "available":
                 val = gated["website"].get("value") or {}
@@ -727,10 +782,10 @@ def enrich_single_company(
         # it and run the current identity gate so refreshes preserve prior
         # evidence without re-publishing a stale or reassigned domain.
         if not verified_website and cached_site and cached_site != target_site and budget.can_proceed(reserve=2):
-            w_rec, w_met = fetch_website(cached_site)
+            w_rec, w_met = fetch_company_site(cached_site)
             website_metrics["requests"] += w_met.get("requests", 0)
             website_metrics["bytes"] += w_met.get("bytes", 0)
-            gated = apply_website_identity_gate(profile, w_rec)
+            gated = gate_website(w_rec)
             if gated["website"].get("status") == "available":
                 val = gated["website"].get("value") or {}
                 if val.get("identity_assessment", {}).get("publishable"):
@@ -742,36 +797,42 @@ def enrich_single_company(
         if not verified_website and can_run_optional(cost=2, reserve=2):
             email_site = extract_email_domain_candidate(profile)
             if email_site:
-                w_rec, w_met = fetch_website(email_site)
-                website_metrics["requests"] += w_met.get("requests", 0)
-                website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = apply_website_identity_gate(profile, w_rec)
-                if gated["website"].get("status") == "available":
-                    val = gated["website"].get("value") or {}
-                    if val.get("identity_assessment", {}).get("publishable"):
-                        profile["evidence"]["website"] = gated["website"]
-                        profile["website"] = val.get("final_url") or email_site
+                for candidate in dict.fromkeys([email_site.replace("https://www.", "https://", 1), email_site]):
+                    if site_requests >= site_limit:
+                        break
+                    w_rec, w_met = fetch_company_site(candidate)
+                    website_metrics["requests"] += w_met.get("requests", 0)
+                    website_metrics["bytes"] += w_met.get("bytes", 0)
+                    gated = gate_website(w_rec)["website"]
+                    val = gated.get("value") or {}
+                    if gated.get("status") == "available" and val.get("identity_assessment", {}).get("publishable"):
+                        profile["evidence"]["website"] = gated
+                        profile["website"] = val.get("final_url") or candidate
                         verified_website = True
+                        break
 
         # Level 3: Free heuristic .no/.com Norwegian domain probe with fast DNS pre-check
         if not verified_website and not is_passive_entity and can_run_optional(cost=2, reserve=2):
-            heuristic_site = probe_heuristic_domain(profile, budget=budget)
-            if heuristic_site:
-                w_rec, w_met = fetch_website(heuristic_site)
+            def accept_heuristic_site(heuristic_site: str) -> bool:
+                nonlocal verified_website
+                if site_requests >= site_limit:
+                    return False
+                w_rec, w_met = fetch_company_site(heuristic_site)
                 website_metrics["requests"] += w_met.get("requests", 0)
                 website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = apply_website_identity_gate(profile, w_rec)
+                gated = gate_website(w_rec)
                 if gated["website"].get("status") == "available":
                     val = gated["website"].get("value") or {}
                     if val.get("identity_assessment", {}).get("publishable"):
                         profile["evidence"]["website"] = gated["website"]
                         profile["website"] = val.get("final_url") or heuristic_site
                         verified_website = True
+                return verified_website
 
-        # Existing keyed connector: active only when its configured key is present.
-        # Runs independently of website verification so ratings/reviews/place data
-        # are collected for every company, not only those lacking a verified site.
-        if not is_passive_entity and places_available() and budget.can_proceed(reserve=4):
+            probe_heuristic_domain(profile, budget=budget, accept_candidate=accept_heuristic_site)
+
+        # Use Places for candidate discovery when the official website is still unknown.
+        if not is_passive_entity and places_available() and budget.can_proceed(reserve=4) and (not verified_website or source_policy == EXPERIMENTAL):
             address = (
                 profile.get("address")
                 or profile.get("municipality")
@@ -786,10 +847,10 @@ def enrich_single_company(
                     places_site = u
                     break
             if places_site:
-                w_rec, w_met = fetch_website(places_site)
+                w_rec, w_met = fetch_company_site(places_site)
                 website_metrics["requests"] += w_met.get("requests", 0)
                 website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = apply_website_identity_gate(profile, w_rec)
+                gated = gate_website(w_rec)
                 if gated["website"].get("status") == "available":
                     val = gated["website"].get("value") or {}
                     if val.get("identity_assessment", {}).get("publishable"):
@@ -809,10 +870,10 @@ def enrich_single_company(
                 None,
             )
             if wiki_site:
-                w_rec, w_met = fetch_website(wiki_site)
+                w_rec, w_met = fetch_company_site(wiki_site)
                 website_metrics["requests"] += w_met.get("requests", 0)
                 website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = apply_website_identity_gate(profile, w_rec)
+                gated = gate_website(w_rec)
                 if gated["website"].get("status") == "available":
                     val = gated["website"].get("value") or {}
                     if val.get("identity_assessment", {}).get("publishable"):
@@ -826,6 +887,8 @@ def enrich_single_company(
             if patent_obs:
                 profile["patents"] = [obs.get("metrics") or {} for obs in patent_obs if obs.get("metrics")]
             for pat in profile.get("patents") or []:
+                if pat.get("ip_type") != "trademark" or str(pat.get("status") or "").casefold() not in {"registered", "registrert"}:
+                    continue
                 b_name = str(pat.get("title") or "")
                 b_slug = re.sub(r"[^a-z0-9]", "", b_name.lower())
                 if len(b_slug) >= 3 and b_slug not in ("as", "asa", "norge", "norway"):
@@ -833,10 +896,10 @@ def enrich_single_company(
                         if not budget.can_proceed():
                             break
                         try:
-                            w_rec, w_met = fetch_website(cand_url)
+                            w_rec, w_met = fetch_company_site(cand_url)
                             website_metrics["requests"] += w_met.get("requests", 0)
                             website_metrics["bytes"] += w_met.get("bytes", 0)
-                            gated = apply_website_identity_gate(profile, w_rec)
+                            gated = gate_website(w_rec)
                             if gated["website"].get("status") == "available":
                                 val = gated["website"].get("value") or {}
                                 if val.get("identity_assessment", {}).get("publishable"):
@@ -869,10 +932,10 @@ def enrich_single_company(
             if norid_dom:
                 for cand_url in [f"https://www.{norid_dom}", f"https://{norid_dom}"]:
                     try:
-                        w_rec, w_met = fetch_website(cand_url)
+                        w_rec, w_met = fetch_company_site(cand_url)
                         website_metrics["requests"] += w_met.get("requests", 0)
                         website_metrics["bytes"] += w_met.get("bytes", 0)
-                        gated = apply_website_identity_gate(profile, w_rec)
+                        gated = gate_website(w_rec)
                         if gated["website"].get("status") == "available":
                             val = gated["website"].get("value") or {}
                             if val.get("identity_assessment", {}).get("publishable"):
@@ -887,7 +950,7 @@ def enrich_single_company(
 
         # Level 4f: Holding Company Unbundling (Parent -> Operating Subsidiary Linking)
         # Connect corporate holding entities to their operating subsidiaries via official group structure
-        if not verified_website and can_run_optional(cost=2, reserve=3):
+        if source_policy == EXPERIMENTAL and not verified_website and can_run_optional(cost=2, reserve=3):
             group_val = (profile.get("evidence", {}).get("group", {}).get("value") or {})
             children = group_val.get("children") or [] if isinstance(group_val, dict) else []
             for child in children:
@@ -913,10 +976,10 @@ def enrich_single_company(
                     if not budget.can_proceed(reserve=1):
                         break
                     try:
-                        w_rec, w_met = fetch_website(cand_url)
+                        w_rec, w_met = fetch_company_site(cand_url)
                         website_metrics["requests"] += w_met.get("requests", 0)
                         website_metrics["bytes"] += w_met.get("bytes", 0)
-                        gated = apply_website_identity_gate(profile, w_rec)
+                        gated = gate_website(w_rec)
                         if gated["website"].get("status") == "available":
                             val = gated["website"].get("value") or {}
                             ident = val.get("identity_assessment") or {}
@@ -946,10 +1009,10 @@ def enrich_single_company(
         if not verified_website and brave_available() and budget.can_proceed():
             search_site = discover_company_website(profile, budget=budget)
             if search_site:
-                w_rec, w_met = fetch_website(search_site)
+                w_rec, w_met = fetch_company_site(search_site)
                 website_metrics["requests"] += w_met.get("requests", 0)
                 website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = apply_website_identity_gate(profile, w_rec)
+                gated = gate_website(w_rec)
                 if gated["website"].get("status") == "available":
                     val = gated["website"].get("value") or {}
                     if val.get("identity_assessment", {}).get("publishable"):
@@ -964,9 +1027,12 @@ def enrich_single_company(
 
         budget.record_request(
             bytes_received=website_metrics.get("bytes", 0),
-            count=website_metrics.get("requests", 0),
+            count=0,  # Charged atomically by the website transport, including redirects.
         )
         local_reqs += website_metrics.get("requests", 0)
+
+    if source_policy == OFFICIAL_SAFE and not verified_website:
+        profile["website"] = None
 
     # Track per-company run metrics
     profile["run_metrics"] = {
@@ -978,38 +1044,35 @@ def enrich_single_company(
     # (observations list is initialized at function start and preserves Norid observations)
 
     # Social links from verified website
+    if source_policy == OFFICIAL_SAFE:
+        website_value = (profile["evidence"].get("website", {}).get("value") or {})
+        if "social_links" in website_value:
+            website_value["social_links"] = [
+                item for item in website_value["social_links"]
+                if item.get("platform") not in {"linkedin", "facebook"}
+            ]
     web_social_obs = extract_social_observations(profile)
     observations.extend(web_social_obs)
 
     # Website news & job announcements (validated in Step 9 before appending to observations)
     web_news_obs = extract_website_news_observations(profile)
-    web_jobs_obs = extract_website_job_observations(profile)
-
-    # Follow only recruitment pages that the verified company site linked to.
-    # A generic careers/ATS landing page is never published itself; the ATS
-    # connector must extract an individual ad and prove the employer tenant.
-    ats_obs: list[dict[str, Any]] = []
     website_value = (profile.get("evidence", {}).get("website", {}).get("value") or {})
-    linked_ats_items = [
-        item for item in (website_value.get("job_postings") or [])
-        if item.get("requires_ad_verification") and str(item.get("url") or "").startswith(("https://", "http://"))
-    ]
-    linked_ats_urls = list(dict.fromkeys(str(item["url"]) for item in linked_ats_items))[:2]
-    linked_from = str(linked_ats_items[0].get("source_url") or profile.get("website") or "") if linked_ats_items else ""
-    if verified_website and linked_ats_urls and can_run_optional(cost=len(linked_ats_urls), reserve=5):
-        try:
-            ats_obs = fetch_ats_jobs(
-                name,
-                org,
-                budget=budget,
-                max_probes=len(linked_ats_urls),
-                seed_urls=linked_ats_urls,
-                linked_from=linked_from,
-                probe_patterns=False,
-            )
-            local_reqs += len(linked_ats_urls)
-        except Exception:
-            ats_obs = []
+    if verified_website:
+        candidates = list(website_value.get("job_postings") or [])
+        for page in website_value.get("pages") or []:
+            candidates.extend(page.get("job_postings") or [])
+        locations = (profile["evidence"].get("locations", {}).get("value") or {}).get("locations") or []
+        subunit_orgs = [str(unit["organisation_number"]) for unit in locations if unit.get("organisation_number")]
+        job_request_cap = max(0, min(effective_company_cap - local_reqs, budget.remaining_requests() - 1))
+        job_diagnostics = {"request_allowance": min(6, job_request_cap)}
+        website_value["job_diagnostics"] = job_diagnostics
+        website_value["verified_job_adverts"] = verified_career_jobs(
+            candidates, site_url=profile["website"], company_name=name, org=org,
+            subunit_orgs=subunit_orgs, budget=budget, max_requests=job_request_cap, diagnostics=job_diagnostics,
+        )
+        if candidates:
+            local_reqs += min(6, job_request_cap)
+    web_jobs_obs = extract_website_job_observations(profile)
 
     # Official registry observations
     observations.extend(extract_workforce_observation(profile))
@@ -1020,8 +1083,8 @@ def enrich_single_company(
 
     # 5. Google News RSS (free)
     news_obs: list[dict[str, Any]] = []
-    google_news_state = {"status": "blocked"}
-    if can_run_optional(cost=1, reserve=1):
+    google_news_state = {"status": "not_applicable"}
+    if source_policy == EXPERIMENTAL and can_run_optional(cost=1, reserve=1):
         gn_limit = 2 if web_news_obs else 5
         news_obs = fetch_google_news(org, name, limit=gn_limit, years=2, budget=budget, status_out=google_news_state)
         local_reqs += 1
@@ -1029,12 +1092,13 @@ def enrich_single_company(
     # 5b. Norwegian Corporate Press Wires (NTB Kommunikasjon, Mynewsdesk, Cision)
     wire_obs: list[dict[str, Any]] = []
     press_wire_state = {"status": "not_applicable"}
-    if verified_website and emp_count >= 10 and (len(web_news_obs) + len(news_obs) < 2) and can_run_optional(cost=2, reserve=10):
+    if source_policy == EXPERIMENTAL and verified_website and emp_count >= 10 and (len(web_news_obs) + len(news_obs) < 2) and can_run_optional(cost=2, reserve=10):
         wire_obs = fetch_press_wire_news(org, name, limit=2, budget=budget, status_out=press_wire_state)
         local_reqs += len(wire_obs)
 
     # 6. Google Places & Wikidata & Patentstyret observations (already fetched)
-    observations.extend(places_obs)
+    if source_policy == EXPERIMENTAL:
+        observations.extend(places_obs)
     observations.extend(wiki_obs)
     observations.extend(patent_obs)
 
@@ -1045,7 +1109,12 @@ def enrich_single_company(
 
     # 7. YouTube Data API connector
     yt_obs: list[dict[str, Any]] = []
-    if not is_passive_entity and (emp_count >= 5 or verified_website) and youtube_available() and budget.can_proceed(reserve=25):
+    if source_policy == OFFICIAL_SAFE and verified_website and youtube_available() and can_run_optional(cost=1):
+        yt_obs = fetch_linked_youtube_data(
+            org, website_value.get("social_links") or [], site_url=profile["website"], budget=budget,
+        )
+        observations.extend(yt_obs)
+    if source_policy == EXPERIMENTAL and not is_passive_entity and (emp_count >= 5 or verified_website) and youtube_available() and budget.can_proceed(reserve=25):
         social_links = ((profile.get("evidence", {}).get("website", {}).get("value") or {}).get("social_links") or [])
         yt_obs = fetch_youtube_data(org, name, social_links=social_links, budget=budget)
         observations.extend(yt_obs)
@@ -1139,7 +1208,9 @@ def enrich_single_company(
     observations.extend(buzz_obs)
 
     # 8. Multi-Source Hiring & Recruitment Intelligence (NAV, LinkedIn, Website, Brreg)
-    hiring_block, hiring_obs = evaluate_company_hiring(profile, observations + list(web_jobs_obs) + list(ats_obs), budget=budget)
+    hiring_block, hiring_obs = evaluate_company_hiring(
+        profile, observations + web_jobs_obs, budget=budget,
+    )
     profile["hiring"] = hiring_block
 
     # 9. Populate evidence records for news, jobs, and hiring
@@ -1156,6 +1227,7 @@ def enrich_single_company(
         cand = {
             "title": t,
             "url": u,
+            "source_url": o.get("source_url"),
             "content_sha256": sha,
             "published_at": o.get("published_at"),
             "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
@@ -1181,6 +1253,7 @@ def enrich_single_company(
                 "items": [
                     {
                         "title": o.get("text") or (o.get("metrics") or {}).get("title"),
+                        "source_url": o.get("source_url"),
                         "url": ((o.get("metrics") or {}).get("url") if isinstance(o.get("metrics"), dict) else None) or o.get("article_url") or o.get("source_url"),
                         "published_at": o.get("published_at"),
                         "content_sha256": o.get("content_sha256"),
@@ -1203,7 +1276,7 @@ def enrich_single_company(
         elif any(s in {"failed", "source_error"} for s in attempted_news_states):
             news_status = "failed"
         else:
-            news_status = "blocked"
+            news_status = "not_available"
         profile.setdefault("evidence", {})["news"] = {
             "field": "news",
             "status": news_status,
@@ -1217,7 +1290,7 @@ def enrich_single_company(
         }
 
     # Only verified single job postings are populated into jobs
-    raw_jobs = [o for o in hiring_obs if o.get("signal_type") == "job_posting"] + list(web_jobs_obs) + list(ats_obs)
+    raw_jobs = [o for o in hiring_obs if o.get("signal_type") == "job_posting"] + web_jobs_obs
     all_job_obs = []
     loc_rec_temp = (profile.get("evidence") or {}).get("locations") or {}
     sub_orgs_hiring = [str(u.get("organisation_number")) for u in ((loc_rec_temp.get("value") or {}).get("locations") or []) if u.get("organisation_number")]
@@ -1235,6 +1308,10 @@ def enrich_single_company(
             "employer_name": o.get("employer_name") or "",
             "match_type": o.get("match_type") or "",
             "hiring_org_match": o.get("hiring_org_match"),
+            "valid_through": o.get("valid_through"),
+            "career_source_url": o.get("career_source_url"),
+            "career_link_url": o.get("career_link_url"),
+            "active_listing": o.get("active_listing"),
         }
         ok, _ = validate_job_item(cand, org=org, company_name=c_name, site_url=site_url, site_publishable=verified_website, subunit_orgs=sub_orgs_hiring)
         if ok:
@@ -1265,6 +1342,10 @@ def enrich_single_company(
                         "employer_name": o.get("employer_name") or "",
                         "match_type": o.get("match_type") or "",
                         "hiring_org_match": o.get("hiring_org_match"),
+                        "valid_through": o.get("valid_through"),
+                        "career_source_url": o.get("career_source_url"),
+                        "career_link_url": o.get("career_link_url"),
+                        "active_listing": o.get("active_listing"),
                     }
                     for o in all_job_obs
                 ],
@@ -1278,13 +1359,13 @@ def enrich_single_company(
         profile.setdefault("evidence", {})["jobs"] = {
             "field": "jobs",
             "status": job_status,
-            "source_type": "public_recruitment_registries",
-            "source_class": "public_recruitment_registries",
+            "source_type": "company_career_pages",
+            "source_class": "company_career_pages",
             "source_url": profile.get("website") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
             "retrieved_at": utc_now(),
             "content_sha256": "",
             "value": None,
-            "note": "No active job postings found on checked sources" if "nav_arbeidsplassen" in (hiring_block.get("sources_checked") or []) else "Job search did not complete successfully across all configured sources",
+            "note": "No current advert with exact employer evidence was verified",
         }
 
     profile.setdefault("evidence", {})["hiring"] = {
@@ -1735,7 +1816,11 @@ def main() -> int:
 
     # Generate envelopes
     envelopes = [
-        terminal_envelope(profile, run_id=args.run_id, modules=requested_modules, started_at=started_at, completed_at=completed_at)
+        terminal_envelope(
+            profile, run_id=args.run_id, modules=requested_modules,
+            started_at=started_at, completed_at=completed_at,
+            first_party_activity_only=False,
+        )
         for profile in profiles
     ]
     validation = validate_envelopes(envelopes, len(orgs))
@@ -1749,9 +1834,10 @@ def main() -> int:
         "two_platforms": len([org for org in set(o["organisation_number"] for o in publishable)
                             if len({ob["platform"] for ob in publishable if ob["organisation_number"] == org}) >= 2]) / max(len(orgs), 1),
         "workforce_jobs": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"workforce_snapshot", "job_posting"}}) / max(len(orgs), 1),
-        "ratings_reviews": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"review", "review_summary", "place_summary"}}) / max(len(orgs), 1),
-        "buzz_engagement": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"public_post", "public_mention", "profile_metrics", "buzz_metrics"}}) / max(len(orgs), 1),
-        "sentiment": len({o["organisation_number"] for o in publishable if o.get("sentiment_label")}) / max(len(orgs), 1),
+        "open_jobs": len({o["organisation_number"] for o in publishable if o["signal_type"] == "job_posting"}) / max(len(orgs), 1),
+        "ratings_reviews": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"review", "review_summary"}}) / max(len(orgs), 1),
+        "buzz_engagement": len({o["organisation_number"] for o in publishable if o["signal_type"] in {"public_post", "public_mention"} or (o["signal_type"] == "buzz_metrics" and o.get("strategy") != "social_discovery_buzz")}) / max(len(orgs), 1),
+        "sentiment": len({o["organisation_number"] for o in publishable if o.get("sentiment_label") and o["signal_type"] in {"review", "public_post", "public_mention"} and o.get("source_class") in INDEPENDENT_SENTIMENT_CLASSES}) / max(len(orgs), 1),
     }
 
     audit_passed = False
@@ -1775,17 +1861,17 @@ def main() -> int:
         field_avail = sum(1 for e in envelopes for c in e.get("claims", []) if c.get("field") == f and c.get("availability") == "available")
         per_field[f] = {
             "company_coverage": round(field_avail / max(len(envelopes), 1), 3),
-            "precision": 1.0,
-            "recall": round(field_avail / max(len(envelopes), 1), 3),
+            "precision": None,
+            "recall": None,
         }
 
     measurements = {
         "exact_company_precision": None,
         "wrong_company_publications": None,
         "evidence_span_validity": None,
-        "crawl_completion": 1.0,
-        "refresh_correctness": 1.0,
-        "false_change_rate": 0.0,
+        "crawl_completion": len(envelopes) / max(len(orgs), 1),
+        "refresh_correctness": None,
+        "false_change_rate": None,
         "cost_per_company": round(budget_report["total_cost_usd"] / max(len(orgs), 1), 4),
         "request_count": budget_report["total_requests"],
         "p50_ms": budget_report["p50_ms"],
@@ -1842,17 +1928,23 @@ def main() -> int:
         "measurements": measurements,
         "budget": budget_report,
         "external_connectors": {
-            "google_news_rss": True,
+            "google_news_rss": args.source_policy == EXPERIMENTAL,
             "news_credibility_engine": True,
             "linkedin_guest_discovery": args.source_policy == EXPERIMENTAL,
             "google_places_api": places_available(),
-            "youtube_data_api": youtube_available(),
+            "youtube_data_api": args.source_policy == EXPERIMENTAL and youtube_available(),
+            "youtube_linked_channel_api": youtube_available(),
             "brave_search_api": brave_available(),
-            "social_discovery": True,
+            "social_discovery": args.source_policy == EXPERIMENTAL,
             "wikidata_sparql_p2333": True,
             "brreg_kunngjoringer": True,
             "enhetsregisteret_subunits": True,
             "patentstyret_nipo": patentstyret_available(),
+        },
+        "connector_diagnostics": {
+            "google_places": places_status(),
+            "brave_search": {"configured": brave_available()},
+            "public_job_boards": {"providers": ["greenhouse", "lever", "ashby"], "requires": "verified company-site link and exact advert employer"},
         },
         "validation": validation,
     }

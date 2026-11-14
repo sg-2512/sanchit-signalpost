@@ -21,6 +21,67 @@ def is_available() -> bool:
     return bool(os.environ.get("YOUTUBE_API_KEY"))
 
 
+def fetch_linked_youtube_data(org: str, social_links: list[dict[str, str]], *, site_url: str, budget: Any) -> list[dict[str, Any]]:
+    """Resolve only a channel explicitly linked by an already verified company site."""
+    import json
+    import urllib.parse
+    import urllib.request
+
+    key = os.environ.get("YOUTUBE_API_KEY")
+    if not key or not site_url:
+        return []
+    for link in social_links:
+        parsed = urllib.parse.urlsplit(str(link.get("url") or ""))
+        if link.get("platform") != "youtube" or parsed.hostname not in {"youtube.com", "www.youtube.com"}:
+            continue
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) == 2 and parts[0] == "channel" and re.fullmatch(r"UC[A-Za-z0-9_-]{22}", parts[1]):
+            selector = {"id": parts[1]}
+        elif len(parts) == 1 and parts[0].startswith("@"):
+            selector = {"forHandle": parts[0]}
+        elif len(parts) == 2 and parts[0] == "user":
+            selector = {"forUsername": parts[1]}
+        else:
+            continue  # Never turn an unresolved vanity URL into a name search.
+        if not budget.try_start_request():
+            return []
+        query = urllib.parse.urlencode({"part": "snippet,statistics", **selector, "key": key})
+        try:
+            request = urllib.request.Request("https://www.googleapis.com/youtube/v3/channels?" + query, headers={"User-Agent": "SignalpostAgent/1.0"})
+            with urllib.request.urlopen(request, timeout=8) as response:
+                raw = response.read(500_001)
+            budget.record_request(count=0, bytes_received=len(raw))
+            if len(raw) > 500_000:
+                return []
+            items = json.loads(raw).get("items") or []
+            if len(items) != 1:
+                return []
+            channel = items[0]
+            channel_id = str(channel.get("id") or "")
+            if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel_id) or (selector.get("id") and channel_id != selector["id"]):
+                return []
+            stats = channel.get("statistics") or {}
+            metrics = {"channel_id": channel_id, "channel_title": (channel.get("snippet") or {}).get("title")}
+            for source, target in (("subscriberCount", "subscriber_count"), ("videoCount", "video_count"), ("viewCount", "view_count")):
+                if source in stats and not (source == "subscriberCount" and stats.get("hiddenSubscriberCount")):
+                    metrics[target] = int(stats[source])
+            return [{
+                "id": f"yt-linked-{org}-{channel_id}", "organisation_number": org,
+                "platform": "youtube", "signal_type": "profile_metrics",
+                "source_url": f"https://www.youtube.com/channel/{channel_id}",
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                "content_sha256": hashlib.sha256(raw).hexdigest(), "exact_entity": True,
+                "identity_proof": [{"type": "company_site_outbound_link", "source_url": site_url, "linked_url": link["url"]},
+                                   {"type": "youtube_channel_match", "channel_id": channel_id}],
+                "acquisition_mode": "official_api", "rights_status": "approved", "source_class": "company_owned",
+                "evidence_span": f"Company-linked YouTube channel {channel_id}; public channel statistics.",
+                "metrics": metrics, "strategy": "youtube_linked_channel_api",
+            }]
+        except (OSError, ValueError, TypeError, AttributeError):
+            return []
+    return []
+
+
 def fetch_youtube_data(
     org: str,
     company_name: str,

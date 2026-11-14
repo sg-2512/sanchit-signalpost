@@ -92,10 +92,6 @@ def verify_norid_domain_ownership(
                     if str(pid.get("identifier") or "") == clean_org:
                         is_exact_owner = True
 
-        raw_text = json.dumps(data)
-        if clean_org in raw_text:
-            is_exact_owner = True
-
         def norm_name(value: str) -> str:
             return "".join(re.findall(r"[a-z0-9]+", value.casefold()))
 

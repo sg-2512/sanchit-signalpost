@@ -25,6 +25,7 @@ from typing import Any
 
 
 _QUOTA_EXHAUSTED = False
+_CIRCUIT_REASON = ""
 _CONSECUTIVE_429 = 0
 _MAX_CONSECUTIVE_429 = 20
 _PLACES_LOCK = threading.Lock()
@@ -35,6 +36,11 @@ _MIN_INTERVAL = 0.20  # 200ms between requests to pace QPS comfortably across th
 def is_available() -> bool:
     """Check if Google Places API key is configured and quota is available."""
     return bool(os.environ.get("GOOGLE_PLACES_API_KEY")) and not _QUOTA_EXHAUSTED
+
+
+def connector_status() -> dict[str, Any]:
+    return {"configured": bool(os.environ.get("GOOGLE_PLACES_API_KEY")),
+            "available": is_available(), "disabled_reason": _CIRCUIT_REASON or None}
 
 
 def fetch_place_data(
@@ -53,7 +59,7 @@ def fetch_place_data(
     if not api_key:
         return []
 
-    global _QUOTA_EXHAUSTED
+    global _QUOTA_EXHAUSTED, _CIRCUIT_REASON
     if _QUOTA_EXHAUSTED:
         return []
 
@@ -90,6 +96,8 @@ def fetch_place_data(
     raw = None
     data = None
     for attempt in range(3):
+        if budget and not budget.try_start_request():
+            return []
         with _PLACES_LOCK:
             now = time.monotonic()
             diff = now - _LAST_REQUEST_TIME
@@ -114,12 +122,23 @@ def fetch_place_data(
                 _CONSECUTIVE_429 += 1
                 if "Quota exceeded" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or _CONSECUTIVE_429 >= _MAX_CONSECUTIVE_429:
                     _QUOTA_EXHAUSTED = True
+                    _CIRCUIT_REASON = "http_429_quota_exhausted"
                     return []
                 backoff = min(0.6 * (2 ** attempt) + random.uniform(0.1, 0.4), 4.0)
                 time.sleep(backoff)
                 continue
             elif exc.code == 403:
                 _QUOTA_EXHAUSTED = True
+                _CIRCUIT_REASON = "http_403_permission_denied"
+                try:
+                    error = json.loads(err_msg).get("error") or {}
+                    reasons = [str(detail.get("reason")) for detail in error.get("details") or [] if isinstance(detail, dict) and detail.get("reason")]
+                    # Store only machine-readable reason codes; never echo key-bearing URLs.
+                    safe_reasons = [reason for reason in reasons if re.fullmatch(r"[A-Z_]{1,80}", reason)]
+                    if safe_reasons:
+                        _CIRCUIT_REASON += ":" + ",".join(safe_reasons)
+                except (ValueError, TypeError, AttributeError):
+                    pass
                 return []
             break
         except Exception:
@@ -127,7 +146,7 @@ def fetch_place_data(
 
     if data and isinstance(data, dict):
         if budget and raw:
-            budget.record_request(cost_usd=0.017, bytes_received=len(raw))
+            budget.record_request(count=0, cost_usd=0.017, bytes_received=len(raw))
 
         places = data.get("places", [])
         if places:
@@ -227,12 +246,14 @@ def fetch_place_data(
             f"&key={api_key}"
         )
         req = urllib.request.Request(legacy_find, headers={"User-Agent": "SignalpostAgent/1.0"})
+        if budget and not budget.try_start_request():
+            return []
         with urllib.request.urlopen(req, timeout=15) as resp:
             legacy_raw = resp.read()
             legacy_data = json.loads(legacy_raw)
 
         if budget:
-            budget.record_request(cost_usd=0.017, bytes_received=len(legacy_raw))
+            budget.record_request(count=0, cost_usd=0.017, bytes_received=len(legacy_raw))
 
         candidates = legacy_data.get("candidates", [])
         if not candidates:
@@ -249,12 +270,14 @@ def fetch_place_data(
             f"&key={api_key}"
         )
         req = urllib.request.Request(details_url, headers={"User-Agent": "SignalpostAgent/1.0"})
+        if budget and not budget.try_start_request():
+            return []
         with urllib.request.urlopen(req, timeout=15) as resp:
             details_raw = resp.read()
             details_data = json.loads(details_raw)
 
         if budget:
-            budget.record_request(cost_usd=0.017, bytes_received=len(details_raw))
+            budget.record_request(count=0, cost_usd=0.017, bytes_received=len(details_raw))
 
         result = details_data.get("result", {})
         if not result:

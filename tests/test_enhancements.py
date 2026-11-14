@@ -197,21 +197,33 @@ class UniversalBulkLoaderTests(unittest.TestCase):
 
 
 class HeuristicDomainProbeTests(unittest.TestCase):
-    @patch("urllib.request.urlopen")
-    def test_probe_heuristic_domain_found(self, mock_urlopen):
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.read.return_value = b"<html><body>Org: 923609016 - Equinor ASA</body></html>"
-        mock_response.geturl.return_value = "https://www.equinor.no"
-        mock_urlopen.return_value.__enter__.return_value = mock_response
+    @patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))])
+    @patch("norway_company_agent.discovery._read_candidate_page")
+    def test_probe_heuristic_domain_found(self, mock_urlopen, _dns):
+        mock_urlopen.return_value = ("<html><body>Org: 923609016 - Equinor ASA</body></html>", "https://www.equinor.no")
 
         profile = {"name": "Equinor ASA", "organisation_number": "923609016"}
         res = probe_heuristic_domain(profile)
         self.assertEqual(res, "https://www.equinor.no")
 
-    @patch("urllib.request.urlopen")
-    def test_probe_heuristic_domain_not_found(self, mock_urlopen):
-        mock_urlopen.side_effect = Exception("404 Not Found")
+    @patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))])
+    @patch("norway_company_agent.discovery._read_candidate_page")
+    def test_probe_continues_after_identity_rejection(self, read, _dns):
+        read.side_effect = [
+            ("Equinor ASA", "https://equinor.no"),
+            ("Equinor ASA", "https://equinor.com"),
+        ]
+        profile = {"name": "Equinor ASA", "organisation_number": "923609016", "legal_form": "ASA"}
+        checked = []
+        def verify(url):
+            checked.append(url)
+            return url == "https://equinor.com"
+        self.assertEqual(probe_heuristic_domain(profile, accept_candidate=verify), "https://equinor.com")
+        self.assertEqual(checked, ["https://equinor.no", "https://equinor.com"])
+
+    @patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))])
+    @patch("norway_company_agent.discovery._read_candidate_page", return_value=None)
+    def test_probe_heuristic_domain_not_found(self, mock_urlopen, _dns):
         profile = {"name": "Nonexistent Fake Company AS", "organisation_number": "999999999"}
         res = probe_heuristic_domain(profile)
         self.assertIsNone(res)
@@ -304,7 +316,8 @@ class GooglePlacesWebsiteTests(unittest.TestCase):
         self.assertEqual(enriched["evidence"]["website"]["status"], "available")
         mock_fetch_places.assert_called_once()
         social_obs = [o for o in obs if o.get("platform") == "linkedin" and o.get("signal_type") == "profile_handle"]
-        self.assertGreater(len(social_obs), 0)
+        self.assertEqual(social_obs, [])
+        self.assertEqual(enriched["social_profiles"], [])
 
 
 class EmailDomainCandidateTests(unittest.TestCase):

@@ -183,15 +183,11 @@ def evaluate_company_hiring(
 
     loc_val = (profile.get('evidence', {}).get('locations', {}).get('value') or {}) if isinstance(profile, dict) else {}
     subunit_orgs = [str(u.get('organisation_number')) for u in (loc_val.get('locations') or []) if u.get('organisation_number')]
-    group_val = (profile.get('evidence', {}).get('group', {}).get('value') or {}) if isinstance(profile, dict) else {}
-    child_orgs = [str(c.get('organisasjonsnummer')) for c in (group_val.get('children') or []) if c.get('organisasjonsnummer')]
-    combined_related_orgs = list(dict.fromkeys(subunit_orgs + child_orgs))
-
     # 3. NAV Arbeidsplassen Live Job Search
     nav_jobs: list[dict[str, Any]] = []
-    nav_status = {"status": "blocked"}
+    nav_status = {"status": "blocked" if budget else "not_applicable"}
     if budget and budget.can_proceed(reserve=1):
-        nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=combined_related_orgs, budget=budget, status_out=nav_status)
+        nav_jobs = fetch_nav_jobs(name, org, subunit_orgs=subunit_orgs, budget=budget, status_out=nav_status)
         for job in nav_jobs:
             signals.append({
                 "source": "nav_arbeidsplassen",
@@ -211,7 +207,7 @@ def evaluate_company_hiring(
     li_jobs: list[dict[str, Any]] = []  # LinkedIn is not used as a job source (platform policy).
     site_url = str((website_val or {}).get("final_url") or profile.get("website") or "") if isinstance(website_val, dict) else ""
     web_jobs: list[dict[str, Any]] = []
-    for wj in ((website_val.get("job_postings") or []) if isinstance(website_val, dict) else []):
+    for wj in ((website_val.get("verified_job_adverts", website_val.get("job_postings")) or []) if isinstance(website_val, dict) else []):
         if not isinstance(wj, dict) or not wj.get("title"):
             continue
         if wj.get("kind") == "jsonld_job":
@@ -235,6 +231,9 @@ def evaluate_company_hiring(
             "content_sha256": wj.get("content_sha256"),
             "kind": wj.get("kind"),
             "hiring_org_match": wj.get("hiring_org_match"),
+            "valid_through": wj.get("valid_through"),
+            "active_listing": wj.get("active_listing"),
+            "career_source_url": wj.get("career_source_url"),
         })
 
     # Determine overall hiring status

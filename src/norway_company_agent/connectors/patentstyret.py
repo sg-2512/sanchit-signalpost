@@ -50,12 +50,10 @@ def fetch_patentstyret_data(
     bytes_received = 0
     retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    # Build query by CompanyNumber (preferred for exact entity grounding) or ApplicantName
-    query_params: dict[str, str] = {}
-    if clean_org and clean_org.isdigit() and len(clean_org) == 9:
-        query_params["CompanyNumber"] = clean_org
-    else:
-        query_params["ApplicantName"] = clean_name
+    # A name search cannot support exact legal attribution.
+    if not (clean_org.isascii() and clean_org.isdigit() and len(clean_org) == 9):
+        return []
+    query_params = {"CompanyNumber": clean_org}
     url = f"{PATENTSTYRET_SEARCH_URL}?{urllib.parse.urlencode(query_params)}"
 
     headers = {
@@ -91,8 +89,8 @@ def fetch_patentstyret_data(
                 "applicationNumber": t.get("applicationNumber") or t.get("registrationNumber") or "",
                 "title": t.get("markVerbalElementText") or t.get("title") or "",
                 "type": "trademark",
-                "status": t.get("currentStatusEn") or t.get("currentStatusNo") or "Registered",
-                "publicationDate": t.get("currentStatusDate"),
+                "status": t.get("currentStatusEn") or t.get("currentStatusNo"),
+                "statusDate": t.get("currentStatusDate"),
                 "caseUrl": t.get("caseUrl"),
             })
         for p in patent_bag:
@@ -100,8 +98,8 @@ def fetch_patentstyret_data(
                 "applicationNumber": p.get("applicationNumber") or p.get("patentNumber") or "",
                 "title": p.get("title") or "Patent registration",
                 "type": "patent",
-                "status": p.get("currentStatusEn") or p.get("currentStatusNo") or "Registered",
-                "publicationDate": p.get("currentStatusDate"),
+                "status": p.get("currentStatusEn") or p.get("currentStatusNo"),
+                "statusDate": p.get("currentStatusDate"),
                 "caseUrl": p.get("caseUrl"),
             })
         for d in design_bag:
@@ -109,8 +107,8 @@ def fetch_patentstyret_data(
                 "applicationNumber": d.get("applicationNumber") or "",
                 "title": d.get("title") or "Design registration",
                 "type": "design",
-                "status": d.get("currentStatusEn") or d.get("currentStatusNo") or "Registered",
-                "publicationDate": d.get("currentStatusDate"),
+                "status": d.get("currentStatusEn") or d.get("currentStatusNo"),
+                "statusDate": d.get("currentStatusDate"),
                 "caseUrl": d.get("caseUrl"),
             })
 
@@ -125,8 +123,10 @@ def fetch_patentstyret_data(
             app_num = hit.get("applicationNumber") or hit.get("id") or ""
             title = hit.get("title") or hit.get("markText") or ""
             doc_type = hit.get("type", "trademark")
-            status = hit.get("status") or "Registrert"
-            pub_date = hit.get("publicationDate") or hit.get("filingDate")
+            if not app_num:
+                continue
+            status = hit.get("status")
+            pub_date = hit.get("publicationDate")
 
             h_digest = hashlib.sha256(f"{clean_org}|patentstyret|{app_num}|{title}".encode()).hexdigest()
             record_url = hit.get("caseUrl") or (f"https://services.patentstyret.no/search-details/{doc_type}/{app_num}")
@@ -137,28 +137,30 @@ def fetch_patentstyret_data(
                 "organisation_number": clean_org,
                 "platform": "patentstyret",
                 "signal_type": "patent_trademark_record",
-                "source_url": record_url,
+                "source_url": url,
                 "retrieved_at": retrieved_at,
                 "published_at": pub_date,
-                "content_sha256": h_digest,
+                "content_sha256": hashlib.sha256(raw).hexdigest(),
                 "exact_entity": True,
                 "identity_proof": [
                     {
                         "type": "official_industrial_property_registration",
-                        "owner_name": clean_name,
+                        "queried_organisation_number": clean_org,
                         "application_number": app_num,
                     }
                 ],
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
                 "source_class": "official_ip_registry",
-                "evidence_span": f"Patentstyret {doc_type} '{title}' (app #{app_num}) registered to {clean_name}, status: {status}",
+                "evidence_span": f"Patentstyret returned {doc_type} case {app_num} for company number {clean_org} ({clean_name}). Registry status: {status or 'unreported'}.",
                 "metrics": {
                     "ip_type": doc_type,
                     "title": title,
                     "application_number": app_num,
                     "status": status,
-                    "filing_date": pub_date,
+                    "filing_date": hit.get("filingDate"),
+                    "status_date": hit.get("statusDate"),
+                    "case_url": record_url,
                 },
                 "strategy": "patentstyret_open_data",
             })

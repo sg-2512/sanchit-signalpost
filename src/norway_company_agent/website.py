@@ -10,8 +10,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.robotparser
 from dataclasses import dataclass
+from contextvars import ContextVar
 from typing import Any
 import xml.etree.ElementTree as ET
 from datetime import timezone
@@ -19,6 +19,7 @@ from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
 import extruct
+from protego import Protego
 import tldextract
 import trafilatura
 
@@ -63,32 +64,38 @@ def assert_public_url(url: str) -> None:
 
 
 class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, *, check_robots: bool = False):
+        self.check_robots = check_robots
+
     def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
         assert_public_url(newurl)
+        if self.check_robots and not _robots_allowed(newurl, 4.0):
+            raise urllib.error.HTTPError(newurl, 403, "robots.txt disallows redirect target", headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-SAFE_OPENER = urllib.request.build_opener(SafeRedirectHandler())
+_REQUEST_CONTEXT: ContextVar[Any] = ContextVar("website_request_budget", default=None)
 
 
-def _build_safe_ssl_opener() -> urllib.request.OpenerDirector:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return urllib.request.build_opener(SafeRedirectHandler(), urllib.request.HTTPSHandler(context=ctx))
+class WebsiteBudgetHandler(urllib.request.BaseHandler):
+    """Count every outgoing page, robots request and redirect in this worker."""
+    def http_request(self, request: Any) -> Any:
+        context = _REQUEST_CONTEXT.get()
+        if context is not None:
+            if not context["budget"].try_start_request():
+                raise urllib.error.URLError("website request budget exhausted")
+            context["requests"] += 1
+        return request
+
+    https_request = http_request
 
 
-SAFE_SSL_FALLBACK_OPENER = _build_safe_ssl_opener()
+SAFE_OPENER = urllib.request.build_opener(SafeRedirectHandler(check_robots=True), WebsiteBudgetHandler())
+ROBOTS_OPENER = urllib.request.build_opener(SafeRedirectHandler(), WebsiteBudgetHandler())
 
 
 def _safe_urlopen(request: urllib.request.Request, timeout: float):
-    try:
-        return SAFE_OPENER.open(request, timeout=timeout)
-    except urllib.error.URLError as exc:
-        exc_str = str(exc).lower()
-        if "ssl" in exc_str or "certificate" in exc_str or "cert" in exc_str:
-            return SAFE_SSL_FALLBACK_OPENER.open(request, timeout=timeout)
-        raise
+    return SAFE_OPENER.open(request, timeout=timeout)
 
 
 def normalize_homepage(value: str | None) -> str | None:
@@ -121,7 +128,19 @@ def _registered_domain(url: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
-_ROBOTS_CACHE: dict[str, tuple[urllib.robotparser.RobotFileParser | None, float]] = {}
+def _site_identity_text(soup: BeautifulSoup) -> str:
+    """Keep operator details that article-text extraction usually drops."""
+    blocks = soup.select("footer, [role='contentinfo'], address")[:12]
+    snippets = [block.get_text(" ", strip=True)[:1600] for block in blocks]
+    for block in soup.select("p, address, li, td"):
+        text = block.get_text(" ", strip=True)
+        if len(text) <= 1200 and re.search(r"\b(?:org\.?\s*(?:nr|nummer|no\.?)|organisasjonsnummer|organi[sz]ation\s+number|VAT\s*(?:no|number))", text, re.I):
+            if text not in snippets:
+                snippets.append(text)
+    return "\n".join(snippets)[:10000]
+
+
+_ROBOTS_CACHE: dict[str, tuple[Protego, float]] = {}
 
 
 def _robots_allowed(url: str, timeout: float) -> bool:
@@ -129,23 +148,25 @@ def _robots_allowed(url: str, timeout: float) -> bool:
     parsed = urllib.parse.urlparse(url)
     robots_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
     now = time.monotonic()
-    if robots_url in _ROBOTS_CACHE:
-        cached_parser, _ = _ROBOTS_CACHE[robots_url]
-        if cached_parser is None:
-            return True
-        return cached_parser.can_fetch(USER_AGENT, url)
+    cached = _ROBOTS_CACHE.get(robots_url)
+    if cached and now - cached[1] < 86400:
+        return cached[0].can_fetch(url, USER_AGENT)
 
-    parser = urllib.robotparser.RobotFileParser()
-    parser.set_url(robots_url)
     try:
         request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
-        with _safe_urlopen(request, timeout=min(timeout, 4.0)) as response:
-            parser.parse(response.read().decode("utf-8", errors="replace").splitlines())
-        _ROBOTS_CACHE[robots_url] = (parser, now)
-        return parser.can_fetch(USER_AGENT, url)
-    except Exception:
-        _ROBOTS_CACHE[robots_url] = (None, now)
-        return True
+        with ROBOTS_OPENER.open(request, timeout=min(timeout, 4.0)) as response:
+            raw = response.read(512 * 1024 + 1)
+        if len(raw) > 512 * 1024:
+            raw = raw[:512 * 1024].rsplit(b"\n", 1)[0]
+    except urllib.error.HTTPError as exc:
+        if exc.code not in {404, 410}:
+            return False
+        raw = b""
+    except (OSError, ValueError):
+        return False
+    parser = Protego.parse(raw.decode("utf-8-sig", errors="replace"))
+    _ROBOTS_CACHE[robots_url] = (parser, now)
+    return parser.can_fetch(url, USER_AGENT)
 
 
 def _social_links(base_url: str, soup: BeautifulSoup) -> list[dict[str, str]]:
@@ -541,6 +562,25 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
                     "content_sha256": real_page_sha,
                 })
 
+    # Some company newsrooms publish complete announcements inline. Cite the
+    # actual newsroom document rather than a product PDF or a guessed permalink.
+    if not items and is_news_page:
+        for heading in soup.select("td strong, article h2, article h3"):
+            date_text, separator, title = heading.get_text(" ", strip=True).partition(":")
+            if not separator or not re.fullmatch(r"\d{1,2}\.?\s+[^\W\d_]+\s+20\d{2}", date_text.strip()):
+                continue
+            date = extract_date_from_text(date_text)
+            container = heading.find_parent(["td", "article"])
+            body = container.get_text(" ", strip=True) if container else ""
+            if not date or len(title.strip()) < 12 or len(body) < len(date_text) + len(title) + 30:
+                continue
+            items.append({
+                "title": title.strip(), "url": page_url, "source_url": page_url,
+                "published_at": date, "verification": "inline_newsroom",
+                "content_sha256": real_page_sha, "excerpt": body[:300],
+            })
+            if len(items) == 3:
+                break
     return items
 
 
@@ -606,13 +646,21 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
         "finn.no/jobb", "finn.no/job/", "finn.no/stilling", "finnkode=", "workbuster.com", "workbuster.se",
         "varbi.com", "jobylon.com", "homerun.co", "talentech.com", "talentech.io",
         "karriere.no", "personio.de", "personio.com", "bamboohr.com", "lever.co",
-        "greenhouse.io", "workable.com", "smartrecruiters.com", "arbeidsplassen.nav.no/stillinger/stilling/",
+        "greenhouse.io", "ashbyhq.com", "workable.com", "smartrecruiters.com", "arbeidsplassen.nav.no/stillinger/stilling/",
         "myworkdayjobs.com",
     )
     candidate_elements = soup.select("a[href]") + soup.select("iframe[src]")
     for anchor in candidate_elements:
         href = str(anchor.get("href") or anchor.get("src") or "").strip()
-        if any(ats in href.lower() for ats in ats_domains) and not href.startswith(("tel:", "mailto:", "javascript:", "#")):
+        resolved_href = urllib.parse.urljoin(page_url, href)
+        resolved_path = urllib.parse.urlsplit(resolved_href).path
+        same_site_job = is_career_page and _registered_domain(resolved_href) == _registered_domain(page_url) and bool(re.fullmatch(r"/jobs(?:/[0-9]+(?:-[^/]+)?)?/?", resolved_path))
+        linked_careers_host = (
+            urllib.parse.urlsplit(resolved_href).scheme == "https"
+            and (urllib.parse.urlsplit(resolved_href).hostname or "").split(".")[0] in {"careers", "karriere", "jobs"}
+            and _registered_domain(resolved_href) == _registered_domain(page_url)
+        )
+        if (same_site_job or linked_careers_host or any(ats in href.lower() for ats in ats_domains)) and not href.startswith(("tel:", "mailto:", "javascript:", "#")):
             clean_href = urllib.parse.urljoin(page_url, href)
             parsed_ats = urllib.parse.urlparse(clean_href)
             a_text = anchor.get_text(" ", strip=True) or anchor.get("title") or ""
@@ -734,6 +782,8 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
     parsed = urllib.parse.urlparse(base_url)
     sitemap_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/sitemap.xml", "", "", ""))
     try:
+        if not _robots_allowed(sitemap_url, timeout):
+            return news_urls, career_urls
         req = urllib.request.Request(sitemap_url, headers={"User-Agent": USER_AGENT})
         with _safe_urlopen(req, timeout=timeout) as resp:
             content_type = resp.headers.get("content-type", "").lower()
@@ -745,9 +795,12 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
                 if "<sitemap>" in raw_xml.lower():
                     sub_sitemaps = re.findall(r"<sitemap>\s*<loc>(https?://[^<]+)</loc>", raw_xml, re.I)
                     for sub_url in sub_sitemaps[:8]:
+                        sub_url = sub_url.strip()
                         if any(t in sub_url.lower() for t in ["post", "news", "nyhet", "karriere", "jobb"]):
                             try:
-                                sub_req = urllib.request.Request(sub_url.strip(), headers={"User-Agent": USER_AGENT})
+                                if not _robots_allowed(sub_url, timeout):
+                                    continue
+                                sub_req = urllib.request.Request(sub_url, headers={"User-Agent": USER_AGENT})
                                 with _safe_urlopen(sub_req, timeout=timeout) as sub_resp:
                                     sub_xml = sub_resp.read(500_000).decode("utf-8", errors="replace")
                                     locs.extend(re.findall(r"<loc>(https?://[^<]+)</loc>", sub_xml, re.I))
@@ -776,7 +829,7 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
     base_reg_domain = _registered_domain(base_url)
     career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
     news_terms = ("aktuelt", "nyheter", "siste-nytt", "news", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "artikler", "blogg", "press", "presse", "media", "publikasjoner")
-    about_terms = ("om-oss", "om_oss", "about", "kontakt", "contact", "ledelse", "management", "team", "people", "locations", "lokasjoner", "avdelinger", "butikker")
+    about_terms = ("kontakt", "contact", "personvern", "privacy", "legal", "vilkar", "vilkår", "terms", "om-oss", "om_oss", "about", "ledelse", "management", "team", "people", "locations", "lokasjoner", "avdelinger", "butikker")
 
     career_cands: dict[str, int] = {}
     news_cands: dict[str, int] = {}
@@ -816,7 +869,7 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
         haystack = (path_lower + " " + anchor.get_text(" ", strip=True)).casefold()
 
         c_rank = next((i for i, t in enumerate(career_terms) if t in haystack), None)
-        if c_rank is not None and not any(bad in haystack for bad in ("pa-jobb", "paa-jobb", "på-jobb", "på jobb")):
+        if c_rank is not None and not any(bad in haystack for bad in ("pa-jobb", "paa-jobb", "på-jobb", "på jobb", "faa-jobben-gjort", "få jobben gjort")):
             score = c_rank + lang_penalty
             career_cands[clean] = min(score, career_cands.get(clean, score))
             continue
@@ -827,7 +880,8 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
             news_cands[clean] = min(score, news_cands.get(clean, score))
             continue
 
-        o_rank = next((i for i, t in enumerate(about_terms) if t in haystack), None)
+        legal_path = re.search(r"(?:^|/)(?:policies/legal-notice|legal-notice|terms|vendor-terms|salgsbetingelser|salgsvilkar|kjopsvilkar)(?:/|$)", path_lower)
+        o_rank = -1 if legal_path else next((i for i, t in enumerate(about_terms) if t in haystack), None)
         if o_rank is not None:
             score = o_rank + lang_penalty
             other_cands[clean] = min(score, other_cands.get(clean, score))
@@ -849,9 +903,11 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
 
     selected: list[str] = []
     for bucket in (
-        sorted_careers[:2],
-        sorted_news[:2],
+        sorted_careers[:1],
         sorted_others[:1],
+        sorted_news[:1],
+        sorted_careers[1:2],
+        sorted_news[1:2],
         sorted_news[2:3],
         sorted_careers[2:3],
         sorted_others[1:],
@@ -865,7 +921,7 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
 
 def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max_bytes: int) -> tuple[dict[str, Any] | None, list[dict[str, str]], int, int, int, str | None]:
     if not _robots_allowed(url, timeout):
-        return None, [], 1, 0, 0, "robots.txt disallows page"
+        return None, [], 1, 0, 0, "robots.txt disallows page or could not be checked"
     started = time.monotonic()
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
     try:
@@ -930,10 +986,22 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
         sec_meta = {"json-ld": ld_json_items}
         sec_ld_jobs = _jsonld_jobs(sec_meta, final_url, page_sha256=page_sha)
         sec_ld_news = _jsonld_news(sec_meta, final_url, page_sha256=page_sha)
+        identity_excerpt = _site_identity_text(page_soup)
+        if urllib.parse.urlsplit(final_url).path.rstrip("/") == "/policies/legal-notice":
+            policy_body = page_soup.select_one(".shopify-policy__body") or page_soup.find("main")
+            if policy_body:
+                identity_excerpt = (identity_excerpt + "\n" + policy_body.get_text(" ", strip=True)[:2500])[:10000]
 
         page = {
             "url": final_url,
             "title": page_soup.title.get_text(" ", strip=True)[:500] if page_soup.title else "",
+            "news_feed_links": [
+                urllib.parse.urljoin(final_url, str(link["href"]))
+                for link in page_soup.select('link[rel="alternate"][href]')
+                if str(link.get("type", "")).lower() in {"application/rss+xml", "application/atom+xml"}
+            ],
+            "identity_text_excerpt": identity_excerpt,
+            "structured_organisations": _jsonld_organisations(sec_meta),
             "main_text_excerpt": page_text[:5000],
             "content_sha256": page_sha,
             "news_items": sec_ld_news + extract_website_news(final_url, page_soup, page_html, page_sha256=page_sha),
@@ -1105,7 +1173,19 @@ def extract_local_business_schema(structured: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_000_000) -> tuple[dict[str, Any], dict[str, Any]]:
+def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_000_000, budget: Any = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    context = {"budget": budget, "requests": 0} if budget is not None else None
+    token = _REQUEST_CONTEXT.set(context)
+    try:
+        record, metrics = _fetch_website(url, timeout=timeout, max_bytes=max_bytes)
+        if context is not None:
+            metrics["requests"] = context["requests"]
+        return record, metrics
+    finally:
+        _REQUEST_CONTEXT.reset(token)
+
+
+def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_000_000) -> tuple[dict[str, Any], dict[str, Any]]:
     supplied_url = str(url or "").strip()
     supplied_scheme = bool(re.match(r"^https?://", supplied_url, re.I))
     normalized = normalize_homepage(url)
@@ -1116,7 +1196,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
     except ValueError as exc:
         return evidence("website", "blocked", "registry_linked_company_website", normalized, note=str(exc)), {"requests": 0, "bytes": 0, "latencies_ms": []}
     if not _robots_allowed(normalized, timeout):
-        return evidence("website", "blocked", "registry_linked_company_website", normalized, note="robots.txt disallows this user agent"), {"requests": 1, "bytes": 0, "latencies_ms": []}
+        return evidence("website", "blocked", "registry_linked_company_website", normalized, note="robots.txt disallows page or could not be checked"), {"requests": 1, "bytes": 0, "latencies_ms": []}
     started = time.monotonic()
     request = urllib.request.Request(normalized, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
     try:
@@ -1132,7 +1212,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
             assert_public_url(final_url)
         html = raw.decode("utf-8", errors="replace")
         soup = BeautifulSoup(html, "lxml")
-        structured = extruct.extract(html, base_url=final_url, syntaxes=["json-ld", "microdata", "opengraph"])
+        structured = extruct.extract(html, base_url=final_url, syntaxes=["json-ld", "microdata", "opengraph"], errors="ignore")
         text = trafilatura.extract(html, url=final_url, include_links=False, include_tables=False, favor_precision=True) or ""
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         description_tag = soup.select_one('meta[name="description"], meta[property="og:description"]')
@@ -1161,6 +1241,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
             "title": title[:500],
             "description": description[:2000],
             "main_text_excerpt": text[:5000],
+            "identity_text_excerpt": _site_identity_text(soup),
             "social_links": dedup_soc,
             "structured_organisations": _jsonld_organisations(structured),
             "local_business_details": local_biz,
@@ -1188,36 +1269,23 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
         bytes_received = len(raw)
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
-        # Homepage sufficiency: if the homepage already carries meaningful content,
-        # contact details, or structured data, subpages add no new information.
-        # Subpages are skipped only when the homepage already provides the data,
-        # so there is no loss of data fetched — only fewer requests.
-        homepage_text = value.get("main_text_excerpt", "") or ""
-        homepage_text_len = len(homepage_text)
-        has_contact_info = bool(
-            local_biz.get("telephone")
-            or local_biz.get("email")
-            or local_biz.get("address")
-            or re.search(r"\b\d{2}\s?\d{3}\s?\d{3}\b|@\S+\.\S+", homepage_text)
-        )
-        has_org_details = bool(
-            value.get("structured_organisations")
-            or value.get("local_business_details")
-            or value.get("tech_stack")
-        )
-        has_content_signal = bool(homepage_news or homepage_jobs or social)
-
-        # Ensure we crawl priority career and news subpages if the homepage didn't provide both.
-        # This satisfies the requirement to find dated items and open postings linked from the company's own site.
-        if len(homepage_news) >= 1 and len(homepage_jobs) >= 1:
-            subpage_limit = 0
-        else:
-            # _priority_links orders a careers page before a news page.  Keep both
-            # slots until both requested evidence types are present; otherwise a
-            # homepage news item can prevent the careers page from being fetched.
-            subpage_limit = 2
-        check_sitemap = False
-        for page_url in _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=check_sitemap):
+        # A homepage careers link can be a portal rather than an individual job.
+        subpage_limit = 3
+        pending_pages = _priority_links(final_url, soup, limit=subpage_limit)
+        if "cdn.shopify.com" in html or "Shopify.theme" in html:
+            legal_notice = urllib.parse.urljoin(final_url, "/policies/legal-notice")
+            if legal_notice not in pending_pages:
+                pending_pages.insert(0, legal_notice)
+                pending_pages = pending_pages[:subpage_limit]
+        if not all_job_postings and not any(
+            re.search(r"/(?:careers?|karriere|jobs|jobb)(?:/|$)", urllib.parse.urlsplit(link).path, re.I)
+            for link in pending_pages
+        ):
+            careers = urllib.parse.urljoin(final_url, "/careers")
+            if careers.rstrip("/") != final_url.rstrip("/") and careers not in pending_pages:
+                pending_pages.append(careers)
+        seen_pages = {final_url.rstrip("/"), *(url.rstrip("/") for url in pending_pages)}
+        for page_url in pending_pages:
             page, page_social, page_requests, page_bytes, page_elapsed, page_error = _fetch_secondary_page(
                 page_url,
                 homepage_domain=homepage_domain,
@@ -1235,6 +1303,23 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
                 all_job_postings.extend(page.get("job_postings") or [])
             elif page_error:
                 crawl_errors.append({"url": page_url, "error": page_error})
+        if not any(item.get("published_at") for item in all_news_items):
+            for feed in (link for page in pages[1:] for link in page.get("news_feed_links", [])):
+                if not feed.startswith("https://") or _registered_domain(feed) != homepage_domain or feed.rstrip("/") in seen_pages:
+                    continue
+                feed_page, _, count, size, latency, error = _fetch_secondary_page(
+                    feed, homepage_domain=homepage_domain, timeout=timeout, max_bytes=min(max_bytes, 1_000_000),
+                )
+                requests += count
+                bytes_received += size
+                if latency:
+                    page_latencies.append(latency)
+                if feed_page:
+                    pages.append(feed_page)
+                    all_news_items.extend(feed_page.get("news_items") or [])
+                elif error:
+                    crawl_errors.append({"url": feed, "error": error})
+                break
         value["pages"] = pages
         value["social_links"] = list({(item["platform"], item["url"]): item for item in social}.values())
 
@@ -1277,9 +1362,11 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 2_
     except urllib.error.HTTPError as exc:
         elapsed = int((time.monotonic() - started) * 1000)
         status = "not_found" if exc.code in {404, 410} else "source_error"
+        if exc.code in {401, 403, 429}:
+            status = "blocked"
         return evidence("website", status, "registry_linked_company_website", normalized, note=f"HTTP {exc.code}"), {"requests": 2, "bytes": 0, "latencies_ms": [elapsed]}
     except urllib.error.URLError as exc:
-        if not supplied_scheme and normalized.startswith("https://"):
+        if not isinstance(exc.reason, ssl.SSLError) and not supplied_scheme and normalized.startswith("https://"):
             first_elapsed = int((time.monotonic() - started) * 1000)
             record, metrics = fetch_website("http://" + supplied_url, timeout=timeout, max_bytes=max_bytes)
             metrics["requests"] += 2

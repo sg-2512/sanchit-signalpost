@@ -27,8 +27,15 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from typing import Any, Iterable
 from bs4 import BeautifulSoup
+from protego import Protego
+
+from ..verified_items import host_of, is_generic_job_title, is_hub_url, parse_iso_date, registered_domain
+from ..website import USER_AGENT as CRAWLER_AGENT, _jsonld_jobs, assert_public_url
+from .job_boards import board_endpoint, listed_adverts
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36"
 
@@ -56,6 +63,210 @@ ATS_PATTERNS = (
 _ATS_LOCK = threading.Lock()
 _ATS_NEXT_ALLOWED = 0.0
 _ATS_MIN_INTERVAL = 0.5
+
+
+class _NoJobRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_JOB_OPENER = urllib.request.build_opener(_NoJobRedirect())
+
+
+def _read_job_source(url: str, budget: Any, timeout: float) -> bytes:
+    try:
+        assert_public_url(url)
+        if not budget.try_start_request():
+            return b""
+        _pace_ats_request()
+        request = urllib.request.Request(url, headers={"User-Agent": CRAWLER_AGENT})
+        with _JOB_OPENER.open(request, timeout=timeout) as response:
+            raw = response.read(750_001)
+        budget.record_request(bytes_received=len(raw), count=0)
+        return raw if len(raw) <= 750_000 else b""
+    except (OSError, ValueError):
+        return b""
+
+
+def verified_career_jobs(
+    candidates: list[dict[str, Any]],
+    *,
+    site_url: str,
+    company_name: str,
+    org: str,
+    subunit_orgs: Iterable[str],
+    budget: Any,
+    max_requests: int,
+    timeout: float = 6.0,
+    diagnostics: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve first-party links or an advertised Workday sitemap to current job adverts."""
+    remaining = min(6, max_requests)
+    jobs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    robots_by_host: dict[str, Protego] = {}
+    today = datetime.now(timezone.utc).date()
+    employer_ids = {org, *subunit_orgs}
+    legal_name = " ".join(company_name.casefold().split())
+    site_domain = registered_domain(site_url)
+    if not site_domain or not legal_name:
+        return []
+
+    def record(key: str) -> None:
+        if diagnostics is not None:
+            diagnostics[key] = diagnostics.get(key, 0) + 1
+
+    def read(url: str) -> bytes:
+        nonlocal remaining
+        if remaining <= 0:
+            return b""
+        remaining -= 1
+        record("read_attempts")
+        raw = _read_job_source(url, budget, timeout)
+        if not raw:
+            record("empty_reads")
+        return raw
+
+    def priority(candidate: dict[str, Any]) -> int:
+        url = str(candidate.get("url") or "")
+        host = host_of(url)
+        if host.endswith(".myworkdayjobs.com") or board_endpoint(url):
+            return 0
+        path = urllib.parse.urlsplit(url).path.rstrip("/")
+        return 1 if "/jobs/" in path or path.endswith("/jobs") else 2
+
+    for candidate in sorted(candidates, key=priority):
+        if remaining < 1:
+            break
+        url = str(candidate.get("url") or "")
+        linked_from = str(candidate.get("source_url") or "")
+        host = host_of(url)
+        if url in seen or not url.startswith("https://") or registered_domain(linked_from) != site_domain:
+            continue
+        first_party = registered_domain(url) == site_domain
+        workday = host.endswith(".myworkdayjobs.com")
+        public_board = board_endpoint(url)
+        teamtailor = host.endswith(".teamtailor.com") and host not in {"app.teamtailor.com", "tt.teamtailor.com", "www.teamtailor.com"}
+        eu_greenhouse = host == "job-boards.eu.greenhouse.io"
+        if not (first_party or workday or public_board or teamtailor or eu_greenhouse):
+            continue
+        seen.add(url)
+        if host not in robots_by_host:
+            origin = urllib.parse.urlsplit(url).netloc
+            robots_url = f"https://{origin}/robots.txt"
+            robots_raw = read(robots_url)
+            if not robots_raw and remaining >= 3:
+                record("robots_retries")
+                robots_raw = read(robots_url)
+            if not robots_raw:
+                record("robots_unavailable")
+                continue
+            robots_by_host[host] = Protego.parse(robots_raw.decode("utf-8-sig", errors="replace"))
+        robots = robots_by_host[host]
+        path = urllib.parse.urlsplit(url).path
+        first_party_jobs_index = first_party and (
+            path.rstrip("/") == "/jobs"
+            or (not path.strip("/") and host.split(".")[0] in {"careers", "karriere", "jobs"})
+        )
+        individual_ad = not is_hub_url(url) and (not workday or "/job/" in path)
+        active_listing = listed_adverts(url, read) if public_board else {}
+        ad_urls = list(active_listing) if public_board else [url] if individual_ad else []
+        if teamtailor or eu_greenhouse or first_party_jobs_index:
+            tenant_path = path.strip("/").split("/")[0]
+            pattern = rf"/{re.escape(tenant_path)}/jobs/[0-9]+/?" if eu_greenhouse else r"/jobs/[0-9]+(?:-[^/]+)?/?"
+            ad_urls = [url] if re.fullmatch(pattern, path) else []
+            if not ad_urls and robots.can_fetch(url, CRAWLER_AGENT):
+                listing = BeautifulSoup(read(url), "html.parser")
+                index_url = ""
+                for anchor in listing.select("a[href]"):
+                    address = urllib.parse.urljoin(url, str(anchor["href"]))
+                    parsed = urllib.parse.urlsplit(address)
+                    if parsed.scheme == "https" and parsed.netloc == urllib.parse.urlsplit(url).netloc and re.fullmatch(pattern, parsed.path):
+                        ad_urls.append(parsed._replace(query="", fragment="").geturl())
+                    elif (teamtailor or first_party_jobs_index) and parsed.scheme == "https" and parsed.netloc == urllib.parse.urlsplit(url).netloc and parsed.path.rstrip("/") == "/jobs":
+                        index_url = parsed._replace(query="", fragment="").geturl()
+                if not ad_urls and index_url and index_url.rstrip("/") != url.rstrip("/") and remaining >= 2 and robots.can_fetch(index_url, CRAWLER_AGENT):
+                    index = BeautifulSoup(read(index_url), "html.parser")
+                    for anchor in index.select("a[href]"):
+                        address = urllib.parse.urljoin(index_url, str(anchor["href"]))
+                        parsed = urllib.parse.urlsplit(address)
+                        if parsed.scheme == "https" and parsed.netloc == urllib.parse.urlsplit(url).netloc and re.fullmatch(pattern, parsed.path):
+                            ad_urls.append(parsed._replace(query="", fragment="").geturl())
+        if workday and not ad_urls:
+            portal = re.sub(r"^/[a-z]{2}-[a-z]{2}(?=/)", "", path.rstrip("/"), flags=re.I)
+            sitemap = next((
+                item for item in robots.sitemaps
+                if item.startswith("https://") and host_of(item) == host
+                and urllib.parse.urlsplit(item).path == f"{portal}/siteMap.xml"
+                and robots.can_fetch(item, CRAWLER_AGENT)
+            ), "")
+            if not sitemap or remaining < 2:
+                continue
+            try:
+                root = ET.fromstring(read(sitemap))
+            except ET.ParseError:
+                continue
+            ad_urls = [
+                address for node in root.findall("./{*}url/{*}loc")
+                if (address := (node.text or "").strip()).startswith("https://")
+                and host_of(address) == host
+                and urllib.parse.urlsplit(address).path.startswith(f"{portal}/job/")
+                and not is_hub_url(address)
+            ]
+            # Check domestic ads first when the portal exposes a global listing.
+            ad_urls.sort(key=lambda address: "norway" not in urllib.parse.urlsplit(address).path.casefold())
+        for ad_url in dict.fromkeys(ad_urls):
+            if remaining <= 0:
+                break
+            if not robots.can_fetch(ad_url, CRAWLER_AGENT):
+                record("adverts_blocked_by_robots")
+                continue
+            record("advert_candidates")
+            raw = read(ad_url)
+            if not raw:
+                continue
+            soup = BeautifulSoup(raw, "html.parser")
+            metadata = []
+            for script in soup.find_all("script", type="application/ld+json"):
+                try:
+                    metadata.append(json.loads(script.string or script.get_text()))
+                except ValueError:
+                    continue
+            digest = hashlib.sha256(raw).hexdigest()
+            for item in _jsonld_jobs({"json-ld": metadata}, ad_url, page_sha256=digest):
+                employer = str(item.get("hiring_org") or "")
+                declared_org = str(item.get("employer_org") or "")
+                employer_name = re.sub(r"^\d{1,6}\s+", "", employer) if workday else employer
+                employer_name = " ".join(employer_name.casefold().split())
+                if declared_org and declared_org not in employer_ids:
+                    record("employer_mismatch")
+                    continue
+                if not declared_org and employer_name != legal_name:
+                    record("employer_mismatch")
+                    continue
+                posted = parse_iso_date(item.get("published_at"))
+                closes = parse_iso_date(item.get("valid_through"))
+                # Public board APIs enumerate currently published adverts. An absent
+                # deadline is acceptable only with that fresh, captured listing.
+                dates_invalid = (posted is not None and posted > today) or (closes is not None and closes <= today)
+                dated_open = posted is not None and closes is not None and posted <= today < closes
+                if dates_invalid or not (dated_open or ad_url in active_listing) or is_generic_job_title(item["title"]):
+                    record("unverified_open_status_or_generic_title")
+                    continue
+                if item["url"].rstrip("/") != ad_url.rstrip("/"):
+                    continue
+                jobs.append({
+                    **item,
+                    "employer_name": employer,
+                    "kind": "verified_career_ad",
+                    "career_source_url": linked_from,
+                    "career_link_url": url,
+                    "hiring_org_match": True,
+                    "active_listing": active_listing.get(ad_url),
+                })
+                record("verified_adverts")
+                break
+    return jobs
 
 
 def _pace_ats_request() -> None:
@@ -112,61 +323,6 @@ def _fetch(url: str, *, timeout: float = 10.0) -> tuple[bytes | None, int]:
             return raw, len(raw)
     except Exception:
         return None, 0
-
-
-def _fetch_workday_jobs(landing_url: str, *, timeout: float = 10.0) -> tuple[list[dict[str, Any]], bytes, str]:
-    """Read individual vacancies from a Workday portal linked by a company site.
-
-    Workday renders listings client-side. Its public CXS endpoint returns the
-    same individual openings visible in that portal. This is deliberately
-    called only with a career URL found on a verified company website.
-    """
-    parsed = urllib.parse.urlparse(landing_url)
-    host = (parsed.hostname or "").lower()
-    site_parts = [part for part in parsed.path.split("/") if part]
-    tenant = host.split(".")[0]
-    if not host.endswith(".myworkdayjobs.com") or not tenant or not site_parts:
-        return [], b"", ""
-    site = site_parts[-1]
-    endpoint = f"{parsed.scheme or 'https'}://{host}/wday/cxs/{tenant}/{site}/jobs"
-    body = json.dumps({"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""}).encode("utf-8")
-    _pace_ats_request()
-    try:
-        request = urllib.request.Request(
-            endpoint,
-            data=body,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-        )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read(1_000_000)
-        payload = json.loads(raw.decode("utf-8", errors="replace"))
-    except Exception:
-        return [], b"", endpoint
-
-    postings = payload.get("jobPostings") if isinstance(payload, dict) else []
-    if not isinstance(postings, list):
-        return [], raw, endpoint
-    origin = f"{parsed.scheme or 'https'}://{host}/{site}"
-    jobs: list[dict[str, Any]] = []
-    for posting in postings[:8]:
-        if not isinstance(posting, dict):
-            continue
-        title = str(posting.get("title") or "").strip()
-        external_path = str(posting.get("externalPath") or "").strip()
-        if not title or not external_path.startswith("/job/"):
-            continue
-        jobs.append({
-            "title": title[:200],
-            "url": origin + external_path,
-            "date_posted": str(posting.get("postedOn") or "") or None,
-            "location": str(posting.get("locationsText") or "") or None,
-            "workday_endpoint": endpoint,
-        })
-    return jobs, raw, endpoint
 
 
 def _looks_like_job_ad_url(url: str) -> bool:
@@ -323,54 +479,6 @@ def fetch_ats_jobs(
 
         probes_done += 1
 
-        # Workday's landing page is client-rendered, but its public endpoint
-        # returns individual advertisements.  The company-site link and
-        # tenant-name match are both required before accepting any response.
-        if is_company_linked and urllib.parse.urlparse(url).hostname and urllib.parse.urlparse(url).hostname.lower().endswith(".myworkdayjobs.com"):
-            jobs, workday_raw, endpoint = _fetch_workday_jobs(url, timeout=timeout)
-            if budget:
-                budget.record_request(bytes_received=len(workday_raw), elapsed_ms=0, cost_usd=0.0)
-            host = urllib.parse.urlparse(url).hostname.lower().removeprefix("www.")
-            tenant = host.split(".")[0]
-            tenant_match = any(tok in tenant for tok in core_tokens if len(tok) >= 4)
-            if not tenant_match:
-                continue
-            digest = hashlib.sha256(workday_raw).hexdigest() if workday_raw else ""
-            for job in jobs:
-                if len(observations) >= max_results:
-                    break
-                title = str(job["title"])
-                job_url = str(job["url"])
-                obs_id = "ats-job-" + hashlib.sha256(f"{org_number}|{job_url}|{title}".encode()).hexdigest()[:24]
-                observations.append({
-                    "id": obs_id,
-                    "organisation_number": str(org_number),
-                    "platform": "job_board",
-                    "signal_type": "job_posting",
-                    "source_url": job_url,
-                    "retrieved_at": retrieved_at,
-                    "published_at": job.get("date_posted"),
-                    "content_sha256": digest,
-                    "exact_entity": True,
-                    "kind": "ats_ad",
-                    "employer_org": "",
-                    "employer_name": tenant,
-                    "match_type": "company_site_linked_ats_tenant_match",
-                    "identity_proof": [
-                        {"type": "ats_tenant_match", "employer_name": tenant, "ats_host": host, "query": company_name},
-                        {"type": "company_site_career_link", "source_url": linked_from, "ats_landing_url": url},
-                        {"type": "workday_public_jobs_endpoint", "source_url": endpoint},
-                    ],
-                    "job_title": title,
-                    "evidence_span": f"Company-linked Workday opening '{title}' at {job_url}",
-                    "metrics": {"location": job.get("location"), "workday_endpoint": endpoint},
-                    "source_class": "company_site",
-                    "rights_status": "approved",
-                    "acquisition_mode": "permitted_public_page",
-                    "strategy": "company_site_job",
-                })
-            continue
-
         raw, bytes_received = _fetch(url, timeout=timeout)
         if not raw:
             if budget:
@@ -457,10 +565,10 @@ def fetch_ats_jobs(
                 ],
                 "job_title": title,
                 "evidence_span": f"Active ATS job posting '{title}' at {job_url}",
-                "source_class": "company_site" if is_company_linked and linked_from else "commercial_job_board",
+                "source_class": "commercial_job_board",
                 "rights_status": "approved",
                 "acquisition_mode": "permitted_public_page",
-                "strategy": "company_site_job" if is_company_linked and linked_from else "ats_discovery_probe",
+                "strategy": "ats_discovery_probe",
             })
 
     if status_out is not None:

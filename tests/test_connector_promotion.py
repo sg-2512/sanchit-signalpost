@@ -44,8 +44,8 @@ def test_rejects_unreviewed_connector_assertions():
 
 def test_full_report_requires_safe_declaration_and_budget():
     report = promotion_report(
-        "nav_arbeidsplassen_search",
-        [reviewed("900000001", strategy="nav_arbeidsplassen_search")],
+        "company_site_job",
+        [reviewed("900000001", strategy="company_site_job")],
         {"requests": 20, "runtime_seconds": 3, "third_party_cost_usd": 0},
     )
     assert report["promoted"]
@@ -54,9 +54,18 @@ def test_full_report_requires_safe_declaration_and_budget():
 
 def test_full_report_rejects_budget_overrun():
     report = promotion_report(
-        "nav_arbeidsplassen_search",
-        [reviewed("900000001", strategy="nav_arbeidsplassen_search")],
+        "company_site_job",
+        [reviewed("900000001", strategy="company_site_job")],
         {"requests": 2_001, "runtime_seconds": 3, "third_party_cost_usd": 0},
     )
     assert not report["promoted"]
     assert not report["questions"]["within_request_runtime_cost_budget"]["passed"]
+
+
+def test_unlicensed_website_job_search_is_excluded_from_official_promotion():
+    report = promotion_report(
+        "nav_arbeidsplassen_search",
+        [reviewed("900000001", strategy="nav_arbeidsplassen_search")],
+        {"requests": 20, "runtime_seconds": 3, "third_party_cost_usd": 0},
+    )
+    assert not report["promoted"]

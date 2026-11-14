@@ -6,7 +6,7 @@ from norway_company_agent.connectors.ats_discovery import fetch_ats_jobs
 from norway_company_agent.verified_items import validate_job_item
 
 
-def test_company_linked_workday_page_yields_individual_verified_ad() -> None:
+def test_experimental_linked_teamtailor_page_yields_individual_candidate() -> None:
     landing = "https://equinor.teamtailor.com/jobs"
     html = b"""
         <html><body>
@@ -25,8 +25,8 @@ def test_company_linked_workday_page_yields_individual_verified_ad() -> None:
 
     assert len(jobs) == 1
     job = jobs[0]
-    assert job["source_class"] == "company_site"
-    assert job["strategy"] == "company_site_job"
+    assert job["source_class"] == "commercial_job_board"
+    assert job["strategy"] == "ats_discovery_probe"
     assert any(proof["type"] == "company_site_career_link" for proof in job["identity_proof"])
 
     ok, reason = validate_job_item(
@@ -56,30 +56,3 @@ def test_company_linked_ats_listing_never_publishes_without_an_individual_ad() -
             probe_patterns=False,
         )
     assert jobs == []
-
-
-def test_company_linked_workday_endpoint_yields_individual_verified_ads() -> None:
-    landing = "https://equinor.wd3.myworkdayjobs.com/EQNR"
-    workday_jobs = [{
-        "title": "Software Engineer",
-        "url": "https://equinor.wd3.myworkdayjobs.com/EQNR/job/Stavanger/Software-Engineer_JR123456",
-        "date_posted": "Posted 1 Day Ago",
-        "location": "Stavanger, Norway",
-    }]
-    with patch(
-        "norway_company_agent.connectors.ats_discovery._fetch_workday_jobs",
-        return_value=(workday_jobs, b'{\"jobPostings\":[{}]}', "https://equinor.wd3.myworkdayjobs.com/wday/cxs/equinor/EQNR/jobs"),
-    ):
-        jobs = fetch_ats_jobs(
-            "EQUINOR ASA",
-            "923609016",
-            seed_urls=[landing],
-            linked_from="https://www.equinor.com/careers",
-            probe_patterns=False,
-        )
-
-    assert len(jobs) == 1
-    job = jobs[0]
-    assert job["strategy"] == "company_site_job"
-    assert job["source_class"] == "company_site"
-    assert "Software Engineer" in job["evidence_span"]

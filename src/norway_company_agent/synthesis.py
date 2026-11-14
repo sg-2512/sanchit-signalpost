@@ -86,8 +86,8 @@ def generate_company_synthesis(
     loc_count = len(loc_list)
 
     website_ev = (evidence.get("website") or {}).get("value") or {}
-    is_pub_web = bool((website_ev.get("identity_assessment") or {}).get("publishable", True)) if website_ev else False
-    site_url = (website_ev.get("final_url") or website_ev.get("requested_url") if is_pub_web else None) or profile.get("website")
+    is_pub_web = bool((website_ev.get("identity_assessment") or {}).get("publishable"))
+    site_url = (website_ev.get("final_url") or website_ev.get("requested_url") or profile.get("website")) if is_pub_web else None
     social_links = list(website_ev.get("social_links") or []) if is_pub_web else []
     for sp in (profile.get("social_profiles") or []):
         if isinstance(sp, dict) and sp.get("platform") and sp.get("url"):
