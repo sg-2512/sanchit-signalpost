@@ -41,7 +41,8 @@ def test_experimental_linked_teamtailor_page_yields_individual_candidate() -> No
         site_url="https://www.equinor.com",
         site_publishable=True,
     )
-    assert ok, reason
+    assert not ok
+    assert reason == "ats_ad_not_individually_verified"
 
 
 def test_company_linked_ats_listing_never_publishes_without_an_individual_ad() -> None:

@@ -69,17 +69,20 @@ def generate_company_synthesis(
     roles = (evidence.get("roles") or {}).get("value") or {}
     roles_list = roles.get("roles") or []
 
-    def _role_text(r: dict) -> str:
-        return f"{r.get('role', '')} {r.get('role_type', '')} {r.get('role_code', '')} {r.get('group', '')}".lower()
-
     def _person_name(r: dict) -> str:
         n = r.get("name")
         return ", ".join(n) if isinstance(n, list) else str(n or "")
 
+    def _is_role(r: dict, code: str, descriptions: set[str]) -> bool:
+        observed_code = str(r.get("role_code") or "").upper()
+        return observed_code == code or (not observed_code and any(
+            str(r.get(key) or "").strip().casefold() in descriptions for key in ("role", "role_type")
+        ))
+
     active_roles = [r for r in roles_list if not r.get("inactive")]
-    candidate_roles = active_roles if active_roles else roles_list
-    chair = next((_person_name(r) for r in candidate_roles if any(t in _role_text(r) for t in ("styrets leder", "styreleder", "leder", "chair"))), None)
-    ceo = next((_person_name(r) for r in candidate_roles if any(t in _role_text(r) for t in ("daglig leder", "adm.dir", "dagl", "ceo", "managing director"))), None)
+    candidate_roles = active_roles
+    chair = roles.get("chair") or next((_person_name(r) for r in active_roles if _is_role(r, "LEDE", {"styrets leder", "styreleder", "chair"})), None)
+    ceo = roles.get("ceo") or next((_person_name(r) for r in active_roles if _is_role(r, "DAGL", {"daglig leder", "ceo", "managing director"})), None)
 
     locations = (evidence.get("locations") or {}).get("value") or {}
     loc_list = locations.get("locations") or []
@@ -282,8 +285,12 @@ def generate_company_synthesis(
     if esg_list:
         reg_notes.append("Miljøfyrtårn ESG certified")
     pat_list = [obs for obs in (observations or []) if obs.get("signal_type") == "patent_trademark_record" or obs.get("platform") == "patentstyret"]
-    if pat_list:
-        reg_notes.append(f"{len(pat_list)} registered trademark(s)/patent(s) (Patentstyret)")
+    active_ip = [obs for obs in pat_list if (obs.get("metrics") or {}).get("status_category") == "active_registered"]
+    pending_ip = [obs for obs in pat_list if (obs.get("metrics") or {}).get("status_category") == "pending"]
+    if active_ip:
+        reg_notes.append(f"{len(active_ip)} currently registered IP right(s) (Patentstyret)")
+    if pending_ip:
+        reg_notes.append(f"{len(pending_ip)} pending IP application(s) (Patentstyret)")
     compliance_sentence = f"Regulatory and certification status: {'; '.join(reg_notes)}." if reg_notes else ""
 
     what_changed_str = f"What changed: {'; '.join(change_items)}."

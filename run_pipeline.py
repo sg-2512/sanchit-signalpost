@@ -29,7 +29,7 @@ def run_step(description: str, cmd: list[str], cwd: Path = ROOT) -> int:
     result = subprocess.run(cmd, cwd=cwd, text=True)
     if result.returncode != 0:
         print(f"[ERROR] Step '{description}' failed with exit code {result.returncode}")
-        return result.returncode
+        raise subprocess.CalledProcessError(result.returncode, cmd)
     return 0
 
 
@@ -52,8 +52,7 @@ def main() -> int:
     orgs_path = ROOT / args.organisations
     bulk_path = ROOT / args.bulk
 
-    from norway_company_agent.batch import read_organisation_inputs, terminal_envelope
-    from norway_company_agent.evidence import utc_now
+    from norway_company_agent.batch import read_organisation_inputs
     org_inputs = read_organisation_inputs(orgs_path)
     if args.max_orgs and args.max_orgs > 0:
         org_inputs = org_inputs[:args.max_orgs]
@@ -110,13 +109,18 @@ def main() -> int:
     # -------------------------------------------------------------
     # Step 1b: Deterministic Resume Verification
     # -------------------------------------------------------------
+    # Resume is a verification run. Keep its artifacts separate so it cannot
+    # replace the live agent's already validated terminal envelopes.
+    resume_profiles_out = out_dir / "resume-profiles.jsonl"
+    resume_envelopes_out = out_dir / "resume-envelopes.jsonl"
+    resume_profiles_out.write_bytes(profiles_out.read_bytes())
     step1b_cmd = [
         sys.executable,
         str(ROOT / "scripts" / "run_competition_batch.py"),
         "--organisations", str(orgs_path),
         "--bulk", str(bulk_path),
-        "--profiles-output", str(profiles_out),
-        "--output", str(envelopes_out),
+        "--profiles-output", str(resume_profiles_out),
+        "--output", str(resume_envelopes_out),
         "--report", str(resume_report_out),
         "--run-id", f"{args.run_id}-resume",
         "--expected-count", str(expected_count),
@@ -131,12 +135,14 @@ def main() -> int:
     # -------------------------------------------------------------
     # Step 2: Social Links Normalization
     # -------------------------------------------------------------
+    normalized_profiles_out = out_dir / "normalized-profiles.jsonl"
+    normalized_profiles_out.write_bytes(profiles_out.read_bytes())
     run_step(
         "2. Normalizing Social Links on Discovered Websites",
         [
             sys.executable,
             str(ROOT / "scripts" / "normalize_social_links.py"),
-            "--input", str(profiles_out),
+            "--input", str(normalized_profiles_out),
         ]
     )
 
@@ -196,10 +202,12 @@ def main() -> int:
         ]
     )
 
-    # Merge external observations (preserving live observations from run_agent.py)
+    # Legacy external connectors supply leads only. They have not passed the
+    # live agent's rights, exact-company, and item-level evidence gates, so
+    # do not mix them into its publishable observations or terminal envelopes.
     seen_obs_ids: set[str] = set()
     observations = []
-    for obs_file in (all_observations_out, site_activity_out, site_news_out, google_news_out, social_workforce_out):
+    for obs_file in (site_activity_out, site_news_out, google_news_out, social_workforce_out):
         if obs_file.exists():
             for line in obs_file.read_text(encoding="utf-8").splitlines():
                 if line.strip():
@@ -211,25 +219,12 @@ def main() -> int:
                         seen_obs_ids.add(oid)
                     observations.append(row)
 
-    all_observations_out.write_text(
+    candidate_observations_out = out_dir / "candidate-observations.jsonl"
+    candidate_observations_out.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in observations),
         encoding="utf-8"
     )
-    print(f"[INFO] Combined {len(observations)} external observations into {all_observations_out}")
-
-    # Refresh terminal envelopes after social normalization and external observations
-    if profiles_out.exists():
-        updated_profiles = [json.loads(line) for line in profiles_out.read_text(encoding="utf-8").splitlines() if line.strip()]
-        mod_list = [m.strip() for m in modules.split(",") if m.strip()]
-        now_ts = utc_now()
-        updated_envelopes = [
-            terminal_envelope(p, run_id=args.run_id, modules=mod_list, started_at=now_ts, completed_at=now_ts)
-            for p in updated_profiles
-        ]
-        envelopes_out.write_text(
-            "".join(json.dumps(env, ensure_ascii=False, separators=(",", ":")) + "\n" for env in updated_envelopes),
-            encoding="utf-8",
-        )
+    print(f"[INFO] Saved {len(observations)} unverified external leads to {candidate_observations_out}")
 
     # Build a blank, deterministic review queue. Never derive reviewer verdicts
     # from the agent's own observations.
@@ -301,14 +296,11 @@ def main() -> int:
     target_org = (suite_data.get("single_company") or {}).get("organisation_number")
     if not research_suite.exists() or target_org not in org_numbers:
         research_report = {
-            "score": 12.0,
+            "score": None,
             "maximum": 12,
-            "external_footprint_qa_passed": True,
-            "qualification_passed": True,
-            "single_company_supported": True,
-            "unsupported_abstention": True,
-            "saved_work": True,
-            "provenance_export": True,
+            "evaluation_status": "not_run",
+            "qualification_passed": False,
+            "reason": "Research suite missing or selected company absent from batch",
         }
         research_report_out.write_text(json.dumps(research_report, indent=2), encoding="utf-8")
         print(f"[INFO] Generated research agent report at {research_report_out}")
@@ -329,9 +321,9 @@ def main() -> int:
     # Step 9: UX Report & Interactive Showcase
     # -------------------------------------------------------------
     ux_report = {
-        "score": 8.0,
-        "external_intelligence_presented": True,
-        "interactive_showcase": True,
+        "score": None,
+        "evaluation_status": "not_run",
+        "interactive_showcase": False,
     }
     ux_report_out.write_text(json.dumps(ux_report, indent=2), encoding="utf-8")
 

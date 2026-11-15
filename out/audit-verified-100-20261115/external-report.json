@@ -1,0 +1,112 @@
+{
+  "audit_status": "not_requested",
+  "qualification_passed": false,
+  "audit_size_gate": false,
+  "exact_company_precision": null,
+  "wrong_entity_publications": null,
+  "wrong_company_publications": null,
+  "unsupported_publications": null,
+  "evidence_span_validity": null,
+  "audit_queue_rows": 378,
+  "audited_observations": 0,
+  "published_audited": 0,
+  "incomplete_audit_rows": 378,
+  "connector_policy_passed": null,
+  "fresh_coverage": 1.0,
+  "coverage": {
+    "two_platforms": 0.99,
+    "workforce_jobs": 0.2,
+    "open_jobs": 0.0,
+    "ratings_reviews": 0.0,
+    "buzz_engagement": 0.0,
+    "sentiment": 0.0
+  },
+  "platforms": [
+    "brreg",
+    "company_directory",
+    "news",
+    "patentstyret"
+  ],
+  "total_observations": 490,
+  "source_policy": "official_safe",
+  "quarantined_observations": 9,
+  "publishable_observations": 378,
+  "companies_with_external_data": 100,
+  "measurements": {
+    "exact_company_precision": null,
+    "wrong_company_publications": null,
+    "evidence_span_validity": null,
+    "crawl_completion": 1.0,
+    "refresh_correctness": null,
+    "false_change_rate": null,
+    "cost_per_company": 0.0,
+    "request_count": 1488,
+    "p50_ms": 914,
+    "p95_ms": 1759,
+    "per_field_precision_recall_coverage": {
+      "legal_identity": {
+        "company_coverage": 1.0,
+        "precision": null,
+        "recall": null
+      },
+      "official_website": {
+        "company_coverage": 0.16,
+        "precision": null,
+        "recall": null
+      },
+      "annual_accounts": {
+        "company_coverage": 1.0,
+        "precision": null,
+        "recall": null
+      },
+      "roles": {
+        "company_coverage": 1.0,
+        "precision": null,
+        "recall": null
+      },
+      "operating_locations": {
+        "company_coverage": 1.0,
+        "precision": null,
+        "recall": null
+      },
+      "hiring_status": {
+        "company_coverage": 1.0,
+        "precision": null,
+        "recall": null
+      },
+      "accounting_obligation": {
+        "company_coverage": 1.0,
+        "precision": null,
+        "recall": null
+      },
+      "dated_news": {
+        "company_coverage": 0.03,
+        "precision": null,
+        "recall": null
+      },
+      "job_postings": {
+        "company_coverage": 0.02,
+        "precision": null,
+        "recall": null
+      }
+    },
+    "abstention": {
+      "total": 835,
+      "by_state": {
+        "not_available": 823,
+        "ambiguous": 12
+      },
+      "by_field": {
+        "official_website": 84,
+        "website": 84,
+        "social_profiles": 91,
+        "social_profile": 91,
+        "hiring_signal": 95,
+        "dated_news": 97,
+        "news": 97,
+        "job_postings": 98,
+        "jobs": 98
+      }
+    }
+  }
+}

@@ -245,36 +245,35 @@ def evaluate_company_hiring(
         })
 
     # Determine overall hiring status
-    active_postings_count = len(nav_jobs) + len(li_jobs) + len(web_jobs)
-    has_web_hiring = web_signals["has_career_page"] or bool(web_signals["hiring_keywords_found"]) or bool(web_jobs)
+    seen_ad_urls: set[str] = set()
+    unique_jobs = []
+    for job in [*nav_jobs, *li_jobs, *web_jobs]:
+        url = str(job.get("source_url") or job.get("url") or "").split("#", 1)[0].rstrip("/").casefold()
+        if url and url not in seen_ad_urls:
+            seen_ad_urls.add(url)
+            unique_jobs.append(job)
+    active_postings_count = len(unique_jobs)
+    has_career_page = web_signals["has_career_page"] or bool(web_signals["hiring_keywords_found"])
 
     if active_postings_count > 0:
         appears_to_be_hiring = True
         status_code = "actively_recruiting"
         titles = [s.get("title") for s in signals if s.get("title")][:3]
         summary_note = f"Actively hiring: {active_postings_count} open vacancy posting(s) confirmed on NAV/company website ({', '.join(filter(None, titles))})."
-    elif has_web_hiring:
-        appears_to_be_hiring = True
-        status_code = "website_recruitment_open"
+    elif has_career_page:
+        appears_to_be_hiring = False
+        status_code = "recruitment_page_present"
         urls_str = ", ".join(web_signals["career_urls"]) if web_signals["career_urls"] else "website"
-        summary_note = f"Appears to be hiring: career section / recruitment notices maintained on company {urls_str}."
-    elif employees is not None and employees > 0:
-        appears_to_be_hiring = False
-        status_code = "workforce_active_no_open_postings"
-        summary_note = f"No active public job postings detected; registered workforce stands at {employees} employee(s)."
-    elif employees == 0:
-        appears_to_be_hiring = False
-        status_code = "zero_workforce_no_hiring"
-        summary_note = "No active recruitment postings or registered workforce observed (0 registered employees)."
+        summary_note = f"Career or recruitment page found at {urls_str}; no currently open vacancy verified."
     else:
         appears_to_be_hiring = False
-        status_code = "unreported_workforce_no_hiring"
-        summary_note = "No active recruitment postings observed across checked sources; workforce size unfiled in registry."
+        status_code = "unknown"
+        summary_note = "Current hiring status is unknown; the bounded checks did not verify an open advert and cannot exclude other sources."
 
     hiring_block = {
         "appears_to_be_hiring": appears_to_be_hiring,
         "status": status_code,
-        "confidence": "high" if (active_postings_count > 0 or employees is not None) else "medium",
+        "confidence": "high" if active_postings_count > 0 else "limited",
         "active_job_postings_count": active_postings_count,
         "registered_employees": employees,
         "sources_checked": [

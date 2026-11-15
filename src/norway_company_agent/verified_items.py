@@ -238,6 +238,35 @@ def validate_job_item(
         return False, "disallowed_source"
 
     kind = str(item.get("kind") or "")
+    if kind == "ats_ad":
+        # A tenant match or link on a careers index is a lead, not proof that
+        # the individual advert was fetched and remains open.
+        return False, "ats_ad_not_individually_verified"
+    if kind == "jsonld_job" and str(item.get("source_url") or "").rstrip("/") != url.rstrip("/"):
+        return False, "jsonld_job_source_is_not_ad"
+    if kind == "company_site_ad":
+        site_domain = registered_domain(site_url)
+        career_url = str(item.get("career_source_url") or "")
+        listing = item.get("active_listing") or {}
+        ad_text = str(item.get("ad_text_excerpt") or "")
+        today = datetime.now(timezone.utc).date()
+        if (not site_publishable or not site_domain or registered_domain(url) != site_domain
+                or registered_domain(career_url) != site_domain):
+            return False, "company_site_not_verified"
+        if (str(item.get("source_url") or "").rstrip("/") != url.rstrip("/")
+                or str(listing.get("source_url") or "").rstrip("/") != career_url.rstrip("/")
+                or parse_iso_date(listing.get("retrieved_at")) != today):
+            return False, "company_ad_not_currently_linked"
+        if not all(re.fullmatch(r"[0-9a-f]{64}", str(value or "")) for value in
+                   (item.get("content_sha256"), listing.get("content_sha256"))):
+            return False, "invalid_evidence_hash"
+        if (len(ad_text) < 180 or not name_in_text(company_name, ad_text, allow_short_single_token=True)
+                or not any(term in ad_text.casefold() for term in ("søknad", "soknad", "apply", "application"))):
+            return False, "company_not_named_in_active_ad"
+        closes = parse_iso_date(item.get("valid_through"))
+        if closes is not None and closes <= today:
+            return False, "career_ad_expired"
+        return True, "verified_company_site_ad"
     if kind == "verified_career_ad":
         source_domain = registered_domain(str(item.get("career_source_url") or ""))
         site_domain = registered_domain(site_url)
@@ -332,7 +361,7 @@ def validate_job_item(
             pass
         else:
             return False, "hub_or_search_url"
-    if not site_publishable and kind != "ats_ad":
+    if not site_publishable:
         return False, "site_identity_not_verified"
 
     tokens = brand_tokens(company_name, site_url)

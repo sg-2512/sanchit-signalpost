@@ -5,8 +5,12 @@ import re
 import unicodedata
 import urllib.parse
 from typing import Any
+import tldextract
 
 from .verified_items import name_in_text, registered_domain
+
+
+_TLD_EXTRACT = tldextract.TLDExtract(cache_dir=False, suffix_list_urls=())
 
 
 LEGAL_AND_GENERIC = {
@@ -424,7 +428,44 @@ def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) ->
                 name_match |= words(str(operator.get("legalName") or operator.get("name") or "")) == legal_words
     if explicit_orgs:
         return explicit_orgs == {org}
-    return name_match
+    if name_match:
+        return True
+
+    # Some sites use a trading name rather than the legal suffix. Accept a
+    # registry-declared domain only when independent page content corroborates
+    # the registered email domain and the exact street plus postal code.
+    live_rec = (profile.get("evidence") or {}).get("registry_live") or {}
+    reg = live_rec.get("value") or {}
+    if live_rec.get("status") != "available" or not isinstance(reg, dict):
+        return False
+    final_host = (urllib.parse.urlsplit(str(value.get("final_url") or "")).hostname or "").lower().removeprefix("www.")
+    declared_host = (urllib.parse.urlsplit("https://" + str(reg.get("hjemmeside") or reg.get("website") or "").removeprefix("https://").removeprefix("http://")).hostname or "").lower().removeprefix("www.")
+    email_host = str(reg.get("epostadresse") or "").rsplit("@", 1)[-1].lower()
+    if not final_host or final_host != declared_host or final_host != email_host:
+        return False
+    address = reg.get("forretningsadresse") or reg.get("business_address") or {}
+    if not isinstance(address, dict):
+        return False
+    street_lines = address.get("adresse") or []
+    street = " ".join(street_lines) if isinstance(street_lines, list) else str(street_lines)
+    postal_code = str(address.get("postnummer") or "")
+    if not street or not re.fullmatch(r"\d{4}", postal_code):
+        return False
+    def compact(text: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().casefold())
+    brand = " ".join(legal_words[:-1] if legal_words[-1] in {"as", "asa", "ans", "da", "enk", "nuf"} else legal_words)
+    site_brand = " ".join(str(part or "") for part in (value.get("title"), value.get("description"), value.get("visible_text_excerpt")))
+    if not brand or len(compact(brand)) < 6 or compact(brand) not in compact(site_brand):
+        return False
+    for page in pages:
+        page_text = str(page.get("visible_text_excerpt") or "")
+        for match in re.finditer(r"\b(?:org\.?\s*nr\.?|organisasjonsnummer|organisation\s+number|VAT)\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0-]*){8}\d)(?!\d)", page_text, re.I):
+            if re.sub(r"\D", "", match.group(1)) != org:
+                return False
+        observed = compact(page_text)
+        if compact(street) in observed and postal_code in observed:
+            return True
+    return False
 
 
 def apply_website_identity_gate(
@@ -445,7 +486,7 @@ def apply_website_identity_gate(
             "score": 0.99 if exact else min(assessment["score"], 0.75),
             "status": "exact" if exact else "related_or_uncertain",
             "relationship": "exact_legal_entity" if exact else "ambiguous_or_unproven",
-            "reasons": ["Website operator matches the legal name or organisation number"] if exact else [
+            "reasons": ["Website operator corroborated by captured page and registry identity"] if exact else [
                 *reasons, "Website operator could not be tied to the exact legal entity",
             ],
             "method": "onsite_legal_operator_v1",
@@ -564,20 +605,12 @@ def assess_entity_identity(
     final_url = w_value.get("final_url") or website.get("source_url") or ""
     hostname = urllib.parse.urlparse(final_url).hostname or ""
 
-    # --- Collect all evidence text for cross-validation ---
+    # Only text actually fetched from this website may establish its operator.
+    # Registry and other module records are reference data, not on-site proof.
     all_text_parts: list[str] = []
-    if evidence_items:
-        for item in evidence_items:
-            for key in ("text", "title", "main_text_excerpt", "identity_text_excerpt",
-                        "description", "claim_span", "value", "evidence_span"):
-                v = item.get(key)
-                if isinstance(v, str):
-                    all_text_parts.append(v)
-                elif isinstance(v, dict):
-                    all_text_parts.append(json.dumps(v, ensure_ascii=False))
     homepage_parts = [
         w_value.get("title"), w_value.get("description"), w_value.get("identity_text_excerpt"),
-        hostname, w_value.get("main_text_excerpt"),
+        w_value.get("main_text_excerpt"),
     ]
     all_text_parts.extend(str(p or "") for p in homepage_parts if p)
     rendered = w_value.get("js_fallback") or {}
@@ -616,16 +649,23 @@ def assess_entity_identity(
     name_score = 1.0 if name_match else (name_ratio if name_ratio > 0 else 0.0)
 
     # --- Factor 3: Domain ---
-    domain_sld = hostname.split(".")[0] if "." in hostname else hostname
+    domain_sld = _TLD_EXTRACT(hostname).domain
     domain_sld_alnum = re.sub(r"[^a-z0-9]", "", domain_sld)
     domain_match = bool(
         domain_sld_alnum
         and len(domain_sld_alnum) >= 3
         and domain_sld_alnum not in GENERIC_INDUSTRY_WORDS
         and domain_sld_alnum not in LEGAL_AND_GENERIC
-        and domain_sld_alnum in combined_text.casefold()
+        and (domain_sld_alnum in "".join(core) or domain_sld_alnum == "".join(t[0] for t in core))
     )
     domain_score = 0.95 if domain_match else 0.0
+
+    registry = (profile.get("evidence") or {}).get("registry_live") or (profile.get("evidence") or {}).get("registry") or {}
+    registry_value = registry.get("value") or {}
+    declared_url = str(registry_value.get("website") or registry_value.get("hjemmeside") or "")
+    declared_host = urllib.parse.urlparse(declared_url if "://" in declared_url else "https://" + declared_url).hostname or ""
+    declared_domain = _TLD_EXTRACT(declared_host).domain
+    registry_declares_brand = bool(declared_domain and declared_domain == domain_sld and domain_match)
 
     # --- Factor 4: Registered address ---
     reg_val = (profile.get("evidence") or {}).get("registry_live") or {}
@@ -704,6 +744,9 @@ def assess_entity_identity(
     elif orgnr_score >= 1.0 and domain_score >= 0.9:
         status = "exact"
         publishable = True
+    elif registry_declares_brand and name_match and not found_orgs:
+        status = "exact"
+        publishable = True
     elif name_score >= 0.95 and domain_score >= 0.90 and weighted_score >= 0.95:
         status = "exact"
         publishable = True
@@ -732,6 +775,8 @@ def apply_entity_identity_gate(
     profile: dict[str, Any],
     website: dict[str, Any],
     evidence_items: list[dict[str, Any]] | None = None,
+    *,
+    operator_assessment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Apply both website identity and multi-factor entity identity gates.
 
@@ -743,7 +788,11 @@ def apply_entity_identity_gate(
         return {"website": website, "assessment": None, "entity_assessment": None, "quarantined_social_links": 0}
 
     temporary_profile = {**profile, "evidence": {**profile.get("evidence", {}), "website": website}}
-    website_assessment = assess_website_identity(temporary_profile)
+    website_assessment = (
+        operator_assessment
+        if operator_assessment is not None and operator_assessment.get("method") == "onsite_legal_operator_v1"
+        else assess_website_identity(temporary_profile)
+    )
     entity_assessment = assess_entity_identity(temporary_profile, evidence_items)
 
     # Zero-tolerance: either assessment can veto publication

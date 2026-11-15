@@ -305,12 +305,13 @@ def normalize_roles(body: Any) -> dict[str, Any]:
             }
             roles.append(role_dict)
             if not inactive and display_name:
-                r_text = f"{r_code or ''} {r_desc or ''}".lower()
-                if any(t in r_text for t in ("styrets leder", "styreleder", "lede", "chair")) and not chair:
+                role_code = str(r_code or "").upper()
+                role_description = str(r_desc or "").strip().casefold()
+                if (role_code == "LEDE" or (not role_code and role_description in {"styrets leder", "styreleder", "chair"})) and not chair:
                     chair = display_name
-                elif any(t in r_text for t in ("daglig leder", "adm.dir", "dagl", "ceo", "adm dir")) and not ceo:
+                elif (role_code == "DAGL" or (not role_code and role_description in {"daglig leder", "administrerende direktør", "ceo", "managing director"})) and not ceo:
                     ceo = display_name
-                elif any(t in r_text for t in ("styremedlem", "medl", "nestleder", "nest")):
+                elif role_code in {"MEDL", "NEST"} or (not role_code and role_description in {"styremedlem", "nestleder"}):
                     board_members.append(display_name)
 
     return {
@@ -332,7 +333,7 @@ def normalize_group(body: Any) -> dict[str, Any]:
             normalized_subs.append({
                 "organisation_number": s.get("organisasjonsnummer"),
                 "name": s.get("navn"),
-                "ownership_percentage": s.get("eierandel") or s.get("andel") or 100.0,
+                "ownership_percentage": s.get("eierandel") if s.get("eierandel") is not None else s.get("andel"),
             })
     return {
         "parent": {
@@ -381,6 +382,8 @@ def _classified(field: str, source_type: str, result: FetchResult, value: Any = 
         return evidence(field, "available", source_type, result.url, value=value, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
     if result.status in {404, 410}:
         return evidence(field, "not_found", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
+    if result.status in {401, 403, 429}:
+        return evidence(field, "blocked", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
     return evidence(field, "source_error", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
 
 
@@ -428,63 +431,8 @@ def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str],
                     records["registry_live"].setdefault("value", {})["latest_financial_year"] = latest_fy
         else:
             # HTTP 503 or network failure: fallback to statutory filing from registry_live if available
-            if module in {"group", "locations"} and result.status not in {404, 410}:
-                # If secondary group or locations endpoints encounter upstream error,
-                # mark as not_found/not_available rather than causing a fatal company envelope failure
-                records[module] = evidence(
-                    module,
-                    "not_found",
-                    source_type,
-                    url,
-                    note=f"Lookup unavailable ({result.error})",
-                    content_sha256=result.content_sha256,
-                    retrieved_at=result.retrieved_at,
-                    effective_at=result.effective_at,
-                )
-            elif module == "financials":
-                reg_live = records.get("registry_live") or {}
-                reg_val = reg_live.get("value") or {}
-                reg_body = reg_val if isinstance(reg_val, dict) else {}
-                latest_year = str(reg_body.get("sisteInnsendteAarsregnskap") or reg_body.get("latest_submitted_accounts") or "").strip()
-                if latest_year.isdigit():
-                    kapital = reg_body.get("kapital") if isinstance(reg_body.get("kapital"), dict) else {}
-                    statutory_record = {
-                        "id": int(latest_year),
-                        "account_type": "SELSKAP",
-                        "fiscal_year": int(latest_year),
-                        "filing_year": latest_year,
-                        "period": {
-                            "fraDato": f"{latest_year}-01-01",
-                            "tilDato": f"{latest_year}-12-31",
-                        },
-                        "share_capital": kapital.get("belop"),
-                        "currency": kapital.get("valuta") or "NOK",
-                        "statutory_filing_status": "filed_confirmed",
-                        "source": "official_brreg_statutory_filing",
-                    }
-                    reg_sha = reg_live.get("content_sha256") or result.content_sha256
-                    records[module] = evidence(
-                        module,
-                        "available",
-                        source_type,
-                        url,
-                        value={"records": [statutory_record], "financial_trends": {}},
-                        content_sha256=reg_sha,
-                        retrieved_at=reg_live.get("retrieved_at") or result.retrieved_at,
-                        effective_at=reg_live.get("effective_at") or result.effective_at,
-                    )
-                else:
-                    # No submitted accounts on record
-                    records[module] = evidence(
-                        module,
-                        "not_found",
-                        source_type,
-                        url,
-                        note="No submitted annual accounts on record in official registry",
-                        content_sha256=result.content_sha256,
-                        retrieved_at=result.retrieved_at,
-                        effective_at=result.effective_at,
-                    )
-            else:
-                records[module] = _classified(module, source_type, result, value=None)
+            # An unavailable endpoint is not evidence that the company has no
+            # group, subunits or financial statements. Filing year remains in
+            # registry_live; financial figures require their own response.
+            records[module] = _classified(module, source_type, result, value=None)
     return records, metrics

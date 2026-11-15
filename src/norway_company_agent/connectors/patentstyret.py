@@ -15,6 +15,18 @@ import urllib.request
 from typing import Any
 
 PATENTSTYRET_SEARCH_URL = "https://api.patentstyret.no/external/opendata/register/v1/IprCasesByCompany"
+
+
+def classify_ip_status(status: str | None) -> str:
+    """Only the registry's current positive status can establish an active right."""
+    value = str(status or "").strip().casefold()
+    if any(term in value for term in ("ceased", "expired", "lapsed", "shelved", "refused", "rejected", "withdrawn", "opphørt", "utløpt", "henlagt", "avslått", "trukket")):
+        return "inactive_or_unsuccessful"
+    if value in {"registered", "granted", "in force", "active", "registrert", "meddelt"}:
+        return "active_registered"
+    if any(term in value for term in ("pending", "filed", "application", "under behandling", "søknad")):
+        return "pending"
+    return "unknown"
 USER_AGENT = "SignalPostAgent/1.0 (+https://builderr.ai/signalpost)"
 PATENTSTYRET_API_KEY_ENV = "PATENTSTYRET_API_KEY"
 NIPO_API_KEY_ENV = "NIPO_API_KEY"
@@ -158,6 +170,7 @@ def fetch_patentstyret_data(
                     "title": title,
                     "application_number": app_num,
                     "status": status,
+                    "status_category": classify_ip_status(status),
                     "filing_date": hit.get("filingDate"),
                     "status_date": hit.get("statusDate"),
                     "case_url": record_url,

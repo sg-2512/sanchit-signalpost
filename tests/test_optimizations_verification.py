@@ -36,6 +36,9 @@ class OptimizationsVerificationTests(unittest.TestCase):
             "legal_form": "AS",
             "evidence": {
                 "registry": {
+                    "status": "available",
+                    "source_url": "https://data.brreg.no/enhetsregisteret/api/enheter/912345678",
+                    "content_sha256": "a" * 64,
                     "value": {
                         "navn": "NORDIC TECH SOLUTIONS AS",
                         "organisasjonsform.kode": "AS",
@@ -48,12 +51,13 @@ class OptimizationsVerificationTests(unittest.TestCase):
         self.assertEqual(len(notices), 1)
         notice = notices[0]
         self.assertEqual(notice["platform"], "brreg")
-        self.assertEqual(notice["signal_type"], "official_notice")
+        self.assertEqual(notice["signal_type"], "registry_registration")
         self.assertEqual(notice["published_at"], "2018-05-14")
         self.assertIn("2018-05-14", notice["text"])
         self.assertTrue(notice["exact_entity"])
         self.assertTrue(len(notice["content_sha256"]) == 64)
         self.assertIn("912345678", notice["source_url"])
+        self.assertNotIn("sentiment_label", notice)
 
     # ------------------------------------------------------------------------
     # 2. Career Paths & Schema.org JSON-LD Extraction
@@ -91,7 +95,7 @@ class OptimizationsVerificationTests(unittest.TestCase):
                 }
             ]
         }
-        jobs = _jsonld_jobs(metadata, "https://www.example.no")
+        jobs = _jsonld_jobs(metadata, "https://www.example.no", page_sha256="a" * 64)
         self.assertEqual(len(jobs), 1)
         job = jobs[0]
         self.assertEqual(job["title"], "Senior Python Utvikler")
@@ -112,7 +116,7 @@ class OptimizationsVerificationTests(unittest.TestCase):
                 }
             ]
         }
-        news = _jsonld_news(metadata, "https://www.example.no")
+        news = _jsonld_news(metadata, "https://www.example.no", page_sha256="b" * 64)
         self.assertEqual(len(news), 1)
         article = news[0]
         self.assertEqual(article["title"], "Selskapet lanserer ny miljøvennlig teknologi")

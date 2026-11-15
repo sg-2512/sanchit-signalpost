@@ -47,8 +47,8 @@ class TestHiringModules(unittest.TestCase):
         }
         hiring_block, obs = evaluate_company_hiring(profile)
         self.assertEqual(hiring_block["registered_employees"], 12)
-        self.assertIn("12 employee(s)", hiring_block["assessment"])
-        self.assertEqual(hiring_block["status"], "workforce_active_no_open_postings")
+        self.assertEqual(hiring_block["status"], "unknown")
+        self.assertFalse(hiring_block["appears_to_be_hiring"])
 
     def test_evaluate_company_hiring_with_zero_employees(self):
         profile = {
@@ -59,7 +59,7 @@ class TestHiringModules(unittest.TestCase):
         }
         hiring_block, obs = evaluate_company_hiring(profile)
         self.assertFalse(hiring_block["appears_to_be_hiring"])
-        self.assertIn("0 registered employees", hiring_block["assessment"])
+        self.assertEqual(hiring_block["status"], "unknown")
 
     @patch("urllib.request.urlopen")
     def test_fetch_nav_jobs_publishable(self, mock_urlopen):
@@ -128,6 +128,7 @@ class TestHiringModules(unittest.TestCase):
                 "job_postings": [{
                     "title": "Engineer",
                     "url": "https://nordic.no/jobs/engineer",
+                    "source_url": "https://nordic.no/jobs/engineer",
                     "content_sha256": "a" * 64,
                     "kind": "jsonld_job",
                     "employer_org": "912345678",

@@ -783,7 +783,7 @@ def build_contract_claims_and_evidence(
         norm_pub = _normalize_date_str(cand.get("published_at")) or _normalize_date_str(cand.get("excerpt")) or _normalize_date_str(c_url)
         if not norm_pub:
             continue
-        dedup_k = f"{lower_t}|{norm_pub}"
+        dedup_k = c_url.rstrip("/").casefold()
         if dedup_k in seen_news_keys:
             continue
         seen_news_keys.add(dedup_k)
@@ -800,12 +800,13 @@ def build_contract_claims_and_evidence(
             source_sha = crawled_page_shas.get(cand_src_url.rstrip("/"))
             if source_sha:
                 cand_sha = source_sha
-            elif not cand_sha:
-                cand_sha = str(w_rec.get("content_sha256") or "")
+            elif cand.get("verification") in {"article_fetched", "inline_newsroom"}:
+                # Publication needs the fetched article/newsroom response.
+                continue
         else:
             cand_src_url = str(cand.get("source_url") or c_url)
         if not cand_sha:
-            cand_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or "")
+            continue
 
         is_official = "brreg" in c_src or "brreg.no" in lower_u or "offisiell registrering" in lower_t or "kunngjøring" in lower_t
         item = {
@@ -814,7 +815,7 @@ def build_contract_claims_and_evidence(
             "source_url": cand_src_url,
             "published_at": norm_pub,
             "content_sha256": cand_sha,
-            "verification": cand.get("verification") or ("site_listing" if is_site_news else ("article_fetched" if name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}") else "")),
+            "verification": cand.get("verification") or ("site_listing" if is_site_news else ""),
             "name_in_article": (
                 bool(cand.get("name_in_article"))
                 or (is_site_news and cand.get("verification") == "article_fetched"
@@ -823,7 +824,8 @@ def build_contract_claims_and_evidence(
                 or (is_site_news and cand.get("verification") == "inline_newsroom"
                     and name_in_text(profile.get("name") or "", str(cand.get("excerpt") or ""),
                                      allow_short_single_token=True))
-                or (not is_site_news and name_in_text(profile.get("name") or "", f"{c_title} {cand.get('excerpt') or ''}"))
+                or (not is_site_news and cand.get("verification") == "article_fetched"
+                    and name_in_text(profile.get("name") or "", str(cand.get("article_text_excerpt") or "")))
             ),
             "_is_site": is_site_news,
             "_is_generic_prefix": lower_t.startswith(("nyheter ", "aktuelt ", "news ", "presse ")),
@@ -865,7 +867,7 @@ def build_contract_claims_and_evidence(
 
         if is_primary_site and has_valid_site_ev:
             n_src_url = str(primary_news.get("source_url") or w_rec.get("source_url") or website_url)
-            n_sha = str(primary_news.get("content_sha256") or w_rec.get("content_sha256") or "")
+            n_sha = str(primary_news.get("content_sha256") or "")
             news_ev_ids = [site_ev_id, news_ev_id]
             news_source_class = "company_site"
         else:
@@ -875,7 +877,7 @@ def build_contract_claims_and_evidence(
             news_source_class = "public_news"
 
         if not n_sha:
-            n_sha = str(reg_live_rec.get("content_sha256") or reg_bulk_rec.get("content_sha256") or "")
+            raise ValueError("Validated news item lacks its own source response hash")
         n_pub = primary_news.get("published_at")
         n_title = str(primary_news.get("title") or "Nyhet")
         news_claim_val = {
@@ -950,7 +952,7 @@ def build_contract_claims_and_evidence(
                         "title": sig.get("title"),
                         "url": sig.get("url"),
                         "published_at": sig.get("published_at"),
-                        "content_sha256": sig.get("content_sha256") or j_rec.get("content_sha256") or (w_rec.get("content_sha256") if has_valid_site_ev else None),
+                        "content_sha256": sig.get("content_sha256"),
                         "kind": sig.get("kind"),
                         "employer_org": sig.get("employer_org"),
                         "employer_name": sig.get("employer_name"),
@@ -988,21 +990,15 @@ def build_contract_claims_and_evidence(
             continue
         if any(bad in lower_u for bad in ["/about-us", "/magazine", "/careers/contact", "/kontakt", "/om-oss/jobb-hos-oss"]):
             continue
-        dedup_k = f"{lower_t}|{lower_u}"
+        dedup_k = lower_u.rstrip("/")
         if dedup_k in seen_job_keys:
             continue
         seen_job_keys.add(dedup_k)
 
         is_verified_board = cand.get("kind") == "verified_career_ad" or "arbeidsplassen.nav.no/stillinger/stilling/" in lower_u or "linkedin.com/jobs/view/" in lower_u
         j_cand_sha = str(cand.get("content_sha256") or "")
-        if not is_verified_board and has_valid_site_ev and j_cand_sha not in valid_page_sha_set:
-            j_cand_sha = str(w_rec.get("content_sha256"))
-            j_src_url = str(w_rec.get("source_url") or website_url)
-        else:
-            j_src_url = str(cand.get("source_url") or j_u)
-        if not j_cand_sha:
-            j_cand_sha = str(j_rec.get("content_sha256") or (w_rec.get("content_sha256") if has_valid_site_ev else "") or "")
-        if not j_cand_sha:
+        j_src_url = str(cand.get("source_url") or j_u)
+        if not j_cand_sha or (not is_verified_board and j_cand_sha not in valid_page_sha_set):
             continue
 
         norm_j_pub = _normalize_date_str(cand.get("published_at")) or cand.get("published_at")
@@ -1021,6 +1017,7 @@ def build_contract_claims_and_evidence(
             "career_source_url": cand.get("career_source_url"),
             "career_link_url": cand.get("career_link_url"),
             "active_listing": cand.get("active_listing"),
+            "ad_text_excerpt": cand.get("ad_text_excerpt"),
             "_priority": 2 if "arbeidsplassen.nav.no" in lower_u else (1 if "linkedin.com/jobs/view/" in lower_u else 0),
         })
 
@@ -1066,7 +1063,7 @@ def build_contract_claims_and_evidence(
             "confidence": 0.95,
             "evidence_ids": [jobs_ev_id],
         })
-        if primary_job.get("kind") == "verified_career_ad":
+        if primary_job.get("kind") in {"verified_career_ad", "company_site_ad"}:
             job_evidence_ids = [jobs_ev_id]
             for index, item in enumerate(clean_job_items):
                 listing = item.get("active_listing")
@@ -1075,7 +1072,7 @@ def build_contract_claims_and_evidence(
                     evidence_items.append({
                         "id": listing_id,
                         "source_url": listing["source_url"],
-                        "source_class": "job_board",
+                        "source_class": "company_site" if item.get("kind") == "company_site_ad" else "job_board",
                         "retrieved_at": listing["retrieved_at"],
                         "content_sha256": listing["content_sha256"],
                         "claim_span": f"Published job listing includes {item['url']}",
@@ -1088,7 +1085,7 @@ def build_contract_claims_and_evidence(
                     evidence_items.append({
                         "id": advert_id,
                         "source_url": item["url"],
-                        "source_class": "job_board",
+                        "source_class": "company_site" if item.get("kind") == "company_site_ad" else "job_board",
                         "retrieved_at": j_rec.get("retrieved_at") or completed_at,
                         "content_sha256": item["content_sha256"],
                         "claim_span": f"Active job vacancy: {item['title']}",
@@ -1283,11 +1280,18 @@ def terminal_envelope(
         "claims": claims,
         "evidence": evidence_list,
         "changes": profile.get("change_history") or [],
-        "errors": [],
+        "errors": [
+            {"module": module, "status": record.get("status"),
+             "source_url": record.get("source_url"), "reason": record.get("note")}
+            for module, record in (profile.get("evidence") or {}).items()
+            if isinstance(record, dict) and record.get("status") in {"source_error", "submission_error", "blocked"}
+        ],
         "operations": {
             "requests": int(run_metrics.get("requests") or 0),
             "runtime_ms": int((run_metrics.get("elapsed_s") or 0) * 1000),
-            "third_party_cost_usd": 0.0,
+            # The shared concurrent budget records real run-level spend, but
+            # cannot attribute it reliably to this single company.
+            "third_party_cost_usd": run_metrics.get("third_party_cost_usd"),
         },
         "profile": profile,
     }

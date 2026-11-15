@@ -140,6 +140,39 @@ from norway_company_agent.connectors.nav_feed import nav_feed_jobs_for_company
 from norway_company_agent.synthesis import generate_company_synthesis
 
 
+def apply_live_registry_precedence(profile: dict[str, Any], registry_record: dict[str, Any]) -> None:
+    """Keep current identity fields in step with a successful live Brreg response."""
+    if registry_record.get("status") != "available" or registry_record.get("source_type") != "official_registry_live":
+        return
+    value = registry_record.get("value") or {}
+    if not isinstance(value, dict):
+        return
+    current_name = value.get("name")
+    if current_name and current_name != profile.get("name"):
+        previous = str(profile.get("name") or "")
+        if previous:
+            former_names = profile.setdefault("former_names", [])
+            if previous not in former_names:
+                former_names.append(previous)
+        profile["name"] = current_name
+    if value.get("employees") is not None:
+        profile["employees"] = value["employees"]
+    if value.get("legal_form"):
+        profile["legal_form"] = value["legal_form"]
+
+
+def merge_verified_jobs(site_jobs: list[dict[str, Any]], ats_jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep validated first-party ads when a later ATS lookup finds none."""
+    merged = list(site_jobs)
+    seen = {str(item.get("url") or "").split("#", 1)[0].rstrip("/") for item in merged}
+    for job in ats_jobs:
+        url = str(job.get("url") or "").split("#", 1)[0].rstrip("/")
+        if url and url not in seen:
+            merged.append(job)
+            seen.add(url)
+    return merged
+
+
 def write_jsonl(path: Path, rows: list[dict]) -> None:
     """Atomic JSONL write with tmp file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,26 +208,28 @@ def extract_social_observations(profile: dict[str, Any]) -> list[dict[str, Any]]
         if key in seen:
             continue
         seen.add(key)
-        site_sha = str((value or {}).get("content_sha256") or website.get("content_sha256") or "")
-        digest = site_sha or hashlib.sha256(b"").hexdigest()
+        proof_url = str(link.get("source_url") or site_url)
+        site_sha = str(link.get("content_sha256") or "")
+        if not site_sha:
+            continue
         obs_id = f"social-{platform}-{org}-{hashlib.sha256(url.encode()).hexdigest()[:16]}"
         observations.append({
             "id": obs_id,
             "organisation_number": org,
             "platform": platform,
             "signal_type": "profile_handle",
-            "source_url": url,
+            "source_url": proof_url,
             "retrieved_at": retrieved_at,
-            "content_sha256": digest,
+            "content_sha256": site_sha,
             "exact_entity": True,
             "identity_proof": [
                 {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
-                {"type": "website_outbound_social_link", "parent_website": site_url},
+                {"type": "website_outbound_social_link", "parent_website": proof_url},
             ],
             "acquisition_mode": "permitted_public_page",
             "rights_status": "approved",
             "source_class": "company_site",
-            "evidence_span": f"Exact company website {site_url} publishes verified outbound link to its {platform} profile: {url}",
+            "evidence_span": f"Exact company website {proof_url} publishes an outbound link to its {platform} profile: {url}",
             "metrics": {"platform": platform, "url": url},
             "strategy": "website_social_discovery",
         })
@@ -253,7 +288,9 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
         seen.add(key)
 
         published_at = item.get("published_at")
-        digest = item.get("content_sha256") or str((website.get("value") or {}).get("content_sha256") or website.get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+        # An article claim must carry the hash of the article actually read.
+        # A homepage or synthetic hash cannot establish its contents.
+        digest = str(item.get("content_sha256") or "")
         obs_id = "news-web-" + hashlib.sha256(f"{org}|{url}|{title}".encode()).hexdigest()[:24]
 
         observations.append({
@@ -321,7 +358,7 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
         seen.add(key)
 
         published_at = item.get("published_at")
-        digest = item.get("content_sha256") or str((website.get("value") or {}).get("content_sha256") or website.get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+        digest = str(item.get("content_sha256") or "")
         obs_id = "jobs-web-" + hashlib.sha256(f"{org}|{url}|{title}".encode()).hexdigest()[:24]
 
         observations.append({
@@ -342,6 +379,7 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
             "career_source_url": item.get("career_source_url"),
             "career_link_url": item.get("career_link_url"),
             "active_listing": item.get("active_listing"),
+            "ad_text_excerpt": item.get("ad_text_excerpt"),
             "identity_proof": [
                 {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
                 {"type": "company_career_page", "source_url": item.get("career_source_url"), "linked_url": item.get("career_link_url")},
@@ -351,7 +389,7 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
             "rights_status": "approved",
             "source_class": "company_site",
             "job_title": title,
-            "evidence_span": f"Active recruitment notice '{title}' at {url}",
+            "evidence_span": str(item.get("ad_text_excerpt") or title)[:500],
             "text": title,
             "metrics": {"job_title": title, "url": url, "published_at": published_at},
             "strategy": "company_site_job",
@@ -363,18 +401,27 @@ def extract_workforce_observation(profile: dict[str, Any]) -> list[dict[str, Any
     """Extract official workforce snapshot from BRREG registry data."""
     org = str(profile.get("organisation_number") or "")
     ev = profile.get("evidence") or {}
-    reg_live = (ev.get("registry_live") or {}).get("value") or {}
-    reg_bulk = (ev.get("registry") or {}).get("value") or {}
-    employees = reg_live.get("employees") or reg_bulk.get("antallAnsatte") or profile.get("employees") or 0
+    live_rec = ev.get("registry_live") or {}
+    bulk_rec = ev.get("registry") or {}
+    reg_live = live_rec.get("value") or {}
+    reg_bulk = bulk_rec.get("value") or {}
+    if live_rec.get("status") == "available" and reg_live.get("employees") is not None:
+        employees, source_rec = reg_live["employees"], live_rec
+    elif bulk_rec.get("status") == "available" and reg_bulk.get("antallAnsatte") is not None:
+        employees, source_rec = reg_bulk["antallAnsatte"], bulk_rec
+    else:
+        return []
 
     try:
         count = int(employees)
     except (ValueError, TypeError):
-        count = 0
+        return []
 
-    source_url = f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
-    retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or ""
-    digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+    source_url = str(source_rec.get("source_url") or "")
+    retrieved_at = source_rec.get("retrieved_at") or ""
+    digest = str(source_rec.get("content_sha256") or "")
+    if not source_url or not digest:
+        return []
     obs_id = f"workforce-brreg-{org}-{hashlib.sha256(str(count).encode()).hexdigest()[:16]}"
 
     return [{
@@ -387,9 +434,9 @@ def extract_workforce_observation(profile: dict[str, Any]) -> list[dict[str, Any
         "content_sha256": digest,
         "exact_entity": True,
         "identity_proof": [{"type": "official_registry_workforce_record", "organisation_number": org, "employees": count}],
-        "acquisition_mode": "official_api",
+        "acquisition_mode": "official_api" if source_rec is live_rec else "official_bulk_file",
         "rights_status": "approved",
-        "source_class": "official_registry_live",
+        "source_class": source_rec.get("source_type") or "official_registry",
         "evidence_span": f"Official Brønnøysund registry reports {count} registered employee(s) for organization {org}",
         "metrics": {"workforce_value": count, "measure": "employees"},
         "strategy": "official_registry_workforce",
@@ -404,16 +451,16 @@ def extract_profile_metrics_observation(profile: dict[str, Any]) -> list[dict[st
     name = str(profile.get("name") or reg.get("navn") or "")
     form = str(profile.get("legal_form") or reg.get("organisasjonsform.kode") or "AS")
     muni = str(profile.get("municipality") or reg.get("forretningsadresse.kommune") or "")
-    reg_val = (ev.get("registry_live") or {}).get("value") or (ev.get("registry") or {}).get("value") or {}
-    fin_val = (ev.get("financials") or {}).get("value") or {}
-    reg_acc = str(profile.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap") or reg_val.get("latest_submitted_accounts") or reg.get("sisteInnsendteAarsregnskap") or "").strip()
-    fin_acc = str((fin_val.get("latest") or {}).get("filing_year") or fin_val.get("latest_fiscal_year") or "").strip()
-    valid_accs = [y[:4] for y in (reg_acc, fin_acc) if len(y) >= 4 and y[:4].isdigit()]
-    latest = max(valid_accs, key=int) if valid_accs else (reg_acc or fin_acc or "")
-
-    source_url = f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
-    retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or ""
-    digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
+    live_rec = ev.get("registry_live") or {}
+    bulk_rec = ev.get("registry") or {}
+    source_rec = live_rec if live_rec.get("status") == "available" else bulk_rec
+    reg_val = source_rec.get("value") or {}
+    latest = str(reg_val.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap") or "").strip()
+    source_url = str(source_rec.get("source_url") or "")
+    retrieved_at = source_rec.get("retrieved_at") or ""
+    digest = str(source_rec.get("content_sha256") or "")
+    if not source_url or not digest:
+        return []
     obs_id = f"metrics-brreg-{org}-{hashlib.sha256(f'{form}|{latest}'.encode()).hexdigest()[:16]}"
 
     return [{
@@ -426,9 +473,9 @@ def extract_profile_metrics_observation(profile: dict[str, Any]) -> list[dict[st
         "content_sha256": digest,
         "exact_entity": True,
         "identity_proof": [{"type": "official_registry_entity", "organisation_number": org, "name": name}],
-        "acquisition_mode": "official_api",
+        "acquisition_mode": "official_api" if source_rec is live_rec else "official_bulk_file",
         "rights_status": "approved",
-        "source_class": "official_registry_live",
+        "source_class": source_rec.get("source_type") or "official_registry",
         "evidence_span": f"Official Norwegian corporate profile: {name} ({form}) in {muni}, latest filed accounts: {latest or 'unreported'}",
         "metrics": {"legal_form": form, "municipality": muni, "latest_accounts": latest},
         "strategy": "official_registry_metrics",
@@ -508,73 +555,38 @@ def extract_place_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract official public notice observation from BRREG."""
+    """Record a dated registry milestone without inventing a public notice."""
     org = str(profile.get("organisation_number") or "")
     ev = profile.get("evidence") or {}
-    reg = (ev.get("registry") or {}).get("value") or {}
-    name = str(profile.get("name") or reg.get("navn") or "")
-    form = str(profile.get("legal_form") or reg.get("organisasjonsform.kode") or "AS")
-    reg_date = str(reg.get("registreringsdatoenhetsregisteret") or "2024-01-01")
-    source_url = f"https://w2.brreg.no/kunngjoring/hent_enhet.jsp?orgnr={org}"
-    retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or ""
-    digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
-
-    obs_list = [{
-        "id": f"notice-news-{org}-{digest[:16]}",
+    live_rec = ev.get("registry_live") or {}
+    bulk_rec = ev.get("registry") or {}
+    source_rec = live_rec if live_rec.get("status") == "available" else bulk_rec
+    reg = source_rec.get("value") or {}
+    reg_date = str(reg.get("registreringsdatoEnhetsregisteret") or reg.get("registreringsdatoenhetsregisteret") or "")[:10]
+    source_url = str(source_rec.get("source_url") or "")
+    digest = str(source_rec.get("content_sha256") or "")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", reg_date) or not source_url or not digest:
+        return []
+    name = str(reg.get("name") or reg.get("navn") or profile.get("name") or "")
+    return [{
+        "id": f"registry-milestone-{org}-{digest[:16]}",
         "organisation_number": org,
         "platform": "brreg",
-        "signal_type": "official_notice",
-        "text": f"Offisiell registrering i Enhetsregisteret: {name} ({reg_date})",
+        "signal_type": "registry_registration",
+        "text": f"{name} registered in Enhetsregisteret on {reg_date}",
         "published_at": reg_date,
         "source_url": source_url,
-        "retrieved_at": retrieved_at,
+        "retrieved_at": source_rec.get("retrieved_at") or "",
         "content_sha256": digest,
         "exact_entity": True,
-        "identity_proof": [{"type": "official_registration_announcement", "organisation_number": org, "name": name}],
-        "acquisition_mode": "official_api",
+        "identity_proof": [{"type": "official_registry_record", "organisation_number": org, "name": name}],
+        "acquisition_mode": "official_api" if source_rec is live_rec else "official_bulk_file",
         "rights_status": "approved",
-        "source_class": "official_notice",
-        "sentiment_label": "neutral",
-        "sentiment_model_version": "NOSIBLE/financial-sentiment-v1.2-base",
-        "evidence_span": f"Official Norwegian registration publication for {name} (org {org}) in Enhetsregisteret, registered {reg_date}",
-        "metrics": {"notice_type": "registration_announcement", "registration_date": reg_date, "title": f"Offisiell registrering i Enhetsregisteret: {name} ({reg_date})"},
-        "strategy": "official_public_notices",
+        "source_class": source_rec.get("source_type") or "official_registry",
+        "evidence_span": f"Registry record for {name} ({org}) gives registration date {reg_date}",
+        "metrics": {"registration_date": reg_date},
+        "strategy": "official_registry_milestone",
     }]
-
-    reg_val = (ev.get("registry_live") or {}).get("value") or (ev.get("registry") or {}).get("value") or {}
-    fin_val = (ev.get("financials") or {}).get("value") or {}
-    reg_acc = str(profile.get("latest_submitted_accounts") or reg_val.get("sisteInnsendteAarsregnskap") or reg_val.get("latest_submitted_accounts") or reg.get("sisteInnsendteAarsregnskap") or "").strip()
-    fin_acc = str((fin_val.get("latest") or {}).get("filing_year") or fin_val.get("latest_fiscal_year") or "").strip()
-    valid_accs = [y[:4] for y in (reg_acc, fin_acc) if len(y) >= 4 and y[:4].isdigit()]
-    latest_acc = max(valid_accs, key=int) if valid_accs else (reg_acc or fin_acc or None)
-    if latest_acc:
-        acc_year = str(latest_acc)[:4] if str(latest_acc)[:4].isdigit() else "2024"
-        acc_url = f"https://data.brreg.no/regnskapsregisteret/regnskap/{org}"
-        acc_date = f"{acc_year}-07-01"
-        acc_digest = str((ev.get("financials") or {}).get("content_sha256") or digest)
-        obs_list.append({
-            "id": f"notice-acc-{org}-{acc_digest[:16]}",
-            "organisation_number": org,
-            "platform": "brreg",
-            "signal_type": "official_notice",
-            "text": f"Offisiell kunngjøring: Innsendt årsregnskap for regnskapsåret {acc_year}: {name}",
-            "published_at": acc_date,
-            "source_url": acc_url,
-            "retrieved_at": retrieved_at,
-            "content_sha256": acc_digest,
-            "exact_entity": True,
-            "identity_proof": [{"type": "official_accounts_announcement", "organisation_number": org, "name": name}],
-            "acquisition_mode": "official_api",
-            "rights_status": "approved",
-            "source_class": "official_notice",
-            "sentiment_label": "neutral",
-            "sentiment_model_version": "NOSIBLE/financial-sentiment-v1.2-base",
-            "evidence_span": f"Official annual accounts filing announcement for {name} (org {org}) for fiscal year {acc_year}",
-            "metrics": {"notice_type": "annual_accounts_announcement", "filing_year": acc_year, "title": f"Innsendt årsregnskap for {acc_year}: {name}"},
-            "strategy": "official_accounts_notices",
-        })
-
-    return obs_list
 
 
 def enrich_single_company(
@@ -611,7 +623,7 @@ def enrich_single_company(
             "registry_live",
             "available",
             "official_registry_bulk",
-            f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+            reg_bulk_rec.get("source_url") or "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv",
             value={
                 **reg_bulk_val,
                 "organisation_number": org,
@@ -630,12 +642,13 @@ def enrich_single_company(
     # No synthetic fallbacks: a module the live registry did not return keeps its terminal
     # classified state (not_found / source_error) and is published as not_available / failed.
 
-    # Hydrate profile from live registry when bulk snapshot or minimal input omitted fields
+    # A successful live response supersedes an older bulk snapshot for current
+    # legal identity and headcount. The bulk fallback above is not a live read.
+    apply_live_registry_precedence(profile, reg_live_rec)
     reg_live_val = reg_live_rec.get("value") or {}
     if isinstance(reg_live_val, dict):
         if not profile.get("name") and reg_live_val.get("name"):
             profile["name"] = reg_live_val.get("name")
-            name = str(profile["name"])
         if not profile.get("legal_form") and reg_live_val.get("legal_form"):
             profile["legal_form"] = reg_live_val.get("legal_form")
             profile["legal_form_description"] = reg_live_val.get("legal_form_description") or ""
@@ -655,6 +668,7 @@ def enrich_single_company(
         )
         profile.setdefault("evidence", {})["accounting_obligation"] = acc_ob
         profile["accounting_obligation"] = acc_ob
+    name = str(profile.get("name") or "")
 
     # Ensure all requested official modules have a terminal evidence record
     for mod in fetch_modules:
@@ -747,7 +761,7 @@ def enrich_single_company(
         if not operator_assessment.get("publishable"):
             gated = operator_gated
         else:
-            gated = apply_entity_identity_gate(profile, operator_gated["website"])
+            gated = apply_entity_identity_gate(profile, operator_gated["website"], operator_assessment=operator_assessment)
             value = gated["website"].get("value") or {}
             if gated.get("gate_rejected"):
                 value["identity_assessment"] = {**operator_assessment, "publishable": False,
@@ -1164,9 +1178,14 @@ def enrich_single_company(
         job_request_cap = max(0, min(effective_company_cap - local_reqs, budget.remaining_requests() - 1))
         job_diagnostics = {"request_allowance": min(6, job_request_cap)}
         website_value["job_diagnostics"] = job_diagnostics
-        website_value["verified_job_adverts"] = verified_career_jobs(
+        ats_verified_jobs = verified_career_jobs(
             candidates, site_url=profile["website"], company_name=name, org=org,
             subunit_orgs=subunit_orgs, budget=budget, max_requests=job_request_cap, diagnostics=job_diagnostics,
+        )
+        # The website crawler may already have fetched and verified individual
+        # adverts. Preserve those when ATS discovery returns no additional ads.
+        website_value["verified_job_adverts"] = merge_verified_jobs(
+            website_value.get("verified_job_adverts") or [], ats_verified_jobs,
         )
         if candidates:
             local_reqs += min(6, job_request_cap)
@@ -1274,36 +1293,8 @@ def enrich_single_company(
                 if not any(str(s.get("url") or "").lower().rstrip("/") == vs["url"].lower().rstrip("/") for s in cur_soc):
                     cur_soc.append({"platform": vs["platform"], "url": vs["url"]})
 
-    # 7d. Buzz/engagement metrics from verified social profiles.
-    # Each verified company-owned social profile is a public engagement signal.
-    # Creates buzz_metrics observations so buzz_engagement coverage is not
-    # dependent solely on YouTube API data.
-    buzz_obs: list[dict[str, Any]] = []
-    retrieved_at = utc_now()
-    for vs in verified_socials:
-        plat = vs["platform"]
-        s_url = vs["url"]
-        digest = hashlib.sha256(f"{org}|buzz|{plat}|{s_url}".encode()).hexdigest()
-        buzz_obs.append({
-            "id": f"buzz-{org}-{digest[:16]}",
-            "organisation_number": org,
-            "platform": plat,
-            "signal_type": "buzz_metrics",
-            "source_url": s_url,
-            "retrieved_at": retrieved_at,
-            "content_sha256": digest,
-            "exact_entity": True,
-            "identity_proof": [
-                {"type": "social_profile_url", "platform": plat, "profile_url": s_url},
-            ],
-            "acquisition_mode": "permitted_public_page",
-            "rights_status": "approved",
-            "source_class": "commercial_social_platform",
-            "evidence_span": f"{plat.title()} profile {s_url} is a company-owned public engagement channel",
-            "metrics": {"platform": plat, "profile_url": s_url},
-            "strategy": "social_discovery_buzz",
-        })
-    observations.extend(buzz_obs)
+    # A verified handle is not an engagement measurement. Emit buzz metrics
+    # only when a connector has fetched real counts from that profile.
 
     # 8. Multi-Source Hiring & Recruitment Intelligence (NAV, LinkedIn, Website, Brreg)
     hiring_block, hiring_obs = evaluate_company_hiring(
@@ -1411,6 +1402,7 @@ def enrich_single_company(
             "career_source_url": o.get("career_source_url"),
             "career_link_url": o.get("career_link_url"),
             "active_listing": o.get("active_listing"),
+            "ad_text_excerpt": o.get("ad_text_excerpt"),
         }
         ok, _ = validate_job_item(cand, org=org, company_name=c_name, site_url=site_url, site_publishable=verified_website, subunit_orgs=sub_orgs_hiring)
         if ok:
@@ -1445,6 +1437,7 @@ def enrich_single_company(
                         "career_source_url": o.get("career_source_url"),
                         "career_link_url": o.get("career_link_url"),
                         "active_listing": o.get("active_listing"),
+                        "ad_text_excerpt": o.get("ad_text_excerpt"),
                     }
                     for o in all_job_obs
                 ],
@@ -1467,14 +1460,18 @@ def enrich_single_company(
             "note": "No current advert with exact employer evidence was verified",
         }
 
+    hiring_source_keys = ("jobs", "website", "registry_live", "registry") if verified_website else ("jobs", "registry_live", "registry")
+    hiring_sources = [profile.get("evidence", {}).get(key) or {} for key in hiring_source_keys]
+    hiring_source = next((rec for rec in hiring_sources if rec.get("status") == "available" and rec.get("content_sha256") and rec.get("source_url")), {})
     profile.setdefault("evidence", {})["hiring"] = {
         "field": "hiring",
         "status": "available",
         "source_type": "multi_source_hiring_engine",
         "source_class": "synthesis",
-        "source_url": profile.get("website") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+        "source_url": hiring_source.get("source_url") or "",
         "retrieved_at": utc_now(),
-        "content_sha256": hashlib.sha256(json.dumps(hiring_block, sort_keys=True).encode()).hexdigest(),
+        "content_sha256": hiring_source.get("content_sha256") or "",
+        "derivation_sha256": hashlib.sha256(json.dumps(hiring_block, sort_keys=True).encode()).hexdigest(),
         "value": hiring_block,
     }
 
