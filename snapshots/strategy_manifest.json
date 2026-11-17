@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-11-17T19:06:48.670368+00:00",
-  "git_commit": "43755a6912481c7dcaba86fe0f7f9de98065c844",
+  "created_at": "2026-11-17T19:58:51.782025+00:00",
+  "git_commit": "0c7430a8e12f8282b82041cb20fd9c2fad866cf1",
   "git_dirty": false,
   "environment": {
     "python_version": "3.14.4",
@@ -112,8 +112,8 @@
   },
   "connector_files": {
     "config/source-rights.json": "953e4ef8db7f059c2ffb4df038eb626f39b0aa8c112bb0e405cd07ae6a74f6b3",
-    "run_agent.py": "12f0bcef63d79606a11adc0dc373c7575f6c51c4c5d0f53184b4f502e1e8aa3c",
-    "src/norway_company_agent/batch.py": "f3000e8a9b9f20b96fccf3d0cfd1d3f9c23cc40d3382af30d0a7eb4209074488",
+    "run_agent.py": "a075899fdbd2f9d69047423d3dfd39e10eabeb1e6478d811baa841e2324d3d10",
+    "src/norway_company_agent/batch.py": "9708fc651f78de1dc1f5d3366df52b5d2960609a2370928a8970bbd5a4688813",
     "src/norway_company_agent/connectors/ats_discovery.py": "1188f7107bea3c3718246c74a7e91369f26f419c6aa03ecaf1776bb19c299e5e",
     "src/norway_company_agent/connectors/job_boards.py": "6348813a9b1a75ee98e5d68103e525949617456e0b4fdf6849ac7699ed2cd6fd",
     "src/norway_company_agent/connectors/brave_search.py": "a2900dc0b8e6bd09eff8396424966bde1f614f19144cd1536c18747e62097cbf",
@@ -126,9 +126,9 @@
     "src/norway_company_agent/budget.py": "9dfc9dd65d9ef689fce64695da53d2675d85eb49ad34b6e9d5c153947273f8ad",
     "src/norway_company_agent/hiring.py": "fd90bab05d755667f30879d122205c77cab99d3934fea790f3d49fc09489563d",
     "src/norway_company_agent/identity.py": "b1912dc8ce1e497ab94c487581ac061f3ff6189c027317e5660e075727a041fb",
-    "src/norway_company_agent/synthesis.py": "cb3bb38457970c659a5cf4d7b8859466d4e79542c008ad92d5bd6ed128d2414c",
+    "src/norway_company_agent/synthesis.py": "70e55dd3a18c16248971ce365590594398e3bebfad1abcf503c1d117edcd2978",
     "src/norway_company_agent/verified_items.py": "0f17d98fd693412f9e5a3b3e483711d681af929d045e0898271b195ce2f86326",
     "src/norway_company_agent/website.py": "1d900b3da37a6e109da4126759508248e399163f391849ac4b3895b45c925941"
   },
-  "overall_manifest_hash": "f41097fb08482d40f15440c5c8098acaf238ae50fd714d0988b41bc0235ab8b8"
+  "overall_manifest_hash": "869411300e81749f8f165dd677ad1b7b4e8a71287ab1d289f4ade4a54584d4c9"
 }

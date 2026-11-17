@@ -402,6 +402,34 @@ def build_contract_claims_and_evidence(
             "evidence_ids": [data["evidence_id"]] if data else [],
         })
 
+    # Registry homepage is a useful discovery lead, not proof the site belongs
+    # to the exact legal entity. Never substitute it for official_website.
+    declared_site = None
+    for source_key, record in (("registry_live", reg_live_rec), ("registry", reg_bulk_rec)):
+        if record.get("status") != "available" or not record.get("content_sha256"):
+            continue
+        source_value = record.get("value") or {}
+        if not isinstance(source_value, dict):
+            continue
+        candidate = str(source_value.get("hjemmeside") or source_value.get("website") or "").strip()
+        if candidate:
+            declared_site = {
+                "value": {
+                    "declared_url": candidate,
+                    "relationship": "registry_declared_unverified",
+                    "site_identity_verified": False,
+                },
+                "evidence_id": f"ev-{source_key}-{org}",
+            }
+            break
+    claims.append({
+        "field": "registry_declared_website",
+        "value": declared_site["value"] if declared_site else None,
+        "availability": "available" if declared_site else "not_available",
+        "confidence": 1.0 if declared_site else 0.0,
+        "evidence_ids": [declared_site["evidence_id"]] if declared_site else [],
+    })
+
     # 3. Official Website Claim
     w_status = w_rec.get("status")
     raw_web_url = str(w_val.get("final_url") or w_rec.get("source_url") or profile.get("website") or "").strip()
@@ -606,12 +634,12 @@ def build_contract_claims_and_evidence(
 
     # 6. Registered office and actual operating subunits are different facts.
     # A filing address alone never establishes that a company operates there.
-    a_rec = ev.get("registered_address") or {}
-    a_val = a_rec.get("value") or {}
-    if a_rec.get("status") == "available" and a_val.get("address") and a_rec.get("content_sha256"):
+    address_rec = ev.get("registered_address") or {}
+    address_val = address_rec.get("value") or {}
+    if address_rec.get("status") == "available" and address_val.get("address") and address_rec.get("content_sha256"):
         claims.append({
             "field": "registered_business_address",
-            "value": a_val,
+            "value": address_val,
             "availability": "available",
             "confidence": 1.0,
             "evidence_ids": [f"ev-registered_address-{org}"],
@@ -620,9 +648,9 @@ def build_contract_claims_and_evidence(
         claims.append({
             "field": "registered_business_address",
             "value": None,
-            "availability": _to_availability_state(a_rec.get("status")) if a_rec else "not_available",
+            "availability": _to_availability_state(address_rec.get("status")) if address_rec else "not_available",
             "confidence": 0.0,
-            "evidence_ids": [f"ev-registered_address-{org}"] if a_rec else [],
+            "evidence_ids": [f"ev-registered_address-{org}"] if address_rec else [],
         })
 
     l_rec = ev.get("locations") or {}
@@ -1335,10 +1363,15 @@ def terminal_envelope(
         ],
         "operations": {
             "requests": int(run_metrics.get("requests") or 0),
-            "runtime_ms": int((run_metrics.get("elapsed_s") or 0) * 1000),
-            # The shared concurrent budget records real run-level spend, but
-            # cannot attribute it reliably to this single company.
+            "runtime_ms": (int(float(run_metrics["elapsed_s"]) * 1000)
+                           if run_metrics.get("elapsed_s") is not None else None),
+            "runtime_measurement": ("measured_company_wall_clock" if run_metrics.get("elapsed_s") is not None
+                                     else "not_measured_or_resumed"),
+            # Shared concurrent commercial spend is only reliably measured at
+            # the batch level; never imply a per-company cost of zero.
             "third_party_cost_usd": run_metrics.get("third_party_cost_usd"),
+            "third_party_cost_measurement": ("attributed" if run_metrics.get("third_party_cost_usd") is not None
+                                             else "batch_level_only_not_attributed"),
         },
         "profile": profile,
     }
