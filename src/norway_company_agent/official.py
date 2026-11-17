@@ -160,8 +160,9 @@ def normalize_financials(body: Any, employee_count: int | None = None) -> dict[s
         # Institutional diligence metrics
         op_margin = round(float(op_res) / float(rev), 4) if rev and op_res is not None and float(rev) > 0 else None
         eq_ratio = round(float(equity) / float(assets), 4) if assets and equity is not None and float(assets) > 0 else None
-        liq_ratio = round(float(cur_assets) / float(st_debt), 4) if cur_assets and st_debt and float(st_debt) > 0 else None
-        debt_to_equity = round(float(total_debt) / float(equity), 4) if total_debt and equity and float(equity) > 0 else None
+        # Zero numerators are valid measurements, not missing observations.
+        liq_ratio = round(float(cur_assets) / float(st_debt), 4) if cur_assets is not None and st_debt is not None and float(st_debt) > 0 else None
+        debt_to_equity = round(float(total_debt) / float(equity), 4) if total_debt is not None and equity is not None and float(equity) > 0 else None
         
         wage_per_emp = None
         if wages is not None and employee_count and int(employee_count) > 0:
