@@ -6,7 +6,9 @@ This is an operational contract check, not a score or qualification decision.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -66,8 +68,11 @@ def main() -> int:
             linked_claims += 1
             for item_id in ids:
                 item = evidence[item_id]
-                if not item.get("source_url") or not item.get("retrieved_at") or not item.get("content_sha256"):
+                digest = str(item.get("content_sha256") or "")
+                if not item.get("source_url") or not item.get("retrieved_at") or not digest:
                     errors.append(f"incomplete evidence metadata: {env.get('organisation_number')}:{claim.get('field')}")
+                elif not re.fullmatch(r"[0-9a-fA-F]{64}", digest) or digest.lower() == hashlib.sha256(b"").hexdigest():
+                    errors.append(f"invalid or empty-response evidence hash: {env.get('organisation_number')}:{claim.get('field')}")
     if not report_path.exists():
         errors.append("missing run-report.json")
     if not registry_path.exists():
