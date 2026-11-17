@@ -1151,7 +1151,19 @@ def enrich_single_company(
                         profile["website"] = val.get("final_url") or search_site
                         verified_website = True
 
-        # If no website passed the gate, ensure evidence["website"] exists
+        # If all recorded website fetches were blocked, do not misstate
+        # inaccessible candidates as proof that the company lacks a website.
+        if not verified_website:
+            attempts = [item for item in (profile.get("website_attempts") or []) if item.get("source_url")]
+            if attempts and all(item.get("status") == "blocked" for item in attempts):
+                from norway_company_agent.evidence import evidence as make_ev
+                profile["evidence"]["website"] = make_ev(
+                    "website", "blocked", "company_website_candidate",
+                    str(attempts[0]["source_url"]),
+                    note="All tested website candidates were blocked; no site was verified or published.",
+                )
+        # A site that was not checked remains unavailable, never silently
+        # promoted from a third-party search hit or company name similarity.
         if "website" not in profile.get("evidence", {}):
             w_rec, _ = fetch_website(None)
             profile["evidence"]["website"] = w_rec
