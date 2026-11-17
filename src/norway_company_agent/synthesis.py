@@ -245,9 +245,10 @@ def generate_company_synthesis(
     growth_label = fin_trends.get("growth_label")
     op_result = latest_rec.get("operating_result")
     try:
-        operating_loss = op_result is not None and float(op_result) < 0
+        operating_result_number = float(op_result) if op_result is not None else None
     except (ValueError, TypeError):
-        operating_loss = False
+        operating_result_number = None
+    operating_loss = operating_result_number is not None and operating_result_number < 0
     if operating_loss:
         health_label = (
             "Mixed: strong equity position but operating loss"
@@ -258,8 +259,8 @@ def generate_company_synthesis(
     elif solv_status:
         health_label = (
             f"Equity-based solvency {solv_status.lower()}; operating profitability "
-            + ("positive" if op_result is not None and float(op_result) > 0 else
-               "break-even" if op_result is not None and float(op_result) == 0 else "unknown")
+            + ("positive" if operating_result_number is not None and operating_result_number > 0 else
+               "break-even" if operating_result_number is not None and operating_result_number == 0 else "unknown")
         )
     else:
         health_label = "Financial health cannot be classified from available equity data"
@@ -470,7 +471,7 @@ def generate_company_synthesis(
         "evidence_span_coverage_note": "Source references are not independently verified claim-to-passage proof.",
         "solvency_status": solv_status or "unreported",
         "profitability_status": ("operating_loss" if operating_loss else
-                                 "operating_profit_or_break_even" if op_result is not None else "unknown"),
+                                 "operating_profit_or_break_even" if operating_result_number is not None else "unknown"),
         "model": model_used,
         "grounded": True,
         "hiring_status": hiring.get("status") or "unreported",
