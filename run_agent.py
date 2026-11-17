@@ -589,6 +589,64 @@ def extract_notice_observation(profile: dict[str, Any]) -> list[dict[str, Any]]:
     }]
 
 
+def attach_registered_business_address(
+    profile: dict[str, Any],
+    reg_live_rec: dict[str, Any],
+    reg_bulk_rec: dict[str, Any],
+) -> None:
+    """Publish a verified *registered* address independently of BRREG subunits.
+
+    Does not infer the registered office is an active operating workplace.
+    """
+    org = str(profile.get("organisation_number") or "")
+    name = str(profile.get("name") or "")
+    reg_live_val = reg_live_rec.get("value") or {}
+    reg_bulk_val = reg_bulk_rec.get("value") or {}
+    # Independently expose the registered office even when BRREG returns
+    # operating subunits. The office is not inferred to be an active workplace.
+    location_rec = profile.get("evidence", {}).get("locations") or {}
+    location_val = location_rec.get("value") or {}
+    live_registered_address = reg_live_val.get("forretningsadresse") or reg_live_val.get("business_address")
+    bulk_registered_address = reg_bulk_val.get("forretningsadresse") or {
+        key: reg_bulk_val.get(f"forretningsadresse.{key}")
+        for key in ("adresse", "postnummer", "poststed", "kommune", "kommunenummer", "land", "landkode")
+        if reg_bulk_val.get(f"forretningsadresse.{key}")
+    }
+    address = live_registered_address or bulk_registered_address
+    if isinstance(address, dict) and any(address.get(key) for key in ("adresse", "postnummer", "poststed", "kommune")):
+        from norway_company_agent.evidence import evidence as make_ev
+        address_source = reg_live_rec if (
+            live_registered_address and reg_live_rec.get("status") == "available"
+            and reg_live_rec.get("content_sha256")
+        ) else reg_bulk_rec
+        subunits = (location_val.get("locations") or []) if isinstance(location_val, dict) else []
+        subunit_note = (
+            f"{len(subunits)} separate registered subunit(s) are recorded."
+            if subunits
+            else "No separate subunits were returned by the official registry."
+            if location_rec.get("status") == "available"
+            else f"Subunit lookup status: {location_rec.get('status') or 'not completed'}."
+        )
+        profile.setdefault("evidence", {})["registered_address"] = make_ev(
+            "registered_address",
+            "available",
+            "official_registered_address",
+            str(address_source.get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"),
+            value={
+                "organisation_number": org,
+                "name": name,
+                "location_type": "registered_business_address",
+                "address": address,
+                "subunit_lookup_status": location_rec.get("status") or "not_completed",
+            },
+            content_sha256=str(address_source.get("content_sha256") or ""),
+            retrieved_at=str(address_source.get("retrieved_at") or utc_now()),
+            source_row_key=org,
+            note=f"Registered office only; not proof of an operating site. {subunit_note}",
+        )
+
+
+
 def enrich_single_company(
     profile: dict[str, Any],
     fetch_modules: set[str],
@@ -684,51 +742,7 @@ def enrich_single_company(
                 retrieved_at=utc_now(),
             )
 
-    # A company can have a valid registered business address and no separate
-    # BRREG subunits. Preserve that distinction so location coverage does not
-    # imply that no registered address exists.
-    # Independently expose the registered office even when BRREG returns
-    # operating subunits. The office is not inferred to be an active workplace.
-    location_rec = profile.get("evidence", {}).get("locations") or {}
-    location_val = location_rec.get("value") or {}
-    live_registered_address = reg_live_val.get("forretningsadresse") or reg_live_val.get("business_address")
-    bulk_registered_address = reg_bulk_val.get("forretningsadresse") or {
-        key: reg_bulk_val.get(f"forretningsadresse.{key}")
-        for key in ("adresse", "postnummer", "poststed", "kommune", "kommunenummer", "land", "landkode")
-        if reg_bulk_val.get(f"forretningsadresse.{key}")
-    }
-    address = live_registered_address or bulk_registered_address
-    if isinstance(address, dict) and any(address.get(key) for key in ("adresse", "postnummer", "poststed", "kommune")):
-        from norway_company_agent.evidence import evidence as make_ev
-        address_source = reg_live_rec if (
-            live_registered_address and reg_live_rec.get("status") == "available"
-            and reg_live_rec.get("content_sha256")
-        ) else reg_bulk_rec
-        subunits = (location_val.get("locations") or []) if isinstance(location_val, dict) else []
-        subunit_note = (
-            f"{len(subunits)} separate registered subunit(s) are recorded."
-            if subunits
-            else "No separate subunits were returned by the official registry."
-            if location_rec.get("status") == "available"
-            else f"Subunit lookup status: {location_rec.get('status') or 'not completed'}."
-        )
-        profile.setdefault("evidence", {})["registered_address"] = make_ev(
-            "registered_address",
-            "available",
-            "official_registered_address",
-            str(address_source.get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"),
-            value={
-                "organisation_number": org,
-                "name": name,
-                "location_type": "registered_business_address",
-                "address": address,
-                "subunit_lookup_status": location_rec.get("status") or "not_completed",
-            },
-            content_sha256=str(address_source.get("content_sha256") or ""),
-            retrieved_at=str(address_source.get("retrieved_at") or utc_now()),
-            source_row_key=org,
-            note=f"Registered office only; not proof of an operating site. {subunit_note}",
-        )
+    attach_registered_business_address(profile, reg_live_rec, reg_bulk_rec)
 
     emp_count = int(profile.get("employees") or 0)
     form_code_upper = str(profile.get("legal_form") or "").upper()
