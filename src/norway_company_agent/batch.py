@@ -402,6 +402,34 @@ def build_contract_claims_and_evidence(
             "evidence_ids": [data["evidence_id"]] if data else [],
         })
 
+    # Registry homepage is a useful discovery lead, not proof the site belongs
+    # to the exact legal entity. Never substitute it for official_website.
+    declared_site = None
+    for source_key, record in (("registry_live", reg_live_rec), ("registry", reg_bulk_rec)):
+        if record.get("status") != "available" or not record.get("content_sha256"):
+            continue
+        source_value = record.get("value") or {}
+        if not isinstance(source_value, dict):
+            continue
+        candidate = str(source_value.get("hjemmeside") or source_value.get("website") or "").strip()
+        if candidate:
+            declared_site = {
+                "value": {
+                    "declared_url": candidate,
+                    "relationship": "registry_declared_unverified",
+                    "site_identity_verified": False,
+                },
+                "evidence_id": f"ev-{source_key}-{org}",
+            }
+            break
+    claims.append({
+        "field": "registry_declared_website",
+        "value": declared_site["value"] if declared_site else None,
+        "availability": "available" if declared_site else "not_available",
+        "confidence": 1.0 if declared_site else 0.0,
+        "evidence_ids": [declared_site["evidence_id"]] if declared_site else [],
+    })
+
     # 3. Official Website Claim
     w_status = w_rec.get("status")
     raw_web_url = str(w_val.get("final_url") or w_rec.get("source_url") or profile.get("website") or "").strip()
