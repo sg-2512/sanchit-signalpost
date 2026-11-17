@@ -606,12 +606,12 @@ def build_contract_claims_and_evidence(
 
     # 6. Registered office and actual operating subunits are different facts.
     # A filing address alone never establishes that a company operates there.
-    a_rec = ev.get("registered_address") or {}
-    a_val = a_rec.get("value") or {}
-    if a_rec.get("status") == "available" and a_val.get("address") and a_rec.get("content_sha256"):
+    address_rec = ev.get("registered_address") or {}
+    address_val = address_rec.get("value") or {}
+    if address_rec.get("status") == "available" and address_val.get("address") and address_rec.get("content_sha256"):
         claims.append({
             "field": "registered_business_address",
-            "value": a_val,
+            "value": address_val,
             "availability": "available",
             "confidence": 1.0,
             "evidence_ids": [f"ev-registered_address-{org}"],
@@ -620,9 +620,9 @@ def build_contract_claims_and_evidence(
         claims.append({
             "field": "registered_business_address",
             "value": None,
-            "availability": _to_availability_state(a_rec.get("status")) if a_rec else "not_available",
+            "availability": _to_availability_state(address_rec.get("status")) if address_rec else "not_available",
             "confidence": 0.0,
-            "evidence_ids": [f"ev-registered_address-{org}"] if a_rec else [],
+            "evidence_ids": [f"ev-registered_address-{org}"] if address_rec else [],
         })
 
     l_rec = ev.get("locations") or {}
