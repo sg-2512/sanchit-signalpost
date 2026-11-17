@@ -319,15 +319,18 @@ def build_contract_claims_and_evidence(
         ev_id = f"ev-{mod}-{org}"
         raw_sha = str(rec.get("content_sha256") or "")
         src_url = str(rec.get("source_url") or "")
-        if not raw_sha:
-            raw_sha = hashlib.sha256(b"").hexdigest()
+        # Do not invent a hash of empty bytes when the source response is missing.
+        # A description of an observation is not a quoted passage from its source.
+        span = str(rec.get("claim_span") or rec.get("evidence_span") or "").strip()
         evidence_items.append({
             "id": ev_id,
             "source_url": src_url,
             "source_class": str(rec.get("source_class") or rec.get("source_type") or "official"),
             "retrieved_at": rec.get("retrieved_at") or completed_at,
             "content_sha256": raw_sha,
-            "claim_span": f"{mod} observation record for {profile.get('name', org)} ({org})",
+            "claim_span": span,
+            "claim_span_verification": "source_excerpt" if span else "unavailable",
+            "source_row_key": rec.get("source_row_key"),
         })
 
     # 2. Legal Identity Claim (prefers live sovereign registry response body with exact SHA-256)
@@ -564,7 +567,27 @@ def build_contract_claims_and_evidence(
             "evidence_ids": [f"ev-roles-{org}"] if "roles" in ev else [],
         })
 
-    # 6. Operating Locations (Subunits) Claim
+    # 6. Registered office and actual operating subunits are different facts.
+    # A filing address alone never establishes that a company operates there.
+    a_rec = ev.get("registered_address") or {}
+    a_val = a_rec.get("value") or {}
+    if a_rec.get("status") == "available" and a_val.get("address") and a_rec.get("content_sha256"):
+        claims.append({
+            "field": "registered_business_address",
+            "value": a_val,
+            "availability": "available",
+            "confidence": 1.0,
+            "evidence_ids": [f"ev-registered_address-{org}"],
+        })
+    else:
+        claims.append({
+            "field": "registered_business_address",
+            "value": None,
+            "availability": _to_availability_state(a_rec.get("status")) if a_rec else "not_available",
+            "confidence": 0.0,
+            "evidence_ids": [f"ev-registered_address-{org}"] if a_rec else [],
+        })
+
     l_rec = ev.get("locations") or {}
     l_status = l_rec.get("status")
     l_val = l_rec.get("value") or {}
@@ -576,19 +599,6 @@ def build_contract_claims_and_evidence(
             "availability": "available",
             "confidence": 1.0,
             "evidence_ids": [f"ev-locations-{org}"],
-        })
-    elif (ev.get("registered_address") or {}).get("status") == "available" and (ev.get("registered_address") or {}).get("content_sha256"):
-        address_value = (ev.get("registered_address") or {}).get("value") or {}
-        claims.append({
-            "field": "operating_locations",
-            "value": {
-                "locations": [address_value],
-                "scope": "principal_registered_business_address",
-                "separate_subunits_status": address_value.get("subunit_lookup_status"),
-            },
-            "availability": "available",
-            "confidence": 0.85,
-            "evidence_ids": [f"ev-registered_address-{org}"],
         })
     else:
         claims.append({
