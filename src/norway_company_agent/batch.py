@@ -1363,10 +1363,15 @@ def terminal_envelope(
         ],
         "operations": {
             "requests": int(run_metrics.get("requests") or 0),
-            "runtime_ms": int((run_metrics.get("elapsed_s") or 0) * 1000),
-            # The shared concurrent budget records real run-level spend, but
-            # cannot attribute it reliably to this single company.
+            "runtime_ms": (int(float(run_metrics["elapsed_s"]) * 1000)
+                           if run_metrics.get("elapsed_s") is not None else None),
+            "runtime_measurement": ("measured_company_wall_clock" if run_metrics.get("elapsed_s") is not None
+                                     else "not_measured_or_resumed"),
+            # Shared concurrent commercial spend is only reliably measured at
+            # the batch level; never imply a per-company cost of zero.
             "third_party_cost_usd": run_metrics.get("third_party_cost_usd"),
+            "third_party_cost_measurement": ("attributed" if run_metrics.get("third_party_cost_usd") is not None
+                                             else "batch_level_only_not_attributed"),
         },
         "profile": profile,
     }
