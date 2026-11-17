@@ -318,8 +318,11 @@ class StrategyRoutesAndRegistryTests(unittest.TestCase):
 
     def test_route_11_pdf_fallback_execution(self) -> None:
         route = PdfFallbackRoute()
-        can_run, _ = route.can_execute(self.sample_org, self.context)
-        self.assertTrue(can_run)
+        # Missing employee count alone is not proof an annual-report PDF exists.
+        # The fallback must abstain when no actual PDF or test fixture is available.
+        can_run, reason = route.can_execute(self.sample_org, self.context)
+        self.assertFalse(can_run)
+        self.assertEqual(reason, "no_annual_report_pdf_available")
 
         # Mock PDF bytes containing employee text
         ctx_mock = ExecutionContext(
@@ -327,6 +330,9 @@ class StrategyRoutesAndRegistryTests(unittest.TestCase):
             budget=MagicMock(can_proceed=lambda: True),
             options={"mock_pdf_bytes": b"%PDF-1.4 workforce note: Selskapet sysselsatte 8 ansatte i 2024."},
         )
+        can_run, reason = route.can_execute(self.sample_org, ctx_mock)
+        self.assertTrue(can_run)
+        self.assertIsNone(reason)
         res = route.execute(self.sample_org, ctx_mock)
         self.assertEqual(res.status, AttemptStatus.SUCCESS.value)
         self.assertEqual(len(res.accepted_claims), 1)
