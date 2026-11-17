@@ -66,7 +66,28 @@ def score(envelopes: dict[str, dict[str, Any]]) -> dict[str, Any]:
             totals["companies_with_measured_runtime"] += 1
         if stats.get("third_party_cost_usd") is None:
             totals["per_company_cost_unattributed"] += 1
+        # Reconcile zero ratio omissions and misleading profitability labels
+        # directly against the recorded normalized financial inputs.
+        fin_value = (evid.get("financials") or {}).get("value") or {}
+        records = fin_value.get("records") or []
+        fin = max(records, key=lambda row: (
+            str((row.get("period") or {}).get("tilDato") or ""),
+            str(row.get("filing_year") or ""),
+        )) if records else {}
+        zero_ratio_omissions = []
+        if fin:
+            eq, debt = fin.get("equity"), fin.get("debt")
+            current_assets, short_debt = fin.get("current_assets"), fin.get("short_term_debt")
+            if eq is not None and float(eq) > 0 and debt is not None and float(debt) == 0 and fin.get("debt_to_equity") is None:
+                zero_ratio_omissions.append("debt_to_equity")
+            if short_debt is not None and float(short_debt) > 0 and current_assets is not None and float(current_assets) == 0 and fin.get("current_ratio") is None:
+                zero_ratio_omissions.append("current_ratio")
+        totals["valid_zero_ratios_omitted"] += len(zero_ratio_omissions)
         synth = env.get("synthesis") or {}
+        if fin and fin.get("operating_result") is not None and float(fin["operating_result"]) < 0:
+            totals["companies_with_operating_losses"] += 1
+            if str(synth.get("financial_health") or "") == "Strong":
+                totals["operating_losses_labeled_strong_financial_health"] += 1
         if synth.get("citation_density_pct") == 100.0:
             totals["claimed_100_percent_citation_density"] += 1
         for claim in env.get("claims") or []:
@@ -85,6 +106,8 @@ def score(envelopes: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "verified_website_status": (claims.get("official_website") or {}).get("availability"),
             "registry_website_candidate_status": (claims.get("registry_declared_website") or {}).get("availability"),
             "citation_density_pct": synth.get("citation_density_pct"),
+            "valid_zero_ratios_omitted": zero_ratio_omissions,
+            "financial_health_label": synth.get("financial_health"),
         })
     return {"totals": dict(totals), "companies": by_company}
 
