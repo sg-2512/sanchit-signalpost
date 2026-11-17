@@ -243,6 +243,26 @@ def generate_company_synthesis(
     solv_status = fin_trends.get("solvency_status")
     eq_ratio = fin_trends.get("equity_ratio")
     growth_label = fin_trends.get("growth_label")
+    op_result = latest_rec.get("operating_result")
+    try:
+        operating_loss = op_result is not None and float(op_result) < 0
+    except (ValueError, TypeError):
+        operating_loss = False
+    if operating_loss:
+        health_label = (
+            "Mixed: strong equity position but operating loss"
+            if solv_status == "Strong" else
+            f"Operating loss; equity-based solvency {solv_status.lower()}"
+            if solv_status else "Operating loss; solvency unreported"
+        )
+    elif solv_status:
+        health_label = (
+            f"Equity-based solvency {solv_status.lower()}; operating profitability "
+            + ("positive" if op_result is not None and float(op_result) > 0 else
+               "break-even" if op_result is not None and float(op_result) == 0 else "unknown")
+        )
+    else:
+        health_label = "Financial health cannot be classified from available equity data"
 
     if filing_year and revenue is not None and rec_year_str == str(filing_year):
         rev_str = f"{revenue:,.0f} NOK revenue"
@@ -253,7 +273,7 @@ def generate_company_synthesis(
         prof_str = f"net profit of {profit:,.0f} NOK" if profit is not None else "net profit unrecorded"
         fin_str = f"Annual accounts filed through {filing_year} (prior {rec_year_str} statement reports {rev_str} and {prof_str})"
         if solv_status and eq_ratio is not None:
-            fin_str += f" (financial health: {solv_status}, {eq_ratio*100:.1f}% equity ratio"
+            fin_str += f" (equity-based solvency: {solv_status}, {eq_ratio*100:.1f}% equity ratio"
             if growth_label:
                 fin_str += f", YoY revenue: {growth_label}"
             fin_str += ")"
@@ -297,19 +317,40 @@ def generate_company_synthesis(
     what_remains_unknown_str = f"What remains unknown: {'; '.join(unknowns)}."
     sources_str = f"Sources: {', '.join(source_urls[:4])}."
 
-    # --- Build per-sentence citation map (100% citation density requirement) ---
-    # Every sentence must map to at least one official evidence citation ID.
+    # Preserve links separately from actual verified supporting excerpts.
+    # An evidence ID or SHA alone is NOT an independently validated sentence.
     sentence_evidence_map: list[dict[str, Any]] = []
+    source_map = {
+        f"ev-{module}-{org}": record
+        for module, record in evidence.items()
+        if isinstance(record, dict)
+    }
+    observation_map = {
+        str(o.get("id")): o for o in (observations or [])
+        if isinstance(o, dict) and o.get("id")
+    }
+
+    def _has_source_excerpt(eid: str) -> bool:
+        record = source_map.get(eid) or observation_map.get(eid) or {}
+        excerpt = str(record.get("evidence_span") or record.get("claim_span") or "").strip()
+        digest = str(record.get("content_sha256") or "").strip()
+        url = str(record.get("source_url") or "").strip()
+        return bool(
+            len(excerpt) >= 12 and url.startswith(("https://", "http://"))
+            and len(digest) == 64 and all(c in "0123456789abcdefABCDEF" for c in digest)
+            and digest.lower() != __import__("hashlib").sha256(b"").hexdigest()
+        )
 
     def _add_sentence(sentence: str, eids: list[str]) -> None:
-        """Register a sentence with its backing evidence citation IDs."""
         if not sentence:
             return
-        cited = [e for e in eids if e]
+        linked = [eid for eid in eids if eid]
         sentence_evidence_map.append({
             "sentence": sentence,
-            "evidence_ids": cited,
-            "cited": bool(cited),
+            "evidence_ids": linked,
+            "source_linked": bool(linked),
+            "cited": any(_has_source_excerpt(eid) for eid in linked),
+            "evidence_span_checked": any(_has_source_excerpt(eid) for eid in linked),
         })
 
     # Sentence 1: what_it_does — core business, sector, municipality → registry
@@ -371,10 +412,12 @@ def generate_company_synthesis(
 
     full_summary = " ".join(s["sentence"] for s in sentence_evidence_map)
 
-    # 100% citation density: every sentence must have ≥1 evidence ID
+    # Distinguish a source *link* from an evidence excerpt, without overclaiming
+    # independent verification that has not taken place.
     total_sentences = len(sentence_evidence_map)
-    cited_sentences = sum(1 for s in sentence_evidence_map if s["cited"])
+    cited_sentences = sum(1 for entry in sentence_evidence_map if entry["cited"])
     citation_density = cited_sentences / total_sentences if total_sentences else 0.0
+    linked_sentence_count = sum(1 for entry in sentence_evidence_map if entry["source_linked"])
 
     # If an LLM is available in environment and budget permits, attempt fluid synthesis while preserving required sections
     openai_key = os.environ.get("OPENAI_API_KEY")
@@ -391,17 +434,19 @@ def generate_company_synthesis(
         )
         if llm_summary:
             # Prepend LLM summary (cited to registry as grounding) then keep required three-part sections
-            llm_cited = False
             llm_eids = [f"ev-registry_live-{org}"]
             sentence_evidence_map.insert(0, {
                 "sentence": llm_summary,
                 "evidence_ids": llm_eids,
-                "cited": bool(llm_eids),
+                "source_linked": True,
+                "cited": False,
+                "evidence_span_checked": False,
             })
             full_summary = f"{llm_summary} {what_changed_str} {what_remains_unknown_str} {sources_str}"
             # Recompute density after insertion
             total_sentences = len(sentence_evidence_map)
-            cited_sentences = sum(1 for s in sentence_evidence_map if s["cited"])
+            cited_sentences = sum(1 for entry in sentence_evidence_map if entry["cited"])
+            linked_sentence_count = sum(1 for entry in sentence_evidence_map if entry["source_linked"])
             citation_density = cited_sentences / total_sentences if total_sentences else 0.0
             model_used = model_name
 
@@ -420,11 +465,17 @@ def generate_company_synthesis(
         "sentence_citations": sentence_evidence_map,
         "citation_density": round(citation_density, 4),
         "citation_density_pct": round(citation_density * 100, 2),
+        "source_link_density": round(linked_sentence_count / total_sentences, 4) if total_sentences else 0.0,
+        "citation_density_kind": "source_excerpt_presence_not_independently_audited",
+        "evidence_span_coverage_note": "Source references are not independently verified claim-to-passage proof.",
+        "solvency_status": solv_status or "unreported",
+        "profitability_status": ("operating_loss" if operating_loss else
+                                 "operating_profit_or_break_even" if op_result is not None else "unknown"),
         "model": model_used,
         "grounded": True,
         "hiring_status": hiring.get("status") or "unreported",
         "appears_to_be_hiring": hiring.get("appears_to_be_hiring", False),
-        "financial_health": solv_status or "unreported",
+        "financial_health": health_label,
         "equity_ratio": eq_ratio,
         "revenue_growth": growth_label,
     }
