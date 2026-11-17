@@ -38,9 +38,18 @@ def score(envelopes: dict[str, dict[str, Any]]) -> dict[str, Any]:
                 and (account.get("value") or {}).get("classification")
                 and not available("accounting_obligation")):
             totals["accounting_claim_contradictions"] += 1
-        if (registered.get("status") == "available"
-                and (registered.get("value") or {}).get("address")
-                and not available("registered_business_address")):
+        # The previous agent did not create registered_address evidence when
+        # it found subunits, so inspect the authoritative registry row as well.
+        live_row = (evid.get("registry_live") or {}).get("value") or {}
+        bulk_row = (evid.get("registry") or {}).get("value") or {}
+        raw_address = (
+            live_row.get("forretningsadresse") or live_row.get("business_address")
+            or bulk_row.get("forretningsadresse")
+            or any(bulk_row.get(f"forretningsadresse.{k}") for k in
+                   ("adresse", "postnummer", "poststed", "kommune"))
+        )
+        if ((registered.get("status") == "available" and
+             (registered.get("value") or {}).get("address")) or raw_address) and not available("registered_business_address"):
             totals["registered_address_omissions"] += 1
         if available("official_website"):
             totals["verified_official_websites"] += 1
