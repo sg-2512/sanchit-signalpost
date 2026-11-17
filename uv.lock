@@ -1121,6 +1121,7 @@ dependencies = [
     { name = "lxml" },
     { name = "pydantic" },
     { name = "pypdf" },
+    { name = "protego" },
     { name = "tldextract" },
     { name = "trafilatura" },
 ]
@@ -1150,6 +1151,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=6,<7" },
     { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pypdf", specifier = ">=6,<7" },
+    { name = "protego", specifier = ">=0.6,<1" },
     { name = "scrapy", marker = "extra == 'crawler'", specifier = ">=2.13,<3" },
     { name = "scrapy-playwright", marker = "extra == 'crawler'", specifier = ">=0.0.44,<1" },
     { name = "tldextract", specifier = ">=5.3,<6" },

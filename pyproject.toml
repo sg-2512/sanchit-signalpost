@@ -9,6 +9,7 @@ dependencies = [
   "lxml>=6,<7",
   "pydantic>=2.12,<3",
   "pypdf>=6,<7",
+  "protego>=0.6,<1",
   "tldextract>=5.3,<6",
   "trafilatura>=2.0,<3",
 ]

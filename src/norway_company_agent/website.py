@@ -946,6 +946,43 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
     return selected[:limit]
 
 
+def deduplicate_dated_news(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep separate article URLs; prefer stronger evidence for duplicate URLs."""
+    by_url: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if not item.get("published_at"):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
+        parsed = urllib.parse.urlsplit(url)
+        key = urllib.parse.urlunsplit((
+            parsed.scheme.casefold(), parsed.netloc.casefold(),
+            parsed.path.rstrip("/") or "/", parsed.query, ""
+        ))
+        old = by_url.get(key)
+        strength = (
+            2 if item.get("verification") == "article_fetched" else
+            1 if item.get("verification") == "inline_newsroom" else 0
+        )
+        old_strength = (
+            2 if old and old.get("verification") == "article_fetched" else
+            1 if old and old.get("verification") == "inline_newsroom" else 0
+        )
+        if old is None or strength > old_strength:
+            by_url[key] = item
+    return sorted(
+        by_url.values(),
+        key=lambda x: (
+            0 if x.get("verification") == "article_fetched" else 1,
+            0 if not str(x.get("title") or "").casefold().startswith(
+                ("nyheter", "aktuelt", "siste nytt", "news", "press")
+            ) else 1,
+            str(x.get("url") or ""),
+        ),
+    )
+
+
 def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max_bytes: int) -> tuple[dict[str, Any] | None, list[dict[str, str]], int, int, int, str | None]:
     parsed_url = urllib.parse.urlsplit(url)
     url = urllib.parse.urlunsplit((
@@ -1456,22 +1493,9 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         value["pages"] = pages
         value["social_links"] = list({(item["platform"], item["url"]): item for item in social}.values())
 
-        # Deduplicate news items by title and prioritize specific dated articles over index pages
-        seen_news: set[str] = set()
-        dedup_news: list[dict[str, Any]] = []
-        for n in all_news_items:
-            if not n.get("published_at"):
-                continue
-            k = n["title"].casefold()
-            if k not in seen_news:
-                seen_news.add(k)
-                dedup_news.append(n)
-        dedup_news.sort(
-            key=lambda x: (
-                0 if len(str(x.get("url") or "").strip("/").split("/")) > 4 else 1,
-                0 if not str(x.get("title") or "").casefold().startswith(("nyheter", "aktuelt", "siste nytt", "news", "press")) else 1,
-            )
-        )
+        # Separate articles can share a title. Deduplicate by canonical article
+        # URL, preferring a fetched article over an earlier listing-only record.
+        dedup_news = deduplicate_dated_news(all_news_items)
 
         # Distinct adverts may share a title, so deduplicate by canonical URL.
         seen_jobs: set[str] = set()
