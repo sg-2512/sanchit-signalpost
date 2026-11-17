@@ -8,6 +8,7 @@ from norway_company_agent.batch import build_contract_claims_and_evidence, termi
 from norway_company_agent.official import normalize_financials
 from norway_company_agent.synthesis import generate_company_synthesis
 from run_agent import attach_registered_business_address
+from scripts.check_audit_regressions import score
 
 ORG = "985589003"
 SHA = "b" * 64
@@ -148,3 +149,27 @@ def test_runtime_is_measured_when_provided_without_inventing_company_cost():
     )
     assert envelope["operations"]["runtime_ms"] == 2530
     assert envelope["operations"]["third_party_cost_usd"] is None
+
+
+
+def test_comparison_counts_missing_zero_ratio_and_misleading_health():
+    profile = profile_fixture()
+    profile["evidence"]["financials"] = official_record("financials", {
+        "records": [{
+            "period": {"tilDato": "2025-12-31"},
+            "equity": 50, "debt": 0, "debt_to_equity": None,
+            "operating_result": -10, "current_assets": 0,
+            "short_term_debt": 25, "current_ratio": None,
+        }],
+    })
+    env = {
+        "organisation_number": ORG,
+        "legal_identity": {"name": profile["name"]},
+        "profile": profile,
+        "claims": [],
+        "synthesis": {"financial_health": "Strong", "citation_density_pct": 100},
+    }
+    report = score({ORG: env})
+    assert report["totals"]["valid_zero_ratios_omitted"] == 2
+    assert report["totals"]["operating_losses_labeled_strong_financial_health"] == 1
+    assert report["totals"]["claimed_100_percent_citation_density"] == 1
