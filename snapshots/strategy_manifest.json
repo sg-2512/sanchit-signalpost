@@ -1,17 +1,17 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-11-14T18:24:02.108604+00:00",
-  "git_commit": "489fda5e9c76a4fe1de60e0ce8d3911da6e8be7b",
-  "git_dirty": true,
+  "created_at": "2026-11-17T19:06:48.670368+00:00",
+  "git_commit": "43755a6912481c7dcaba86fe0f7f9de98065c844",
+  "git_dirty": false,
   "environment": {
-    "python_version": "3.14.2",
-    "platform": "win32",
+    "python_version": "3.14.4",
+    "platform": "linux",
     "integrity_mode": "development"
   },
   "global_budget_envelope": {
     "max_requests_per_1000": 2000,
-    "max_cost_usd_per_1000": 10.0,
-    "max_runtime_seconds_per_1000": 2700.0
+    "max_cost_usd_per_1000": 10,
+    "max_runtime_seconds_per_1000": 2700
   },
   "routes_count": 11,
   "routes": {
@@ -20,7 +20,7 @@
       "category": "official",
       "description": "Brreg official homepage & live registry verification",
       "estimated_requests": 1,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "static_homepage": {
@@ -28,7 +28,7 @@
       "category": "crawl",
       "description": "Clean text extraction & metadata crawl",
       "estimated_requests": 1,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "sitemap_static": {
@@ -36,7 +36,7 @@
       "category": "crawl",
       "description": "XML sitemap parsing & robots.txt discovery",
       "estimated_requests": 1,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "targeted_paths": {
@@ -44,7 +44,7 @@
       "category": "crawl",
       "description": "Deep crawl of /about, /contact, /leadership, /locations, /careers, /news",
       "estimated_requests": 2,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "jsonld_opengraph": {
@@ -52,7 +52,7 @@
       "category": "structured",
       "description": "Structured schema extraction via extruct",
       "estimated_requests": 0,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "search_candidates": {
@@ -68,7 +68,7 @@
       "category": "official",
       "description": "Official NAV open jobs API vacancy extraction",
       "estimated_requests": 1,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "google_places": {
@@ -84,7 +84,7 @@
       "category": "structured",
       "description": "Official role-to-brand bridge for leadership profiles",
       "estimated_requests": 0,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "browser_fallback": {
@@ -92,7 +92,7 @@
       "category": "fallback",
       "description": "Playwright headless fallback strictly for confirmed JS shells",
       "estimated_requests": 1,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     },
     "pdf_fallback": {
@@ -100,7 +100,7 @@
       "category": "fallback",
       "description": "Annual-account PDF layout extraction via pypdf",
       "estimated_requests": 1,
-      "estimated_cost_usd": 0.0,
+      "estimated_cost_usd": 0,
       "enabled": true
     }
   },
@@ -111,9 +111,9 @@
     "strategies/freeze.py": "57f36808336a0ea5e4a6b2bab5df36a0f94d8f7fcfc73a7084a73f85cf774553"
   },
   "connector_files": {
-    "config/source-rights.json": "f533036054127a7e176a04c7d5a4806e96a10413ba595b3dba597f1d3dbf7dcb",
-    "run_agent.py": "06c6b878daa4c4b0264ffa465f5270ca4a6e47d4aa6dcb7af389fd970a4880aa",
-    "src/norway_company_agent/batch.py": "d58844b623d478bf97b28ca9f5d434ffb61ae8f7240f2b426a1193ba9d6e745a",
+    "config/source-rights.json": "953e4ef8db7f059c2ffb4df038eb626f39b0aa8c112bb0e405cd07ae6a74f6b3",
+    "run_agent.py": "12f0bcef63d79606a11adc0dc373c7575f6c51c4c5d0f53184b4f502e1e8aa3c",
+    "src/norway_company_agent/batch.py": "f3000e8a9b9f20b96fccf3d0cfd1d3f9c23cc40d3382af30d0a7eb4209074488",
     "src/norway_company_agent/connectors/ats_discovery.py": "1188f7107bea3c3718246c74a7e91369f26f419c6aa03ecaf1776bb19c299e5e",
     "src/norway_company_agent/connectors/job_boards.py": "6348813a9b1a75ee98e5d68103e525949617456e0b4fdf6849ac7699ed2cd6fd",
     "src/norway_company_agent/connectors/brave_search.py": "a2900dc0b8e6bd09eff8396424966bde1f614f19144cd1536c18747e62097cbf",
@@ -124,11 +124,11 @@
     "src/norway_company_agent/connectors/youtube.py": "4f0528d8dc3eeeffdd2138718c7e52f89f79409e2235a81179383eb89e0b577c",
     "src/norway_company_agent/connectors/linkedin.py": "0c9210cf8b9ff58818e7b5d8d9d582b8f32b6e9ebc2f6e782d41e0cc12d5909d",
     "src/norway_company_agent/budget.py": "9dfc9dd65d9ef689fce64695da53d2675d85eb49ad34b6e9d5c153947273f8ad",
-    "src/norway_company_agent/hiring.py": "09bf0a144a9195ad278f43edf4f1dfdf92ff22b8638fc229e2ab39fc219ae842",
-    "src/norway_company_agent/identity.py": "f0e5bff5bfdcd891206b29f70342fcf44038a9f651443e54b1019626f72d696b",
-    "src/norway_company_agent/synthesis.py": "97e75102ca64f38bf09a297f90e850e216a0dd5e695e38d613c4345648288574",
-    "src/norway_company_agent/verified_items.py": "fb9c5782656f5578fab9c6e935dd2041586e518894450bac7b7398d2aab6149d",
-    "src/norway_company_agent/website.py": "5d26d100e9eb9a8e42d455e4568bd1fecb88f4e1b3f6c147791c367e1de20d30"
+    "src/norway_company_agent/hiring.py": "fd90bab05d755667f30879d122205c77cab99d3934fea790f3d49fc09489563d",
+    "src/norway_company_agent/identity.py": "b1912dc8ce1e497ab94c487581ac061f3ff6189c027317e5660e075727a041fb",
+    "src/norway_company_agent/synthesis.py": "cb3bb38457970c659a5cf4d7b8859466d4e79542c008ad92d5bd6ed128d2414c",
+    "src/norway_company_agent/verified_items.py": "0f17d98fd693412f9e5a3b3e483711d681af929d045e0898271b195ce2f86326",
+    "src/norway_company_agent/website.py": "1d900b3da37a6e109da4126759508248e399163f391849ac4b3895b45c925941"
   },
-  "overall_manifest_hash": "d07957db97cdfc250b117fd7b3f246c3c48a720d88b55683427422c3229bbf4e"
+  "overall_manifest_hash": "f41097fb08482d40f15440c5c8098acaf238ae50fd714d0988b41bc0235ab8b8"
 }
