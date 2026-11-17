@@ -365,6 +365,46 @@ def build_contract_claims_and_evidence(
             "evidence_ids": [f"ev-registry_live-{org}"] if "registry_live" in ev else ([f"ev-registry-{org}"] if "registry" in ev else []),
         })
 
+    # 2b. Publish registry-backed industry and declared corporate purpose without
+    # presenting the registered purpose as proof of actual ongoing operations.
+    industry_claim = None
+    purpose_claim = None
+    source_evidence_id = None
+    for source_key, record in (("registry_live", reg_live_rec), ("registry", reg_bulk_rec)):
+        if record.get("status") != "available" or not record.get("content_sha256"):
+            continue
+        source_value = record.get("value") or {}
+        if not isinstance(source_value, dict):
+            continue
+        if source_evidence_id is None:
+            source_evidence_id = f"ev-{source_key}-{org}"
+        industry = source_value.get("naeringskode1") or source_value.get("industry") or {}
+        if not isinstance(industry, dict):
+            industry = {}
+        code = str(industry.get("kode") or source_value.get("naeringskode1.kode") or "").strip()
+        description = str(industry.get("beskrivelse") or source_value.get("naeringskode1.beskrivelse") or "").strip()
+        if industry_claim is None and (code or description):
+            industry_claim = {
+                "value": {"code": code or None, "description": description or None},
+                "evidence_id": f"ev-{source_key}-{org}",
+            }
+        purpose = source_value.get("vedtektsfestetFormaal") or source_value.get("aktivitet")
+        if purpose_claim is None and isinstance(purpose, str) and purpose.strip():
+            purpose_claim = {
+                "value": purpose.strip(),
+                "evidence_id": f"ev-{source_key}-{org}",
+            }
+
+    for field, data in (("industry_classification", industry_claim),
+                        ("registered_business_purpose", purpose_claim)):
+        claims.append({
+            "field": field,
+            "value": data["value"] if data else None,
+            "availability": "available" if data else "not_available",
+            "confidence": 1.0 if data else 0.0,
+            "evidence_ids": [data["evidence_id"]] if data else [],
+        })
+
     # 3. Official Website Claim
     w_status = w_rec.get("status")
     raw_web_url = str(w_val.get("final_url") or w_rec.get("source_url") or profile.get("website") or "").strip()
