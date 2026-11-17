@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 
 from norway_company_agent.batch import build_contract_claims_and_evidence
 from norway_company_agent.website import deduplicate_dated_news
@@ -106,3 +105,34 @@ def test_news_dedupe_keeps_article_response_over_listing():
     assert len(output) == 1
     assert output[0]["verification"] == "article_fetched"
     assert output[0]["content_sha256"] == SHA
+
+
+def test_registry_fields_add_supported_coverage_without_inference():
+    profile = {
+        "organisation_number": "981929055",
+        "name": "TELIA NORGE AS",
+        "evidence": {
+            "registry_live": _record("registry_live", {
+                "organisation_number": "981929055",
+                "naeringskode1": {"kode": "61.200", "beskrivelse": "Wireless telecommunications"},
+                "vedtektsfestetFormaal": "Provide telecommunication services",
+            }),
+        },
+    }
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-18T00:00:00Z")
+    by_field = {claim["field"]: claim for claim in claims}
+    assert by_field["industry_classification"]["availability"] == "available"
+    assert by_field["industry_classification"]["value"]["code"] == "61.200"
+    assert by_field["industry_classification"]["evidence_ids"] == ["ev-registry_live-981929055"]
+    assert by_field["registered_business_purpose"]["value"] == "Provide telecommunication services"
+
+
+def test_unobserved_registry_purpose_is_unavailable():
+    profile = {
+        "organisation_number": "981929055", "name": "TELIA NORGE AS",
+        "evidence": {"registry_live": _record("registry_live", {"organisation_number": "981929055"})},
+    }
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-18T00:00:00Z")
+    by_field = {claim["field"]: claim for claim in claims}
+    assert by_field["industry_classification"]["availability"] == "not_available"
+    assert by_field["registered_business_purpose"]["availability"] == "not_available"
