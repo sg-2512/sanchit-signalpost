@@ -369,15 +369,12 @@ def build_contract_claims_and_evidence(
     # presenting the registered purpose as proof of actual ongoing operations.
     industry_claim = None
     purpose_claim = None
-    source_evidence_id = None
     for source_key, record in (("registry_live", reg_live_rec), ("registry", reg_bulk_rec)):
         if record.get("status") != "available" or not record.get("content_sha256"):
             continue
         source_value = record.get("value") or {}
         if not isinstance(source_value, dict):
             continue
-        if source_evidence_id is None:
-            source_evidence_id = f"ev-{source_key}-{org}"
         industry = source_value.get("naeringskode1") or source_value.get("industry") or {}
         if not isinstance(industry, dict):
             industry = {}
