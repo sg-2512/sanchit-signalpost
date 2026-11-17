@@ -743,6 +743,7 @@ def enrich_single_company(
             )
 
     attach_registered_business_address(profile, reg_live_rec, reg_bulk_rec)
+    location_val = (profile.get("evidence", {}).get("locations") or {}).get("value") or {}
 
     emp_count = int(profile.get("employees") or 0)
     form_code_upper = str(profile.get("legal_form") or "").upper()
