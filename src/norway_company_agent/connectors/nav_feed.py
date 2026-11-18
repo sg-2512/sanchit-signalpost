@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import email.utils
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -137,11 +138,18 @@ def nav_feed_jobs_for_company(
     with _lock:
         if _index is None and _state == "not_started":
             try:
-                _index, _token, _state = _build_index(budget)
+                # This is one shared feed index for the entire batch. Do not
+                # charge its outbound calls to the unlucky first company.
+                global_scope = budget.company_context("") if hasattr(budget, "company_context") else nullcontext()
+                with global_scope:
+                    _index, _token, _state = _build_index(budget)
             except Exception as exc:
                 _index, _token, _state = {}, "", f"failed:{type(exc).__name__}"
         index, token, state = _index or {}, _token, _state
-    diagnostics: dict[str, Any] = {"feed_state": state, "candidate_ads": 0, "verified_ads": 0}
+    diagnostics: dict[str, Any] = {
+        "feed_state": state, "candidate_ads": 0, "verified_ads": 0,
+        "lookback_days": 21, "scope": "recent_changed_ads_not_all_active_vacancies",
+    }
     if not token:
         return [], [], diagnostics
     subunit_rows = [row for row in subunits if isinstance(row, dict)]
