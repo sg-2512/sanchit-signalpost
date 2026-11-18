@@ -1447,6 +1447,7 @@ def terminal_envelope(
         ],
         "operations": {
             "requests": int(run_metrics.get("requests") or 0),
+            "request_attribution": run_metrics.get("request_attribution") or "not_attributed",
             "runtime_ms": (int(float(run_metrics["elapsed_s"]) * 1000)
                            if run_metrics.get("elapsed_s") is not None else None),
             "runtime_measurement": ("measured_company_wall_clock" if run_metrics.get("elapsed_s") is not None
