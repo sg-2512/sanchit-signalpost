@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from ..discovery import build_company_search_query, score_search_candidate
+from ..discovery import score_search_candidate
 
 ENDPOINT = "https://google.serper.dev/search"
 _LOCK = threading.Lock()
@@ -59,8 +59,14 @@ def discover_company_websites_serper(
         _REQUESTS += 1
 
     org = str(profile.get("organisation_number") or "")
-    query = build_company_search_query(profile)
-    # Search by exact company plus org: fewer similarly named brands/franchises.
+    # A nine-digit organisation-number query often returns only legal
+    # aggregators; exact-name search exposes first-party websites and their
+    # legal/about pages. Results remain *untrusted crawl hints*.
+    name = " ".join(str(profile.get("name") or "").split())
+    municipality = str(profile.get("municipality") or "").strip()
+    query = f'"{name}" {municipality} nettsted'.strip()
+    if not name:
+        return []
     body = json.dumps({"q": query, "gl": "no", "hl": "no", "num": 10}).encode("utf-8")
     request = urllib.request.Request(
         ENDPOINT, data=body, method="POST",
@@ -101,7 +107,16 @@ def discover_company_websites_serper(
             "provider": "serper",
         }
         assessment = score_search_candidate(profile, item)
-        if not assessment.get("publishable_candidate"):
+        # Search pages without an org number can still be worth a *crawl* if
+        # the result title contains every distinctive legal-name token. The
+        # stricter operator identity gate remains the sole publication gate.
+        from ..discovery import _tokens, GENERIC_NAME_TOKENS
+        legal_tokens = {t for t in _tokens(name) if t not in GENERIC_NAME_TOKENS}
+        title_tokens = set(_tokens(item["title"]))
+        name_title_match = bool(legal_tokens) and legal_tokens.issubset(title_tokens)
+        if (not assessment.get("publishable_candidate")
+                and not (assessment.get("status") != "rejected"
+                         and name_title_match and float(assessment.get("score") or 0) >= 0.4)):
             continue
         url = assessment.get("url") or ""
         parts = urlsplit(url)
