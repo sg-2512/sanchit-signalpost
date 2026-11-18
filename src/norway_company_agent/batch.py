@@ -322,6 +322,19 @@ def build_contract_claims_and_evidence(
         # Do not invent a hash of empty bytes when the source response is missing.
         # A description of an observation is not a quoted passage from its source.
         span = str(rec.get("claim_span") or rec.get("evidence_span") or "").strip()
+        span_kind = str(rec.get("evidence_span_kind") or rec.get("claim_span_verification") or "")
+        if mod == "website" and rec.get("status") == "available":
+            site_data = rec.get("value") or {}
+            # Homepage excerpts are taken from the fetched response whose SHA
+            # and URL are in this evidence record; they are not synthesized text.
+            if isinstance(site_data, dict):
+                homepage_excerpt = str(site_data.get("identity_text_excerpt") or site_data.get("main_text_excerpt") or "").strip()
+                if homepage_excerpt and raw_sha == str(site_data.get("content_sha256") or ""):
+                    span = homepage_excerpt[:500]
+                    span_kind = "source_excerpt"
+        if span_kind != "source_excerpt":
+            # A generated note, numeric derivation, or summary is not a quote.
+            span_kind = "observation_summary" if span else "unavailable"
         evidence_items.append({
             "id": ev_id,
             "source_url": src_url,
@@ -329,7 +342,7 @@ def build_contract_claims_and_evidence(
             "retrieved_at": rec.get("retrieved_at") or completed_at,
             "content_sha256": raw_sha,
             "claim_span": span,
-            "claim_span_verification": "source_excerpt" if span else "unavailable",
+            "claim_span_verification": span_kind,
             "source_row_key": rec.get("source_row_key"),
         })
 
@@ -1212,6 +1225,36 @@ def build_contract_claims_and_evidence(
             "evidence_ids": [jobs_ev_id] if "jobs" in ev else [],
         })
 
+    # Include source-backed observations referenced by synthesis, with
+    # exact company association and distinct provenance classification.
+    # This does not automatically promote an observation to a scored claim.
+    for obs in profile.get("_synthesis_observations") or []:
+        if not isinstance(obs, dict) or str(obs.get("organisation_number") or "") != org:
+            continue
+        obs_id = str(obs.get("id") or "")
+        url = str(obs.get("source_url") or "")
+        digest = str(obs.get("content_sha256") or "")
+        if (not obs_id or not url.startswith(("https://", "http://"))
+                or not re.fullmatch(r"[0-9a-fA-F]{64}", digest)
+                or digest.lower() == hashlib.sha256(b"").hexdigest()
+                or any(item["id"] == obs_id for item in evidence_items)):
+            continue
+        excerpt = str(obs.get("evidence_span") or "").strip()[:500]
+        proof_kind = "source_excerpt" if obs.get("evidence_span_kind") == "source_excerpt" and excerpt else (
+            "observation_summary" if excerpt else "unavailable"
+        )
+        evidence_items.append({
+            "id": obs_id,
+            "source_url": url,
+            "source_class": str(obs.get("source_class") or "public_observation"),
+            "retrieved_at": obs.get("retrieved_at") or completed_at,
+            "content_sha256": digest,
+            "claim_span": excerpt,
+            "claim_span_verification": proof_kind,
+            "source_row_key": org,
+            "observation_signal_type": str(obs.get("signal_type") or ""),
+        })
+
     # Final Evidence Provenance & Cryptographic Grounding Verification
     ev_map = {item["id"]: item for item in evidence_items}
     for claim in claims:
@@ -1308,6 +1351,29 @@ def terminal_envelope(
         if not valid_eids and evidence_list:
             valid_eids = [item["id"] for item in evidence_list[:4] if item.get("id")]
         synth["evidence_ids"] = valid_eids
+        # Remove unresolved citations rather than exporting broken references.
+        # A link or generated observation note does not count as an excerpt.
+        for entry in synth.get("sentence_citations") or []:
+            linked = [eid for eid in entry.get("evidence_ids") or [] if eid in ev_map]
+            entry["evidence_ids"] = linked
+            entry["source_linked"] = bool(linked)
+            excerpt_backed = any(
+                ev_map[eid].get("claim_span_verification") == "source_excerpt"
+                and ev_map[eid].get("claim_span")
+                for eid in linked
+            )
+            entry["cited"] = bool(excerpt_backed)
+            entry["evidence_span_checked"] = bool(excerpt_backed)
+        sentence_rows = synth.get("sentence_citations") or []
+        if sentence_rows:
+            synth["source_link_density"] = round(
+                sum(bool(row.get("source_linked")) for row in sentence_rows) / len(sentence_rows), 4
+            )
+            synth["citation_density"] = round(
+                sum(bool(row.get("cited")) for row in sentence_rows) / len(sentence_rows), 4
+            )
+            synth["citation_density_pct"] = round(synth["citation_density"] * 100, 2)
+            synth["citation_density_kind"] = "exported_source_excerpt_presence_not_independent_fact_check"
         grounded_sources = []
         grounded_urls = []
         for eid in valid_eids:
