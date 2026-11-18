@@ -994,10 +994,17 @@ def build_contract_claims_and_evidence(
             "evidence_ids": news_ev_ids,
         })
         existing_news = next((item for item in evidence_items if item["id"] == news_ev_id), None)
+        # A fetched article excerpt is source text; a constructed title/date
+        # statement is not. Retain only what the source page actually exposed.
+        news_excerpt = str(primary_news.get("article_text_excerpt") or "").strip()[:500]
+        if primary_news.get("verification") != "article_fetched":
+            news_excerpt = ""
         if existing_news:
             existing_news["content_sha256"] = n_sha
             existing_news["source_url"] = n_src_url
             existing_news["source_class"] = news_source_class
+            existing_news["claim_span"] = news_excerpt
+            existing_news["claim_span_verification"] = "source_excerpt" if news_excerpt else "unavailable"
         else:
             evidence_items.append({
                 "id": news_ev_id,
@@ -1005,7 +1012,8 @@ def build_contract_claims_and_evidence(
                 "source_class": news_source_class,
                 "retrieved_at": completed_at,
                 "content_sha256": n_sha,
-                "claim_span": f"Dated news: {n_title} (published {n_pub})",
+                "claim_span": news_excerpt,
+                "claim_span_verification": "source_excerpt" if news_excerpt else "unavailable",
             })
     else:
         news_avail = "not_available" if n_status in {"available", "not_available", "not_found", "absent", None} else _to_availability_state(n_status)
@@ -1199,9 +1207,15 @@ def build_contract_claims_and_evidence(
             for claim in claims[-2:]:
                 claim["evidence_ids"] = job_evidence_ids
         existing_job = next((item for item in evidence_items if item["id"] == jobs_ev_id), None)
+        # The advert body is an excerpt; a generated job summary is not.
+        ad_excerpt = str(primary_job.get("ad_text_excerpt") or "").strip()[:500]
+        if primary_job.get("kind") not in {"company_site_ad", "verified_career_ad"}:
+            ad_excerpt = ""
         if existing_job:
             existing_job["content_sha256"] = j_sha
             existing_job["source_url"] = j_src_url
+            existing_job["claim_span"] = ad_excerpt
+            existing_job["claim_span_verification"] = "source_excerpt" if ad_excerpt else "unavailable"
         else:
             evidence_items.append({
                 "id": jobs_ev_id,
@@ -1209,7 +1223,8 @@ def build_contract_claims_and_evidence(
                 "source_class": "official" if "arbeidsplassen.nav.no" in j_url.lower() else ("company_site" if has_valid_site_ev else "job_board"),
                 "retrieved_at": completed_at,
                 "content_sha256": j_sha,
-                "claim_span": f"Active job vacancy: {j_title} at {j_url}",
+                "claim_span": ad_excerpt,
+                "claim_span_verification": "source_excerpt" if ad_excerpt else "unavailable",
             })
     else:
         jobs_avail = "not_available" if j_status in {"available", "not_available", "not_found", "absent", None} else _to_availability_state(j_status)
