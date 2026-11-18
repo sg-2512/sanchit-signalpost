@@ -837,15 +837,18 @@ def enrich_single_company(
         parsed = urlsplit(url if "://" in url else "https://" + url)
         return (parsed.hostname or "").lower() + parsed.path.rstrip("/") + ("?" + parsed.query if parsed.query else "")
 
-    def fetch_company_site(url: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        key = site_key(url)
+    def fetch_company_site(url: str, *, identity_only: bool = True) -> tuple[dict[str, Any], dict[str, Any]]:
+        # Cache the cheap identity response independently from the deep
+        # verified-site response. Never spend article/ATS requests on rejected
+        # candidates. Canonical URLs are deduplicated per crawl mode.
+        key = (site_key(url), identity_only)
         if key in site_records:
             return copy.deepcopy(site_records[key]), {"requests": 0, "bytes": 0}
-        record, metrics = fetch_website(url, budget=site_budget)
+        record, metrics = fetch_website(url, budget=site_budget, identity_only=identity_only)
         site_records[key] = copy.deepcopy(record)
         final_url = (record.get("value") or {}).get("final_url")
         if final_url:
-            site_records[site_key(final_url)] = copy.deepcopy(record)
+            site_records[(site_key(final_url), identity_only)] = copy.deepcopy(record)
         return record, metrics
 
     verified_website = False
@@ -1265,6 +1268,26 @@ def enrich_single_company(
             count=0,  # Charged atomically by the website transport, including redirects.
         )
         local_reqs += website_metrics.get("requests", 0)
+
+    if verified_website and profile.get("website") and site_requests < site_limit:
+        # A verified operator now receives the expensive newsroom/career crawl.
+        # If it fails because of a stricter cap or source outage, preserve the
+        # already independently verified shallow site rather than inventing a
+        # negative website result.
+        deep_rec, deep_met = fetch_company_site(str(profile["website"]), identity_only=False)
+        website_metrics["requests"] += deep_met.get("requests", 0)
+        website_metrics["bytes"] += deep_met.get("bytes", 0)
+        if deep_rec.get("status") == "available":
+            deep_gated = gate_website(deep_rec)["website"]
+            if (deep_gated.get("status") == "available"
+                    and (deep_gated.get("value") or {}).get("identity_assessment", {}).get("publishable")):
+                profile["evidence"]["website"] = deep_gated
+                profile["website"] = (deep_gated.get("value") or {}).get("final_url") or profile["website"]
+                profile["website_discovery_diagnostics"]["deep_crawl"] = "verified"
+            else:
+                profile["website_discovery_diagnostics"]["deep_crawl"] = "identity_recheck_failed"
+        else:
+            profile["website_discovery_diagnostics"]["deep_crawl"] = str(deep_rec.get("status") or "failed")
 
     if source_policy == OFFICIAL_SAFE and not verified_website:
         profile["website"] = None
