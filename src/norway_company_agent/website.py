@@ -932,10 +932,10 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
 
     selected: list[str] = []
     for bucket in (
-        sorted_others[:2],
+        sorted_others[:1],
         sorted_careers[:1],
         sorted_news[:1],
-        sorted_others[2:],
+        sorted_others[1:],
         sorted_careers[1:],
         sorted_news[1:],
     ):
@@ -1352,7 +1352,9 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
         # A homepage careers link can be a portal rather than an individual job.
-        subpage_limit = 4
+        # Reserve room for operator/legal identity, careers, and a dated
+        # newsroom page instead of spending both early slots on legal pages.
+        subpage_limit = 5
         pending_pages = _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=True)
         if "cdn.shopify.com" in html or "Shopify.theme" in html:
             legal_notice = urllib.parse.urljoin(final_url, "/policies/legal-notice")
@@ -1465,7 +1467,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
                 continue
             article = article_pages.get(article_url.rstrip("/"))
             if article is None:
-                if checked_articles >= 2:
+                if checked_articles >= 3:
                     continue
                 checked_articles += 1
                 article, _, count, size, latency, error = _fetch_secondary_page(
