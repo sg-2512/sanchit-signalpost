@@ -932,10 +932,12 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
 
     selected: list[str] = []
     for bucket in (
-        sorted_others[:1],
+        # Two legal/operator pages can be essential for exact-entity proof;
+        # reserve the remaining bounded slots for careers and newsroom.
+        sorted_others[:2],
         sorted_careers[:1],
         sorted_news[:1],
-        sorted_others[1:],
+        sorted_others[2:],
         sorted_careers[1:],
         sorted_news[1:],
     ):
