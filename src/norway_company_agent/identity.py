@@ -394,6 +394,58 @@ def assess_social_identity(profile: dict[str, Any], link: dict[str, str]) -> dic
     }
 
 
+def _declared_single_brand_operator_proof(profile: dict[str, Any], value: dict[str, Any]) -> bool:
+    """Strong registry-declared one-brand-name operator identity, not a logo match.
+
+    Useful for small firms (e.g. AIOTA AS) whose public site brands itself
+    'AIOTA' without printing 'AS'. Requires exact declared domain, a distinctive
+    matching domain and site title, substantive source text, and no conflict.
+    Never applies to franchises, group or multi-token trading-name guesses.
+    """
+    org = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
+    name_tokens = _tokens(profile.get("name"))
+    core = [t for t in name_tokens if t not in LEGAL_AND_GENERIC]
+    if len(org) != 9 or len(core) != 1 or len(core[0]) < 5:
+        return False
+    reg_record = ((profile.get("evidence") or {}).get("registry_live") or {})
+    if reg_record.get("status") != "available" or not reg_record.get("content_sha256"):
+        return False
+    reg = reg_record.get("value") or {}
+    declared = str(reg.get("hjemmeside") or reg.get("website") or "")
+    declared_host = urllib.parse.urlsplit(
+        declared if "://" in declared else "https://" + declared
+    ).hostname or ""
+    site_host = urllib.parse.urlsplit(str(value.get("final_url") or "")).hostname or ""
+    if not declared_host or not site_host:
+        return False
+    declared_domain = _TLD_EXTRACT(declared_host).registered_domain
+    site_domain = _TLD_EXTRACT(site_host).registered_domain
+    if not declared_domain or declared_domain != site_domain:
+        return False
+    brand = core[0]
+    if re.sub(r"[^a-z0-9]", "", _TLD_EXTRACT(site_host).domain.casefold()) != brand:
+        return False
+    title_tokens = _tokens(str(value.get("title") or ""))
+    descriptions = str(value.get("main_text_excerpt") or "")
+    if brand not in title_tokens or len(descriptions.strip()) < 80:
+        return False
+    # Reject an apparently matching franchise/brand if any site evidence
+    # explicitly identifies a *different* operator number.
+    evidence_text = " ".join(
+        str(page.get(key) or "")
+        for page in [value, *(value.get("pages") or [])]
+        for key in ("identity_text_excerpt", "main_text_excerpt", "visible_text_excerpt")
+    )
+    numbers = _find_org_numbers(evidence_text)
+    if numbers and numbers != {org}:
+        return False
+    legal_entities = _find_legal_entities(evidence_text)
+    if legal_entities and any(brand not in _tokens(ent) for ent in legal_entities):
+        return False
+    normalized = " ".join(_tokens(evidence_text))
+    return not any(marker in normalized for marker in _PARKED_MARKERS)
+
+
 def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) -> bool:
     """Require an on-site operator identifier without dropping legal-name tokens."""
     org = str(profile.get("organisation_number") or "")
@@ -428,7 +480,7 @@ def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) ->
                 name_match |= words(str(operator.get("legalName") or operator.get("name") or "")) == legal_words
     if explicit_orgs:
         return explicit_orgs == {org}
-    if name_match:
+    if name_match or _declared_single_brand_operator_proof(profile, value):
         return True
 
     # Some sites use a trading name rather than the legal suffix. Accept a
@@ -745,6 +797,9 @@ def assess_entity_identity(
         status = "exact"
         publishable = True
     elif registry_declares_brand and name_match and not found_orgs:
+        status = "exact"
+        publishable = True
+    elif _declared_single_brand_operator_proof(profile, w_value) and not veto_reasons:
         status = "exact"
         publishable = True
     elif name_score >= 0.95 and domain_score >= 0.90 and weighted_score >= 0.95:
