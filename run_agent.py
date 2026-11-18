@@ -1684,6 +1684,8 @@ def enrich_single_company(
         item for item in observations
         if isinstance(item, dict)
         and str(item.get("organisation_number") or "") == org
+        and item.get("exact_entity") is True
+        and item.get("rights_status") == "approved"
         and item.get("source_url") and item.get("content_sha256")
     ]
     # 14. Decision-useful factual synthesis (12-point scoring rubric)
