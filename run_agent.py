@@ -277,7 +277,10 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
         )
         valid, _ = validate_news_item(
             {**item, "url": url, "verification": verification,
-             "name_in_article": name_in_article},
+             "name_in_article": name_in_article,
+             "source_url": evidence_url,
+             "article_text_excerpt": article_text,
+             "exact_site_verified": True},
             company_name=profile.get("name") or "", site_url=site_url,
         )
         if not valid:
@@ -307,6 +310,8 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
             "verification": verification,
             "name_in_article": name_in_article,
             "article_url": url,
+            "article_text_excerpt": article_text,
+            "exact_site_verified": True,
             "identity_proof": [
                 {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
                 {"type": "company_website_publication", "parent_website": site_url},
@@ -1353,6 +1358,8 @@ def enrich_single_company(
             "published_at": o.get("published_at"),
             "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
             "name_in_article": bool(o.get("name_in_article")),
+            "exact_site_verified": bool(o.get("exact_site_verified")),
+            "article_text_excerpt": str(o.get("article_text_excerpt") or ""),
         }
         ok, _ = validate_news_item(cand, company_name=c_name, site_url=site_url)
         if ok:
@@ -1380,6 +1387,8 @@ def enrich_single_company(
                         "content_sha256": o.get("content_sha256"),
                         "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
                         "name_in_article": bool(o.get("name_in_article")),
+                        "exact_site_verified": bool(o.get("exact_site_verified")),
+                        "article_text_excerpt": str(o.get("article_text_excerpt") or ""),
                     }
                     for o in all_news_obs
                 ],
