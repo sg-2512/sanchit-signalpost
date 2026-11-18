@@ -58,15 +58,18 @@ def fetch_regulatory_licenses(
                 bytes_received += len(raw)
                 data = json.loads(raw.decode("utf-8", errors="replace"))
 
-            status = data.get("status") or data.get("godkjenningsstatus") or "Godkjent"
-            h_digest = hashlib.sha256(f"{clean_org}|arbeidstilsynet|{status}".encode()).hexdigest()
+            source_org = str(data.get("organisasjonsnummer") or data.get("orgnr") or data.get("orgNumber") or "").replace(" ", "")
+            status = str(data.get("status") or data.get("godkjenningsstatus") or "").strip()
+            if source_org != clean_org or status.casefold() not in {"godkjent", "approved", "aktiv", "active"}:
+                return observations
+            h_digest = hashlib.sha256(raw).hexdigest()
             obs_id = f"license-arbeidstilsynet-{clean_org}-{h_digest[:16]}"
             observations.append({
                 "id": obs_id,
                 "organisation_number": clean_org,
                 "platform": "arbeidstilsynet",
                 "signal_type": "regulatory_license_record",
-                "source_url": f"https://arbeidstilsynet.no/renholdsregisteret/{clean_org}",
+                "source_url": url,
                 "retrieved_at": retrieved_at,
                 "published_at": retrieved_at[:10],
                 "content_sha256": h_digest,
@@ -82,7 +85,9 @@ def fetch_regulatory_licenses(
                 "acquisition_mode": "official_api",
                 "rights_status": "approved",
                 "source_class": "official_supervisory_authority",
-                "evidence_span": f"Arbeidstilsynet godkjenning for {clean_name}: {status}",
+                "evidence_span": "",
+                "evidence_span_kind": "structured_field",
+                "source_json_pointer": "/godkjenningsstatus" if data.get("godkjenningsstatus") is not None else "/status",
                 "metrics": {
                     "authority": "Arbeidstilsynet",
                     "license_type": "Offentlig godkjent virksomhet",
@@ -93,41 +98,9 @@ def fetch_regulatory_licenses(
         except Exception:
             pass
 
-    # 2. Finanstilsynet Regnskap / Revisjon / Finans Licensing Indicator
-    is_finance_or_accounting = any(industry_code.startswith(prefix) for prefix in ("69.2", "64.", "65.", "66."))
-    if is_finance_or_accounting:
-        h_digest = hashlib.sha256(f"{clean_org}|finanstilsynet|{industry_code}".encode()).hexdigest()
-        lic_type = "Autorisert regnskapsførerselskap / revisjonsselskap" if industry_code.startswith("69.2") else "Finansiell konsesjonsbelagt virksomhet"
-        obs_id = f"license-finanstilsynet-{clean_org}-{h_digest[:16]}"
-        observations.append({
-            "id": obs_id,
-            "organisation_number": clean_org,
-            "platform": "finanstilsynet",
-            "signal_type": "regulatory_license_record",
-            "source_url": f"{FINANSTILSYNET_REGISTRY_URL}?q={clean_org}",
-            "retrieved_at": retrieved_at,
-            "published_at": retrieved_at[:10],
-            "content_sha256": h_digest,
-            "exact_entity": True,
-            "identity_proof": [
-                {
-                    "type": "official_financial_supervisory_registry",
-                    "company_name": clean_name,
-                    "organisation_number": clean_org,
-                    "license_category": lic_type,
-                }
-            ],
-            "acquisition_mode": "official_registry",
-            "rights_status": "approved",
-            "source_class": "official_supervisory_authority",
-            "evidence_span": f"Finanstilsynet konsesjons- og virksomhetsregisteroppføring for {clean_name} ({lic_type})",
-            "metrics": {
-                "authority": "Finanstilsynet",
-                "license_type": lic_type,
-                "status": "Underlagt tilsyn / Lovregulert konsesjon",
-            },
-            "strategy": "finanstilsynet_registry_lookup",
-        })
+    # A financial-sector industry code is not proof of a Finanstilsynet
+    # licence. A regulator search URL is not an individual official listing.
+    # Abstain until an exact-org, dated authority record has been checked.
 
     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
     if budget:
