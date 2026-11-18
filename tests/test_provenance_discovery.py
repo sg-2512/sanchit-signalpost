@@ -44,7 +44,7 @@ def test_request_attribution_reconciles_while_preserving_shared_work():
     with budget.company_context("222222222"):
         budget.record_request(count=5, cost_usd=0.4)
     report = budget.report()
-    assert report["total_requests"] == 15
+    assert report["total_requests"] == 16
     assert report["requests_unattributed"] == 7
     assert report["attributed_requests_reconcile"]
     assert report["requests_by_company"] == {"111111111": 4, "222222222": 5}
