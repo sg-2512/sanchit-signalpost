@@ -82,6 +82,15 @@ def audit(
         isinstance(total, int) and isinstance(unattributed, int)
         and company_requests + unattributed == total
     )
+    # Stable zero-valued metrics are useful for scripts, comparisons and CI.
+    for metric in (
+        "available_claims", "available_claims_without_valid_source",
+        "available_claims_with_source_excerpt", "dangling_synthesis_references",
+        "source_excerpt_evidence_items", "companies_with_request_attribution",
+        "available_dated_news", "available_job_postings",
+        "available_registered_business_address", "available_accounting_obligation",
+    ):
+        counts.setdefault(metric, 0)
     result = {
         "report_kind": "internal_publication_audit_not_external_fact_check",
         "batch_company_count_matches": len(envelopes) == batch_report.get("expected_count"),
