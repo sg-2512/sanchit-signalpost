@@ -1861,6 +1861,9 @@ def main() -> int:
         os.environ["BRAVE_API_KEY"] = args.search_api_key
         os.environ["SEARCH_API_KEY"] = args.search_api_key
 
+    # Global provider caps are per run, not per Python process or an
+    # earlier local batch in the same interpreter.
+    reset_serper_search()
     started_at = utc_now()
     wall_start = time.monotonic()
 
@@ -2194,6 +2197,11 @@ def main() -> int:
         "resumed_profiles": len(state) if (args.resume or args.seed_dirs) else 0,
         "modules": requested_modules,
         "source_policy": args.source_policy,
+        "website_discovery": {
+            "serper_configured": serper_available(),
+            "serper_max_searches": int(os.environ.get("SIGNALPOST_SERPER_MAX_SEARCHES", "115")),
+            "note": "Search results are never legal-entity evidence; sites must pass two fetched-site identity checks.",
+        },
         "registry": registry_meta,
         "operations": {
             "requests": budget_report["total_requests"],
