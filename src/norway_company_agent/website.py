@@ -1251,11 +1251,11 @@ def extract_local_business_schema(structured: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_000_000, budget: Any = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_000_000, budget: Any = None, identity_only: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     context = {"budget": budget, "requests": 0} if budget is not None else None
     token = _REQUEST_CONTEXT.set(context)
     try:
-        record, metrics = _fetch_website(url, timeout=timeout, max_bytes=max_bytes)
+        record, metrics = _fetch_website(url, timeout=timeout, max_bytes=max_bytes, identity_only=identity_only)
         if context is not None:
             metrics["requests"] = context["requests"]
         return record, metrics
@@ -1263,7 +1263,7 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_
         _REQUEST_CONTEXT.reset(token)
 
 
-def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_000_000) -> tuple[dict[str, Any], dict[str, Any]]:
+def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_000_000, identity_only: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     supplied_url = str(url or "").strip()
     supplied_scheme = bool(re.match(r"^https?://", supplied_url, re.I))
     normalized = normalize_homepage(url)
@@ -1356,14 +1356,17 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         # A homepage careers link can be a portal rather than an individual job.
         # Reserve room for operator/legal identity, careers, and a dated
         # newsroom page instead of spending both early slots on legal pages.
-        subpage_limit = 5
-        pending_pages = _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=True)
-        if "cdn.shopify.com" in html or "Shopify.theme" in html:
+        # Validate many more candidates without spending five+ downloads on
+        # every wrong brand, directory or franchise. Deep crawl only after the
+        # exact operator has passed the two independent identity gates.
+        subpage_limit = 2 if identity_only else 5
+        pending_pages = _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=not identity_only)
+        if not identity_only and ("cdn.shopify.com" in html or "Shopify.theme" in html):
             legal_notice = urllib.parse.urljoin(final_url, "/policies/legal-notice")
             if legal_notice not in pending_pages:
                 pending_pages.insert(0, legal_notice)
                 pending_pages = pending_pages[:subpage_limit]
-        if not all_job_postings and not any(
+        if not identity_only and not all_job_postings and not any(
             re.search(r"/(?:careers?|karriere|jobs|jobb)(?:/|$)", urllib.parse.urlsplit(link).path, re.I)
             for link in pending_pages
         ):
@@ -1394,7 +1397,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         checked_job_ads = 0
         verified_job_adverts: list[dict[str, Any]] = []
         fetched_page_by_url = {str(page.get("url") or "").rstrip("/"): page for page in pages}
-        for candidate in all_job_postings:
+        for candidate in (all_job_postings if not identity_only else []):
             if not candidate.get("requires_ad_verification") or checked_job_ads >= 2:
                 continue
             ad_url = str(candidate.get("url") or "")
@@ -1438,7 +1441,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         all_job_postings.extend(verified_job_adverts)
         value["verified_job_adverts"] = verified_job_adverts
 
-        if not any(item.get("published_at") for item in all_news_items):
+        if not identity_only and not any(item.get("published_at") for item in all_news_items):
             for feed in (link for page in pages for link in page.get("news_feed_links", [])):
                 if not feed.startswith("https://") or _registered_domain(feed) != homepage_domain or feed.rstrip("/") in seen_pages:
                     continue
@@ -1459,7 +1462,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         # publication evidence. Reuse pages already fetched for site discovery.
         checked_articles = 0
         article_pages = {str(page.get("url") or "").rstrip("/"): page for page in pages}
-        for item in all_news_items:
+        for item in (all_news_items if not identity_only else []):
             if item.get("verification") not in {"feed_listing", "site_listing"}:
                 continue
             article_url = str(item.get("url") or "")
@@ -1512,6 +1515,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
 
         value["news_items"] = dedup_news
         value["job_postings"] = dedup_jobs
+        value["crawl_mode"] = "operator_identity_only" if identity_only else "full_permitted_crawl"
         value["crawl_errors"] = crawl_errors
         for pg in pages[1:]:
             pu = str(pg.get("url") or "")
@@ -1529,7 +1533,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
     except urllib.error.URLError as exc:
         if not isinstance(exc.reason, ssl.SSLError) and not supplied_scheme and normalized.startswith("https://"):
             first_elapsed = int((time.monotonic() - started) * 1000)
-            record, metrics = fetch_website("http://" + supplied_url, timeout=timeout, max_bytes=max_bytes)
+            record, metrics = fetch_website("http://" + supplied_url, timeout=timeout, max_bytes=max_bytes, identity_only=identity_only)
             metrics["requests"] += 2
             metrics["latencies_ms"].insert(0, first_elapsed)
             return record, metrics
