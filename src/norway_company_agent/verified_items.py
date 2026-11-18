@@ -427,6 +427,20 @@ def validate_news_item(
         return False, "hub_or_listing_url"
     if verification != "article_fetched":
         return False, "article_not_refetched"
-    if not item.get("name_in_article"):
-        return False, "company_not_named_in_article"
-    return True, "article_verified"
+    if item.get("name_in_article"):
+        return True, "article_verified"
+    # An article actually fetched from the independently verified company
+    # website can establish first-party publication even when its text does
+    # not restate the operator's full registered legal name.
+    excerpt = str(item.get("article_text_excerpt") or "")
+    exact_site_article = (
+        bool(item.get("exact_site_verified"))
+        and bool(site_dom)
+        and registered_domain(url) == site_dom
+        and url.rstrip("/") == str(item.get("source_url") or "").rstrip("/")
+        and len(excerpt.strip()) >= 120
+        and re.fullmatch(r"[0-9a-fA-F]{64}", str(item.get("content_sha256") or "")) is not None
+    )
+    if exact_site_article:
+        return True, "verified_first_party_article"
+    return False, "company_not_named_in_article"
