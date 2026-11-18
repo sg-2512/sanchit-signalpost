@@ -798,6 +798,7 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
         from norway_company_agent.connectors.regulatory_licenses import fetch_regulatory_licenses
 
         mock_payload = {
+            "organisasjonsnummer": "985589003",
             "status": "Godkjent",
             "godkjenningsstatus": "Godkjent renholdsvirksomhet",
         }
