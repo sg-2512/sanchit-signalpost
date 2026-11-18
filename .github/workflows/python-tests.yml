@@ -16,9 +16,7 @@ jobs:
           enable-cache: true
       - name: Install pinned dependencies
         run: uv sync --locked --group dev
-      - name: Print updated source integrity manifest (temporary)
-        run: |
-          uv run --no-sync python -m strategies.freeze --freeze
-          cat snapshots/strategy_manifest.json
+      - name: Verify committed strategy integrity manifest
+        run: uv run --no-sync python -m strategies.freeze --verify
       - name: Run offline regression suite
         run: uv run --no-sync python -m pytest tests/ -q
