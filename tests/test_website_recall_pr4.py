@@ -173,4 +173,4 @@ def test_net_loss_disclosed_even_when_revenue_is_missing():
     synthesis = generate_company_synthesis(profile)
     assert synthesis["annual_net_loss"] is True
     assert "annual net loss" in synthesis["financial_health"].lower()
-    assert "annual net loss" in synthesis["performance"].lower()
+    assert "annual net loss" in synthesis["summary"].lower()
