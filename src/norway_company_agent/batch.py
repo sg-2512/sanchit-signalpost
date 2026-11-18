@@ -905,6 +905,8 @@ def build_contract_claims_and_evidence(
             "published_at": norm_pub,
             "content_sha256": cand_sha,
             "verification": cand.get("verification") or ("site_listing" if is_site_news else ""),
+            "exact_site_verified": bool(is_site_news and has_valid_site_ev and cand.get("exact_site_verified")),
+            "article_text_excerpt": str(cand.get("article_text_excerpt") or ""),
             "name_in_article": (
                 bool(cand.get("name_in_article"))
                 or (is_site_news and cand.get("verification") == "article_fetched"
