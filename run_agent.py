@@ -1670,7 +1670,8 @@ def enrich_single_company(
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
     # Measured per-company wall time, including research/synthesis, not a zero placeholder.
     profile.setdefault("run_metrics", {})["elapsed_s"] = round(time.monotonic() - company_started_monotonic, 3)
-    profile["run_metrics"]["cost_attribution"] = "batch_level_only"
+    # Final attribution is filled by the worker wrapper from actual budget debits.
+    profile["run_metrics"]["cost_attribution"] = "pending_worker_attribution"
 
     return profile, observations
 
@@ -1858,7 +1859,22 @@ def main() -> int:
     all_observations: list[dict[str, Any]] = list(resumed_observations)
     pending_profiles = [profile for profile in profiles if profile["organisation_number"] not in state]
     completed = len(state)
-    worker_fn = enrich_single_company
+    def worker_fn(profile: dict[str, Any], *worker_args: Any):
+        org = str(profile.get("organisation_number") or "")
+        with budget.company_context(org):
+            finished, observations = enrich_single_company(profile, *worker_args)
+            measured = budget.company_metrics(org)
+            if measured:
+                metrics_block = finished.setdefault("run_metrics", {})
+                metrics_block.update({
+                    "requests": measured["requests"],
+                    "bytes": measured["bytes"],
+                    "third_party_cost_usd": measured["third_party_cost_usd"],
+                    "request_attribution": measured["attribution"],
+                    "cost_attribution": measured["attribution"],
+                })
+            return finished, observations
+
     progress_step = 500 if len(profiles) >= 2000 else 10
 
     # Enrich pending companies in parallel
