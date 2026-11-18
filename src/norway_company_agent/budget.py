@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import contextmanager
 from typing import Any
 
 from .http import FetchResult, fetch_json as _raw_fetch_json
@@ -30,6 +31,12 @@ class BudgetTracker:
         request_reserve: int = 150,
     ) -> None:
         self._lock = threading.Lock()
+        self._company_context = threading.local()
+        self._company_requests: dict[str, int] = {}
+        self._company_costs: dict[str, float] = {}
+        self._company_bytes: dict[str, int] = {}
+        self._unattributed_requests = 0
+        self._unattributed_cost_usd = 0.0
         self.max_requests = max_requests
         self.max_cost_usd = max_cost_usd
         self.max_time_seconds = max_time_seconds
@@ -40,6 +47,43 @@ class BudgetTracker:
         self.bytes_received = 0
         self.latencies_ms: list[int] = []
         self._start_time = time.monotonic()
+
+    @contextmanager
+    def company_context(self, organisation_number: str):
+        """Associate actual budget debits with one worker, including retries.
+
+        Thread-local context prevents another worker's calls being charged to
+        the current company. Shared calls outside a context are recorded
+        separately rather than silently charged to an arbitrary company.
+        """
+        previous = getattr(self._company_context, "organisation_number", None)
+        self._company_context.organisation_number = str(organisation_number)
+        try:
+            yield
+        finally:
+            self._company_context.organisation_number = previous
+
+    def _attribute_locked(self, count: int, cost_usd: float, bytes_received: int) -> None:
+        org = getattr(self._company_context, "organisation_number", None)
+        if org:
+            self._company_requests[org] = self._company_requests.get(org, 0) + count
+            self._company_costs[org] = self._company_costs.get(org, 0.0) + cost_usd
+            self._company_bytes[org] = self._company_bytes.get(org, 0) + bytes_received
+        else:
+            self._unattributed_requests += count
+            self._unattributed_cost_usd += cost_usd
+
+    def company_metrics(self, organisation_number: str) -> dict[str, Any] | None:
+        org = str(organisation_number)
+        with self._lock:
+            if org not in self._company_requests:
+                return None
+            return {
+                "requests": self._company_requests[org],
+                "third_party_cost_usd": round(self._company_costs.get(org, 0.0), 6),
+                "bytes": self._company_bytes.get(org, 0),
+                "attribution": "measured_thread_context",
+            }
 
     def elapsed_seconds(self) -> float:
         return time.monotonic() - self._start_time
@@ -86,6 +130,7 @@ class BudgetTracker:
             self.requests += actual
             self.cost_usd += cost_usd
             self.bytes_received += bytes_received
+            self._attribute_locked(actual, cost_usd, bytes_received)
             if elapsed_ms:
                 self.latencies_ms.append(elapsed_ms)
 
@@ -94,6 +139,7 @@ class BudgetTracker:
             self.requests += count
             self.cost_usd += cost_usd
             self.bytes_received += bytes_received
+            self._attribute_locked(count, cost_usd, bytes_received)
             latency = elapsed_ms or latency_ms
             if latency:
                 self.latencies_ms.append(latency)
@@ -138,6 +184,12 @@ class BudgetTracker:
             latencies = sorted(self.latencies_ms)
             return {
                 "total_requests": self.requests,
+                "requests_by_company": dict(sorted(self._company_requests.items())),
+                "requests_unattributed": self._unattributed_requests,
+                "attributed_requests_reconcile": (
+                    sum(self._company_requests.values()) + self._unattributed_requests == self.requests
+                ),
+                "unattributed_cost_usd": round(self._unattributed_cost_usd, 6),
                 "max_requests": self.max_requests,
                 "remaining_requests": max(0, self.max_requests - self.requests),
                 "protected_request_reserve": self.request_reserve,

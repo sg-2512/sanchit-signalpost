@@ -260,7 +260,16 @@ def validate_job_item(
         if not all(re.fullmatch(r"[0-9a-f]{64}", str(value or "")) for value in
                    (item.get("content_sha256"), listing.get("content_sha256"))):
             return False, "invalid_evidence_hash"
-        if (len(ad_text) < 180 or not name_in_text(company_name, ad_text, allow_short_single_token=True)
+        # The exact registered employer number on the advert is an
+        # alternative to the full legal name; a brand name alone is not.
+        allowed_employer_numbers = {re.sub(r"\D", "", str(number)) for number in (org, *(subunit_orgs or ()))}
+        employer_number_present = any(
+            number and len(number) == 9 and
+            re.search(r"(?<!\d)" + re.escape(number) + r"(?!\d)", ad_text)
+            for number in allowed_employer_numbers
+        )
+        if (len(ad_text) < 180
+                or not (name_in_text(company_name, ad_text, allow_short_single_token=True) or employer_number_present)
                 or not any(term in ad_text.casefold() for term in ("søknad", "soknad", "apply", "application"))):
             return False, "company_not_named_in_active_ad"
         closes = parse_iso_date(item.get("valid_through"))
@@ -427,6 +436,20 @@ def validate_news_item(
         return False, "hub_or_listing_url"
     if verification != "article_fetched":
         return False, "article_not_refetched"
-    if not item.get("name_in_article"):
-        return False, "company_not_named_in_article"
-    return True, "article_verified"
+    if item.get("name_in_article"):
+        return True, "article_verified"
+    # An article actually fetched from the independently verified company
+    # website can establish first-party publication even when its text does
+    # not restate the operator's full registered legal name.
+    excerpt = str(item.get("article_text_excerpt") or "")
+    exact_site_article = (
+        bool(item.get("exact_site_verified"))
+        and bool(site_dom)
+        and registered_domain(url) == site_dom
+        and url.rstrip("/") == str(item.get("source_url") or "").rstrip("/")
+        and len(excerpt.strip()) >= 120
+        and re.fullmatch(r"[0-9a-fA-F]{64}", str(item.get("content_sha256") or "")) is not None
+    )
+    if exact_site_article:
+        return True, "verified_first_party_article"
+    return False, "company_not_named_in_article"

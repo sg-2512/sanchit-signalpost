@@ -277,12 +277,16 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
         )
         valid, _ = validate_news_item(
             {**item, "url": url, "verification": verification,
-             "name_in_article": name_in_article},
+             "name_in_article": name_in_article,
+             "source_url": evidence_url,
+             "article_text_excerpt": article_text,
+             "exact_site_verified": True},
             company_name=profile.get("name") or "", site_url=site_url,
         )
         if not valid:
             continue
-        key = title.casefold()
+        # Different dated articles may share a headline; the source URL identifies the article.
+        key = url.split("#", 1)[0].rstrip("/").casefold()
         if key in seen:
             continue
         seen.add(key)
@@ -306,6 +310,8 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
             "verification": verification,
             "name_in_article": name_in_article,
             "article_url": url,
+            "article_text_excerpt": article_text,
+            "exact_site_verified": True,
             "identity_proof": [
                 {"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")},
                 {"type": "company_website_publication", "parent_website": site_url},
@@ -313,10 +319,9 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
             "acquisition_mode": "permitted_public_page",
             "rights_status": "approved",
             "source_class": "company_site",
-            "evidence_span": (
-                f"Company website listing: {title} (published {published_at})"
-                if published_at else f"Company website listing: {title}"
-            ),
+            # This is captured article/newsroom text, not a fabricated citation.
+            "evidence_span": article_text[:500],
+            "evidence_span_kind": "source_excerpt" if article_text else "unavailable",
             "text": title,
             "metrics": {"title": title, "url": url, "published_at": published_at},
             "strategy": "website_news_discovery",
@@ -1353,6 +1358,8 @@ def enrich_single_company(
             "published_at": o.get("published_at"),
             "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
             "name_in_article": bool(o.get("name_in_article")),
+            "exact_site_verified": bool(o.get("exact_site_verified")),
+            "article_text_excerpt": str(o.get("article_text_excerpt") or ""),
         }
         ok, _ = validate_news_item(cand, company_name=c_name, site_url=site_url)
         if ok:
@@ -1380,6 +1387,8 @@ def enrich_single_company(
                         "content_sha256": o.get("content_sha256"),
                         "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
                         "name_in_article": bool(o.get("name_in_article")),
+                        "exact_site_verified": bool(o.get("exact_site_verified")),
+                        "article_text_excerpt": str(o.get("article_text_excerpt") or ""),
                     }
                     for o in all_news_obs
                 ],
@@ -1387,9 +1396,11 @@ def enrich_single_company(
             },
         }
     else:
-        web_record_status = str(((profile.get("evidence") or {}).get("website") or {}).get("status") or "not_found")
+        # Website access failures are not news-source failures. Each news
+        # connector is tracked separately; a blocked homepage alone must not
+        # become a blocked dated-news claim.
         completed_news_source = verified_website or google_news_state["status"] == "not_available" or press_wire_state["status"] == "not_available"
-        attempted_news_states = [s for s in (web_record_status, google_news_state["status"], press_wire_state["status"]) if s not in {"not_applicable", "not_found"}]
+        attempted_news_states = [state for state in (google_news_state["status"], press_wire_state["status"]) if state not in {"not_applicable", "not_found"}]
         if completed_news_source:
             news_status = "not_available"
         elif attempted_news_states and all(s == "blocked" for s in attempted_news_states):
@@ -1407,7 +1418,8 @@ def enrich_single_company(
             "retrieved_at": utc_now(),
             "content_sha256": "",
             "value": None,
-            "note": "No active dated news articles found across checked sources",
+            "note": ("No dated news published from checked permitted sources; unsearched sources remain unknown"
+                     if completed_news_source else "No dated news verified; external news sources not completely checked"),
         }
 
     # Only verified single job postings are populated into jobs
@@ -1666,11 +1678,22 @@ def enrich_single_company(
             pass
         local_reqs += 1
 
+    # Retain only attributable public observations for reconciliation with
+    # synthesis citation IDs in the terminal company envelope.
+    profile["_synthesis_observations"] = [
+        item for item in observations
+        if isinstance(item, dict)
+        and str(item.get("organisation_number") or "") == org
+        and item.get("exact_entity") is True
+        and item.get("rights_status") == "approved"
+        and item.get("source_url") and item.get("content_sha256")
+    ]
     # 14. Decision-useful factual synthesis (12-point scoring rubric)
     profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
     # Measured per-company wall time, including research/synthesis, not a zero placeholder.
     profile.setdefault("run_metrics", {})["elapsed_s"] = round(time.monotonic() - company_started_monotonic, 3)
-    profile["run_metrics"]["cost_attribution"] = "batch_level_only"
+    # Final attribution is filled by the worker wrapper from actual budget debits.
+    profile["run_metrics"]["cost_attribution"] = "pending_worker_attribution"
 
     return profile, observations
 
@@ -1858,7 +1881,22 @@ def main() -> int:
     all_observations: list[dict[str, Any]] = list(resumed_observations)
     pending_profiles = [profile for profile in profiles if profile["organisation_number"] not in state]
     completed = len(state)
-    worker_fn = enrich_single_company
+    def worker_fn(profile: dict[str, Any], *worker_args: Any):
+        org = str(profile.get("organisation_number") or "")
+        with budget.company_context(org):
+            finished, observations = enrich_single_company(profile, *worker_args)
+            measured = budget.company_metrics(org)
+            if measured:
+                metrics_block = finished.setdefault("run_metrics", {})
+                metrics_block.update({
+                    "requests": measured["requests"],
+                    "bytes": measured["bytes"],
+                    "third_party_cost_usd": measured["third_party_cost_usd"],
+                    "request_attribution": measured["attribution"],
+                    "cost_attribution": measured["attribution"],
+                })
+            return finished, observations
+
     progress_step = 500 if len(profiles) >= 2000 else 10
 
     # Enrich pending companies in parallel
