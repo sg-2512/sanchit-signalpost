@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from bs4 import BeautifulSoup
 
+from scripts.audit_publication import audit
 from norway_company_agent.batch import terminal_envelope
 from norway_company_agent.budget import BudgetTracker
 from norway_company_agent.verified_items import validate_job_item, validate_news_item
@@ -174,3 +175,41 @@ def test_priority_pages_include_one_legal_one_careers_one_news_before_extra_lega
     assert any("/karriere" in u for u in urls)
     assert any("/nyheter" in u for u in urls)
     assert any("/about" in u or "/terms" in u for u in urls)
+
+
+def test_live_audit_reconciles_shared_budget_and_detects_unverified_claims():
+    record = {
+        "id": "ev-primary", "source_url": REG_URL,
+        "content_sha256": HASH, "retrieved_at": STAMP,
+        "claim_span": "", "claim_span_verification": "unavailable",
+    }
+    env = {
+        "organisation_number": ORG,
+        "claims": [{
+            "field": "legal_identity", "availability": "available",
+            "evidence_ids": ["ev-primary"],
+        }],
+        "evidence": [record],
+        "operations": {"requests": 2, "request_attribution": "measured_thread_context"},
+        "synthesis": {
+            "sentence_citations": [{
+                "sentence": "Official registry identity", "evidence_ids": ["ev-primary"],
+            }],
+        },
+    }
+    report = {"expected_count": 1, "budget": {
+        "total_requests": 5, "requests_unattributed": 3,
+    }}
+    result = audit([env], report)
+    assert result["passed"]
+    assert result["requests"]["reconciles"]
+    assert result["counts"]["companies_with_request_attribution"] == 1
+    assert result["counts"]["available_claims_with_source_excerpt"] == 0
+
+    broken = {**env, "claims": [{
+        "field": "legal_identity", "availability": "available",
+        "evidence_ids": ["ev-missing"],
+    }]}
+    result = audit([broken], report)
+    assert not result["passed"]
+    assert result["counts"]["available_claims_without_valid_source"] == 1
