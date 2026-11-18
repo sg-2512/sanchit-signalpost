@@ -54,7 +54,7 @@ def discover_company_websites_serper(
     with _LOCK:
         if _DISABLED or _REQUESTS >= cap:
             return []
-        if not budget.try_start_request(cost_usd=cost, reserve=6):
+        if budget.remaining_cost() < cost or not budget.try_start_request(reserve=6):
             return []
         _REQUESTS += 1
 
@@ -89,7 +89,7 @@ def discover_company_websites_serper(
     except (OSError, ValueError):
         return []
     finally:
-        budget.record_request(count=0, bytes_received=len(raw))
+        budget.record_request(count=0, cost_usd=cost, bytes_received=len(raw))
     try:
         payload = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
