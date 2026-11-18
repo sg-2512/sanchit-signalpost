@@ -115,8 +115,7 @@ def discover_company_websites_serper(
         title_tokens = set(_tokens(item["title"]))
         name_title_match = bool(legal_tokens) and legal_tokens.issubset(title_tokens)
         if (not assessment.get("publishable_candidate")
-                and not (assessment.get("status") != "rejected"
-                         and name_title_match and float(assessment.get("score") or 0) >= 0.4)):
+                and not (name_title_match and float(assessment.get("score") or 0) >= 0.4)):
             continue
         url = assessment.get("url") or ""
         parts = urlsplit(url)
