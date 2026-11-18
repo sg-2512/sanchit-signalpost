@@ -128,6 +128,9 @@ from norway_company_agent.connectors.ats_discovery import verified_career_jobs
 from norway_company_agent.connectors.proff_directory import resolve_commercial_directory_presence
 from norway_company_agent.connectors.lovdata import fetch_insolvency_legal_notices
 from norway_company_agent.connectors.norid import verify_norid_domain_ownership, discover_norid_domain
+from norway_company_agent.connectors.serper_search import (
+    discover_company_websites_serper, serper_available, reset_serper_search,
+)
 from norway_company_agent.connectors.losoreregisteret import fetch_losoreregisteret_liens
 from norway_company_agent.connectors.forskningsradet import fetch_forskningsradet_grants
 from norway_company_agent.connectors.innovasjon_norge import fetch_innovasjon_norge_grants
@@ -811,7 +814,15 @@ def enrich_single_company(
     from urllib.parse import urlsplit
     site_records: dict[str, Any] = {}
     site_requests = 0
+    # A proven corporate homepage must have room left for a legal proof,
+    # article, or career page. The cap protects the entire company budget.
     site_limit = max(0, effective_company_cap - local_reqs - 4)
+    profile["website_discovery_diagnostics"] = {
+        "configured_serper_search": serper_available(),
+        "attempted_search": False,
+        "candidate_count": 0,
+        "outcome": "not_started",
+    }
 
     def start_site_request(**kwargs: Any) -> bool:
         nonlocal site_requests
@@ -919,6 +930,82 @@ def enrich_single_company(
                     profile["website"] = val.get("final_url") or candidate
                     verified_website = True
                     break
+
+        # Level 2c: One optional, bounded search per unmatched company.
+        # Search hits are only candidates; proof pages and the site itself must
+        # be fetched with robots respect and pass BOTH exact-operator gates.
+        if not verified_website and serper_available() and can_run_optional(cost=1, reserve=6):
+            discovery = profile["website_discovery_diagnostics"]
+            discovery["attempted_search"] = True
+            for search_candidate in discover_company_websites_serper(profile, budget=budget):
+                discovery["candidate_count"] += 1
+                if site_requests >= site_limit:
+                    discovery["outcome"] = "company_site_budget_exhausted"
+                    break
+                origin = search_candidate["origin"]
+                proof_url = search_candidate["proof_url"]
+                w_rec, w_met = fetch_company_site(origin)
+                website_metrics["requests"] += w_met.get("requests", 0)
+                website_metrics["bytes"] += w_met.get("bytes", 0)
+                gated = gate_website(w_rec)["website"]
+                value = gated.get("value") or {}
+                if gated.get("status") == "available" and (value.get("identity_assessment") or {}).get("publishable"):
+                    profile["evidence"]["website"] = gated
+                    profile["website"] = value.get("final_url") or origin
+                    verified_website = True
+                    discovery["outcome"] = "verified"
+                    break
+                # Search links often point directly at an official legal notice
+                # when that notice is absent from homepage navigation. Fetch
+                # that same-domain proof page as a second chance, not a substitute
+                # for operator identity or the actual homepage.
+                from urllib.parse import urlsplit as _parse_url
+                homepage_host = (_parse_url(origin).hostname or "").removeprefix("www.")
+                proof_parts = _parse_url(proof_url)
+                is_proof_path = proof_parts.path.strip("/") and (
+                    (proof_parts.hostname or "").removeprefix("www.") == homepage_host
+                )
+                if (not is_proof_path or gated.get("status") != "available"
+                        or site_requests >= site_limit):
+                    continue
+                proof_rec, proof_metrics = fetch_company_site(proof_url)
+                website_metrics["requests"] += proof_metrics.get("requests", 0)
+                website_metrics["bytes"] += proof_metrics.get("bytes", 0)
+                if proof_rec.get("status") != "available":
+                    continue
+                proof_value = proof_rec.get("value") or {}
+                if proof_value.get("registered_domain") != value.get("registered_domain"):
+                    continue
+                # A genuine fetched proof document adds a source-backed page
+                # to the homepage crawl. The identity gates then re-run.
+                website_page = {
+                    "url": proof_value.get("final_url"),
+                    "title": proof_value.get("title"),
+                    "identity_text_excerpt": proof_value.get("identity_text_excerpt"),
+                    "main_text_excerpt": proof_value.get("main_text_excerpt"),
+                    "visible_text_excerpt": proof_value.get("visible_text_excerpt"),
+                    "structured_organisations": proof_value.get("structured_organisations"),
+                    "content_sha256": proof_rec.get("content_sha256"),
+                }
+                merged = {**w_rec, "value": {**value, "pages": [
+                    *(value.get("pages") or []),
+                    website_page,
+                ]}}
+                verified_record = gate_website(merged)["website"]
+                if (verified_record.get("status") == "available"
+                        and (verified_record.get("value") or {}).get("identity_assessment", {}).get("publishable")):
+                    profile["evidence"]["website"] = verified_record
+                    profile["website"] = (verified_record.get("value") or {}).get("final_url") or origin
+                    verified_website = True
+                    discovery["outcome"] = "verified_with_fetched_legal_proof"
+                    break
+            if not verified_website and discovery["outcome"] == "not_started":
+                discovery["outcome"] = "no_verified_candidate"
+        elif not verified_website:
+            profile["website_discovery_diagnostics"]["outcome"] = (
+                "serper_not_configured" if not serper_available()
+                else "insufficient_company_or_shared_budget"
+            )
 
         # Level 3: Free heuristic .no/.com Norwegian domain probe with fast DNS pre-check
         if not verified_website and not is_passive_entity and can_run_optional(cost=2, reserve=2):
