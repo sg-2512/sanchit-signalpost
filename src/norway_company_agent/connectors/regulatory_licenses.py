@@ -38,6 +38,7 @@ def fetch_regulatory_licenses(
     clean_name = company_name.strip()
     start_time = time.perf_counter()
     bytes_received = 0
+    requests_made = 0
     retrieved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     observations: list[dict[str, Any]] = []
 
@@ -45,6 +46,9 @@ def fetch_regulatory_licenses(
     is_cleaning_or_staffing = any(industry_code.startswith(prefix) for prefix in ("81.2", "78.1", "78.2", "78.3"))
     if is_cleaning_or_staffing:
         url = f"{ARBEIDSTILSYNET_API_ENDPOINT}/{clean_org}"
+        if budget and not budget.try_start_request(reserve=2):
+            return []
+        requests_made += 1
         try:
             req = urllib.request.Request(
                 url,
@@ -103,7 +107,9 @@ def fetch_regulatory_licenses(
     # Abstain until an exact-org, dated authority record has been checked.
 
     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-    if budget:
-        budget.record_request(cost_usd=0.0, bytes_received=bytes_received, elapsed_ms=elapsed_ms)
+    if budget and requests_made:
+        # The attempt is charged before the official HTTP request; this call
+        # only adds byte/latency accounting without a phantom extra request.
+        budget.record_request(count=0, cost_usd=0.0, bytes_received=bytes_received, elapsed_ms=elapsed_ms)
 
     return observations
