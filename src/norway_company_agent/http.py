@@ -50,7 +50,10 @@ def fetch_json(url: str, *, timeout: float = 20.0, attempts: int = 3) -> FetchRe
             elapsed = int((time.monotonic() - started) * 1000)
             raw = exc.read()
             if exc.code in {404, 410}:
-                result = FetchResult(url, exc.code, elapsed, len(raw), error=f"HTTP {exc.code}", content_sha256=hashlib.sha256(raw).hexdigest(), retrieved_at=_utc_now())
+                # HTTP 404/410 is a recorded absence, never positive source
+                # evidence. In particular, do not emit sha256(empty bytes)
+                # as if a supporting official group document was retrieved.
+                result = FetchResult(url, exc.code, elapsed, len(raw), error=f"HTTP {exc.code}", content_sha256=None, retrieved_at=_utc_now())
                 result.request_count = attempt + 1
                 return result
             if exc.code == 429:

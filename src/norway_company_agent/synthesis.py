@@ -249,6 +249,12 @@ def generate_company_synthesis(
     except (ValueError, TypeError):
         operating_result_number = None
     operating_loss = operating_result_number is not None and operating_result_number < 0
+    latest_annual_result = latest_rec.get("annual_result")
+    try:
+        annual_result_number = float(latest_annual_result) if latest_annual_result is not None else None
+    except (ValueError, TypeError):
+        annual_result_number = None
+    annual_net_loss = annual_result_number is not None and annual_result_number < 0
     if operating_loss:
         health_label = (
             "Mixed: strong equity position but operating loss"
@@ -265,6 +271,13 @@ def generate_company_synthesis(
     else:
         health_label = "Financial health cannot be classified from available equity data"
 
+    # Solvency is not profitability: never hide a filed net loss behind
+    # strong equity or a positive operating result.
+    if annual_net_loss:
+        health_label += f"; annual net loss {annual_result_number:,.0f} NOK"
+    elif annual_result_number is not None:
+        health_label += f"; annual net result {annual_result_number:,.0f} NOK"
+
     if filing_year and revenue is not None and rec_year_str == str(filing_year):
         rev_str = f"{revenue:,.0f} NOK revenue"
         prof_str = f"net profit of {profit:,.0f} NOK" if profit is not None else "net profit unrecorded"
@@ -280,6 +293,11 @@ def generate_company_synthesis(
             fin_str += ")"
     elif filing_year:
         fin_str = f"Submitted annual accounts for {filing_year}"
+        if rec_year_str == str(filing_year) and annual_result_number is not None:
+            if annual_net_loss:
+                fin_str += f"; annual net loss of {abs(annual_result_number):,.0f} NOK"
+            else:
+                fin_str += f"; annual net result of {annual_result_number:,.0f} NOK"
     else:
         fin_str = "No official annual-account records observed in Regnskapsregisteret"
 
@@ -477,6 +495,8 @@ def generate_company_synthesis(
         "hiring_status": hiring.get("status") or "unreported",
         "appears_to_be_hiring": hiring.get("appears_to_be_hiring", False),
         "financial_health": health_label,
+        "annual_net_loss": annual_net_loss,
+        "annual_net_result": annual_result_number,
         "equity_ratio": eq_ratio,
         "revenue_growth": growth_label,
     }
