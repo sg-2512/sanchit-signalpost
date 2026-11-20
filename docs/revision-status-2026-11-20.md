@@ -34,6 +34,7 @@ The new website is SOGNEFJORD EVENT AS (`931642405`), with a newly fetched compa
 - `scripts/audit_100_results.py` now reads the six terminal envelope states, counts published claims, and reports the actual request budget. It no longer says 0 of 100 valid or counts registered addresses as operating locations.
 - A local `.env` is loaded only with `--load-env`. Default runs do not silently use the user's paid API key.
 - `protego` is a direct locked dependency because the website crawler imports it in the default path; the first clean Linux CI run exposed its absence.
+- The PDF fallback test now supplies its own PDF fixture; a second clean Linux CI run showed that the previous test had depended on a local cached report.
 
 ## Remaining limits
 

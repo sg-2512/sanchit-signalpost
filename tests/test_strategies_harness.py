@@ -318,6 +318,7 @@ class StrategyRoutesAndRegistryTests(unittest.TestCase):
 
     def test_route_11_pdf_fallback_execution(self) -> None:
         route = PdfFallbackRoute()
+        self.context.options["mock_pdf_bytes"] = b"%PDF-1.4 workforce note: Selskapet sysselsatte 8 ansatte i 2024."
         can_run, _ = route.can_execute(self.sample_org, self.context)
         self.assertTrue(can_run)
 
