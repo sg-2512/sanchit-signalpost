@@ -8,6 +8,7 @@ dependencies = [
   "filelock>=3.13,<4",
   "lxml>=6,<7",
   "pydantic>=2.12,<3",
+  "protego>=0.6,<1",
   "pypdf>=6,<7",
   "tldextract>=5.3,<6",
   "trafilatura>=2.0,<3",

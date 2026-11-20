@@ -33,6 +33,7 @@ The new website is SOGNEFJORD EVENT AS (`931642405`), with a newly fetched compa
 - The regulatory connector no longer creates Finanstilsynet approvals from an industry code. An Arbeidstilsynet approval needs a fetched response containing the exact organisation number and an approved status; its SHA-256 is computed from that response.
 - `scripts/audit_100_results.py` now reads the six terminal envelope states, counts published claims, and reports the actual request budget. It no longer says 0 of 100 valid or counts registered addresses as operating locations.
 - A local `.env` is loaded only with `--load-env`. Default runs do not silently use the user's paid API key.
+- `protego` is a direct locked dependency because the website crawler imports it in the default path; the first clean Linux CI run exposed its absence.
 
 ## Remaining limits
 
