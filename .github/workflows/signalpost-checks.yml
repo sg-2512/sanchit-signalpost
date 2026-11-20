@@ -1,0 +1,24 @@
+name: SignalPost checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, "codex/**"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+      - name: Install locked dependencies
+        run: uv sync --frozen --group dev
+      - name: Verify strategy manifest
+        run: uv run --frozen python -m strategies.freeze --verify
+      - name: Run tests
+        run: uv run --frozen python -m pytest tests -q
+      - name: Compile Python sources
+        run: uv run --frozen python -m compileall -q run_agent.py run_pipeline.py src strategies

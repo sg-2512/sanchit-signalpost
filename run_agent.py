@@ -42,11 +42,6 @@ def _load_env_file() -> None:
                     os.environ[key] = value
 
 
-# Load .env automatically so API keys (Google Places, YouTube, etc.) are
-# available when enrich_single_company is called directly from batch.py
-# or any other entry point, not just via the --load_env CLI flag.
-_load_env_file()
-
 import socket
 socket.setdefaulttimeout(15.0)
 
@@ -155,6 +150,11 @@ def apply_live_registry_precedence(profile: dict[str, Any], registry_record: dic
             if previous not in former_names:
                 former_names.append(previous)
         profile["name"] = current_name
+    former_names = profile.setdefault("former_names", [])
+    for entry in value.get("historiskeNavn") or []:
+        historic_name = str(entry.get("navn") or "").strip() if isinstance(entry, dict) else ""
+        if historic_name and historic_name != profile.get("name") and historic_name not in former_names:
+            former_names.append(historic_name)
     if value.get("employees") is not None:
         profile["employees"] = value["employees"]
     if value.get("legal_form"):
@@ -204,7 +204,9 @@ def extract_social_observations(profile: dict[str, Any]) -> list[dict[str, Any]]
         url = str(link.get("url") or "").strip()
         if not url or platform not in {"linkedin", "facebook", "instagram", "youtube", "x", "tiktok"}:
             continue
-        key = (platform, url.casefold())
+        from urllib.parse import urlsplit
+        parsed_url = urlsplit(url)
+        key = (platform, (parsed_url.hostname or "").casefold().removeprefix("www.") + parsed_url.path.casefold().rstrip("/"))
         if key in seen:
             continue
         seen.add(key)
@@ -229,8 +231,8 @@ def extract_social_observations(profile: dict[str, Any]) -> list[dict[str, Any]]
             "acquisition_mode": "permitted_public_page",
             "rights_status": "approved",
             "source_class": "company_site",
-            "evidence_span": f"Exact company website {proof_url} publishes an outbound link to its {platform} profile: {url}",
-            "metrics": {"platform": platform, "url": url},
+            "evidence_span": f"Verified company website {proof_url} links to a {platform} brand channel: {url}",
+            "metrics": {"platform": platform, "url": url, "relationship_scope": "company_site_linked_brand_channel"},
             "strategy": "website_social_discovery",
         })
     return observations
@@ -800,9 +802,17 @@ def enrich_single_company(
 
     def site_key(url: str) -> str:
         parsed = urlsplit(url if "://" in url else "https://" + url)
-        return (parsed.hostname or "").lower() + parsed.path.rstrip("/") + ("?" + parsed.query if parsed.query else "")
+        return parsed.scheme.lower() + "://" + (parsed.hostname or "").lower() + parsed.path.rstrip("/") + ("?" + parsed.query if parsed.query else "")
 
     def fetch_company_site(url: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        if url.lower().startswith("http://"):
+            secure_url = "https://" + url[7:]
+            secure_record, secure_metrics = fetch_company_site(secure_url)
+            if secure_record.get("status") == "available":
+                site_records[site_key(url)] = copy.deepcopy(secure_record)
+                return secure_record, secure_metrics
+        else:
+            secure_metrics = {"requests": 0, "bytes": 0}
         key = site_key(url)
         if key in site_records:
             return copy.deepcopy(site_records[key]), {"requests": 0, "bytes": 0}
@@ -811,7 +821,10 @@ def enrich_single_company(
         final_url = (record.get("value") or {}).get("final_url")
         if final_url:
             site_records[site_key(final_url)] = copy.deepcopy(record)
-        return record, metrics
+        return record, {
+            "requests": metrics.get("requests", 0) + secure_metrics.get("requests", 0),
+            "bytes": metrics.get("bytes", 0) + secure_metrics.get("bytes", 0),
+        }
 
     verified_website = False
     nav_feed_jobs: list[dict[str, Any]] = []
@@ -896,6 +909,29 @@ def enrich_single_company(
                     verified_website = True
                     break
 
+        # A Places candidate can carry an exact business match. Verify it before
+        # spending the site's remaining allowance on guessed name variants.
+        if not is_passive_entity and places_available() and budget.can_proceed(reserve=4) and (not verified_website or source_policy == EXPERIMENTAL):
+            address = (
+                profile.get("address")
+                or profile.get("municipality")
+                or profile.get("business_address")
+                or (profile.get("evidence", {}).get("registry_live", {}).get("value", {}) or {}).get("forretningsadresse")
+            )
+            places_obs = fetch_place_data(org, name, address=address, budget=budget)
+            places_site = next((p_item.get("website_uri") or (p_item.get("metrics") or {}).get("website_uri")
+                                for p_item in places_obs if p_item.get("website_uri") or (p_item.get("metrics") or {}).get("website_uri")), None)
+            if places_site:
+                w_rec, w_met = fetch_company_site(places_site)
+                website_metrics["requests"] += w_met.get("requests", 0)
+                website_metrics["bytes"] += w_met.get("bytes", 0)
+                gated = gate_website(w_rec)["website"]
+                val = gated.get("value") or {}
+                if gated.get("status") == "available" and val.get("identity_assessment", {}).get("publishable"):
+                    profile["evidence"]["website"] = gated
+                    profile["website"] = val.get("final_url") or places_site
+                    verified_website = True
+
         # Level 3: Free heuristic .no/.com Norwegian domain probe with fast DNS pre-check
         if not verified_website and not is_passive_entity and can_run_optional(cost=2, reserve=2):
             def accept_heuristic_site(heuristic_site: str) -> bool:
@@ -942,33 +978,6 @@ def enrich_single_company(
                     profile["website"] = val.get("final_url") or search_origin
                     verified_website = True
                     break
-
-        # Use Places for candidate discovery when the official website is still unknown.
-        if not is_passive_entity and places_available() and budget.can_proceed(reserve=4) and (not verified_website or source_policy == EXPERIMENTAL):
-            address = (
-                profile.get("address")
-                or profile.get("municipality")
-                or profile.get("business_address")
-                or (profile.get("evidence", {}).get("registry_live", {}).get("value", {}) or {}).get("forretningsadresse")
-            )
-            places_obs = fetch_place_data(org, name, address=address, budget=budget)
-            places_site = None
-            for p_item in places_obs:
-                u = p_item.get("website_uri") or (p_item.get("metrics") or {}).get("website_uri")
-                if u:
-                    places_site = u
-                    break
-            if places_site:
-                w_rec, w_met = fetch_company_site(places_site)
-                website_metrics["requests"] += w_met.get("requests", 0)
-                website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = gate_website(w_rec)
-                if gated["website"].get("status") == "available":
-                    val = gated["website"].get("value") or {}
-                    if val.get("identity_assessment", {}).get("publishable"):
-                        profile["evidence"]["website"] = gated["website"]
-                        profile["website"] = val.get("final_url") or places_site
-                        verified_website = True
 
         # Level 4b: Wikidata P2333-verified official website (P856)
         if not verified_website and not is_passive_entity and (emp_count >= 15 or form_code_upper == "ASA") and budget.can_proceed(reserve=40):
@@ -2115,20 +2124,23 @@ def main() -> int:
     batch_valid = validation.get("passed", False)
     extensibility = {
         "terminal_daily_batch": 4.0 if batch_valid else 0.0,
-        "deterministic_resume": 2.0,
-        "measured_refresh_diffs": 3.0,
+        "deterministic_resume": None,
+        "measured_refresh_diffs": None,
         "latency_budget": 1.0 if batch_valid and (p95 is None or p95 <= 10_000) else 0.0,
-        "connector_rights_and_rate_policy": 2.0,
+        "connector_rights_and_rate_policy": None,
     }
 
     categories = {
         "external_footprint_intelligence": round(sum(external_score.values()), 3),
         "official_company_foundation": round(sum(foundation.values()), 3),
-        "research_agent": 10.0,
-        "daily_extensibility_refresh": round(sum(extensibility.values()), 3),
-        "product_ux_design": 8.0,
+        "research_agent": None,
+        "daily_extensibility_refresh": None,
+        "product_ux_design": None,
     }
-    raw_score = round(sum(categories.values()), 3)
+    measured_subtotal = round(
+        sum(value for value in categories.values() if value is not None)
+        + sum(value for value in extensibility.values() if value is not None), 3
+    )
     gates = {
         "external_audit_at_least_100": audit_passed,
         "zero_wrong_company_external_publications": zero_wrong,
@@ -2173,8 +2185,8 @@ def main() -> int:
     awardable_score = None
 
     score_report = {
-        "scorer": "signalpost_live_agent_proxy_v1",
-        "claim_boundary": "Optimization proxy. Final score requires the organiser's frozen hidden companies and independent labels.",
+        "scorer": "signalpost_local_measured_metrics_v2",
+        "claim_boundary": "No 100-point score is assigned without independent audit, research, refresh and UX evaluation.",
         "rubric_weights": {
             "external_footprint_intelligence": 55,
             "official_company_foundation": 15,
@@ -2185,11 +2197,12 @@ def main() -> int:
         "profiles": n,
         "details": {"external": external_score, "foundation": foundation, "extensibility": extensibility},
         "category_scores": categories,
-        "raw_score": raw_score,
+        "raw_score": None,
+        "measured_subtotal": measured_subtotal,
         "qualification_gates": gates,
         "qualification_passed": external_qualified,
         "awardable_score": None,
-        "score_kind": "internal_proxy_unverified",
+        "score_kind": "incomplete_local_measurement",
         "qualification_note": "Only an independent Builderr evaluation can establish qualification.",
     }
 
@@ -2306,7 +2319,7 @@ def main() -> int:
     print(f"  Requests: {budget_report['total_requests']}/{effective_max_requests}")
     print(f"  API cost: ${budget_report['total_cost_usd']:.4f}")
     print(f"  Wall clock: {wall_elapsed:.1f}s")
-    print(f"  Internal Proxy Score: {raw_score}/100 (not independently verified)")
+    print(f"  Measured local subtotal: {measured_subtotal} points (no 100-point score assigned)")
     print(f"  Output: {out_dir}")
     print(f"{'='*70}")
 

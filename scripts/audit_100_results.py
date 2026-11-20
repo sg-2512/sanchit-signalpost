@@ -47,15 +47,23 @@ def main() -> None:
         profiles = [e.get("profile", {}) for e in envelopes]
 
     n = len(envelopes)
-    complete_count = sum(1 for e in envelopes if e.get("state") == "complete")
-    ev_count = sum(1 for p in profiles if p.get("evidence"))
+    terminal_states = {"available", "not_available", "blocked", "not_applicable", "ambiguous", "failed"}
+    complete_count = sum(1 for e in envelopes if e.get("state") in terminal_states)
+    def available_claim_count(field: str) -> int:
+        return sum(1 for envelope in envelopes if any(
+            claim.get("field") == field and claim.get("availability") == "available"
+            for claim in envelope.get("claims") or []
+        ))
     name_count = sum(1 for p in profiles if p.get("name"))
     fin_count = sum(1 for p in profiles if (p.get("evidence", {}).get("financials", {}) or {}).get("status") == "available")
     roles_count = sum(1 for p in profiles if (p.get("evidence", {}).get("roles", {}) or {}).get("status") == "available")
-    locs_count = sum(1 for p in profiles if (p.get("evidence", {}).get("locations", {}) or {}).get("status") == "available")
+    locs_count = available_claim_count("operating_locations")
+    registered_address_count = available_claim_count("registered_address")
 
     # Discovered channels & signals
-    web_count = sum(1 for p in profiles if p.get("website"))
+    web_count = available_claim_count("official_website")
+    news_count = available_claim_count("dated_news")
+    job_count = available_claim_count("job_postings")
     synthesis_count = sum(1 for p in profiles if (p.get("synthesis") or {}).get("summary"))
 
     # Count observations
@@ -90,7 +98,7 @@ def main() -> None:
     print(f"  * Companies Processed   : {n} / {report.get('expected_count', n)}")
     print(f"  * Valid Envelopes       : {complete_count} / {n} ({'PASSED' if val.get('passed') else 'FAILED'})")
     print(f"  * Zero Silent Drops     : {'YES' if checks.get('zero_silent_drops') else 'NO'}")
-    print(f"  * Requests Consumed     : {ops.get('requests', 0)} / 1,900")
+    print(f"  * Requests Consumed     : {ops.get('requests', 0)} / {budget.get('max_requests', 0)}")
     print(f"  * Total API Spend       : ${cost_usd:.2f} / $10.00")
     print(f"  * Wall Clock Duration   : {wall_sec:.1f}s ({wall_sec/60.0:.1f} min)")
 
@@ -99,9 +107,12 @@ def main() -> None:
     print(f"  * Annual Accounts       : {fin_count} / {n} ({fin_count/n*100:.1f}%)")
     print(f"  * Roles & Management    : {roles_count} / {n} ({roles_count/n*100:.1f}%)")
     print(f"  * Operating Locations   : {locs_count} / {n} ({locs_count/n*100:.1f}%)")
+    print(f"  * Registered Addresses  : {registered_address_count} / {n} ({registered_address_count/n*100:.1f}%)")
 
     print(f"\n[3] EXTERNAL SIGNALS & MULTI-SOURCE DISCOVERY:")
     print(f"  * Verified Websites     : {web_count} / {n} ({web_count/n*100:.1f}%)")
+    print(f"  * Dated News            : {news_count} / {n} ({news_count/n*100:.1f}%)")
+    print(f"  * Open Job Postings     : {job_count} / {n} ({job_count/n*100:.1f}%)")
     print(f"  * Total Observations    : {sum(platform_counts.values())}")
     for plat, count in sorted(platform_counts.items()):
         print(f"    - {plat:<16s} : {count} observations")
@@ -110,15 +121,21 @@ def main() -> None:
     awardable = score_data.get("awardable_score")
     category_scores = score_data.get("category_scores") or {}
 
-    print(f"\n[4] OFFICIAL BUILDERR SCORING RUBRIC:")
+    print(f"\n[4] LOCAL RUBRIC MEASUREMENTS:")
     if category_scores:
-        print(f"  * External Footprint Intelligence (Max 55) : {category_scores.get('external_footprint_intelligence', 0.0):>5.2f} / 55.0")
-        print(f"  * Official Company Foundation     (Max 15) : {category_scores.get('official_company_foundation', 0.0):>5.2f} / 15.0")
-        print(f"  * Research & Synthesis Agent      (Max 10) : {category_scores.get('research_agent', 0.0):>5.2f} / 10.0")
-        print(f"  * Extensibility & Daily Refresh   (Max 12) : {category_scores.get('daily_extensibility_refresh', 0.0):>5.2f} / 12.0")
-        print(f"  * Product UX & Validation Design  (Max  8) : {category_scores.get('product_ux_design', 0.0):>5.2f} /  8.0")
+        for label, key, maximum in (
+            ("External Footprint Intelligence", "external_footprint_intelligence", 55),
+            ("Official Company Foundation", "official_company_foundation", 15),
+            ("Research & Synthesis Agent", "research_agent", 10),
+            ("Extensibility & Daily Refresh", "daily_extensibility_refresh", 12),
+            ("Product UX & Validation Design", "product_ux_design", 8),
+        ):
+            value = category_scores.get(key)
+            shown = "unmeasured" if value is None else f"{value:.2f}"
+            print(f"  * {label:<32s}: {shown:>10s} / {maximum}")
     print("  " + "-" * 50)
-    print(f"  [RESULT] LOCAL PROXY SCORE        (Max 100) : {score_data.get('raw_score', 0):>5.2f} / 100.00")
+    raw_score = score_data.get("raw_score")
+    print(f"  [RESULT] LOCAL SCORE: {'unmeasured' if raw_score is None else f'{raw_score:.2f}/100'}")
 
     status = "INDEPENDENT EVALUATION REQUIRED"
     print("\n" + "=" * 68)

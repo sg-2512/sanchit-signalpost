@@ -29,7 +29,7 @@ REQUIRED_ROOT_KEYS = {
 }
 
 ALLOWED_AVAILABILITY = {"available", "not_available", "blocked", "not_applicable", "ambiguous", "failed"}
-ALLOWED_ENTITY_STATES = {"complete", "partial", "failed", "submission_error"}
+ALLOWED_ENTITY_STATES = {"available", "not_available", "blocked", "not_applicable", "ambiguous", "failed"}
 
 REQUIRED_FIELDS = {
     "legal_identity",

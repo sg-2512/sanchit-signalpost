@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from run_agent import apply_live_registry_precedence, extract_social_observations, extract_workforce_observation, merge_verified_jobs
 from norway_company_agent.connectors.patentstyret import classify_ip_status
+from norway_company_agent.batch import build_contract_claims_and_evidence
 from norway_company_agent.hiring import evaluate_company_hiring
 from norway_company_agent.http import FetchResult
 from norway_company_agent.identity import assess_entity_identity, apply_entity_identity_gate, apply_website_identity_gate
@@ -14,6 +15,72 @@ from norway_company_agent.official import fetch_official_modules, normalize_grou
 from norway_company_agent.synthesis import generate_company_synthesis
 from norway_company_agent.website import _priority_links, extract_website_jobs
 from norway_company_agent.verified_items import validate_job_item
+
+
+def test_registered_address_does_not_count_as_operating_location():
+    profile = {"organisation_number": "981929055", "name": "TELIA NORGE AS", "evidence": {
+        "locations": {"status": "not_available"},
+        "registered_address": {"status": "available", "source_url": "https://data.brreg.no/example",
+                               "content_sha256": "a" * 64, "value": {"street": "Example 1"}},
+    }}
+    claims, evidence = build_contract_claims_and_evidence(profile, "2026-11-15T00:00:00Z")
+    by_field = {claim["field"]: claim for claim in claims}
+    assert by_field["operating_locations"]["availability"] == "not_available"
+    assert by_field["registered_address"]["availability"] == "available"
+    assert by_field["registered_address"]["evidence_ids"] == ["ev-registered_address-981929055"]
+    assert all(item["content_sha256"] != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" for item in evidence)
+
+
+def test_missing_source_digest_never_becomes_empty_content_hash():
+    profile = {"organisation_number": "981929055", "name": "TELIA NORGE AS", "evidence": {
+        "roles": {"status": "available", "source_url": "https://data.brreg.no/example",
+                  "value": {"roles": [{"name": "Example"}]}},
+    }}
+    claims, evidence = build_contract_claims_and_evidence(profile, "2026-11-15T00:00:00Z")
+    assert not any(item["id"] == "ev-roles-981929055" for item in evidence)
+    assert next(claim for claim in claims if claim["field"] == "roles")["availability"] != "available"
+
+
+def test_website_evidence_uses_captured_operator_text():
+    profile = {"organisation_number": "966459956", "name": "FLAGGSTANGSPESIALISTEN AS", "evidence": {
+        "website": {"status": "available", "source_url": "https://flaggstang.no/",
+                    "content_sha256": "a" * 64,
+                    "value": {"final_url": "https://flaggstang.no/",
+                              "identity_text_excerpt": "Flaggstangspesialisten AS Org.nr.: 966 459 956"}},
+    }}
+    _, evidence = build_contract_claims_and_evidence(profile, "2026-11-15T00:00:00Z")
+    site = next(item for item in evidence if item["id"] == "ev-website-966459956")
+    assert "Org.nr.: 966 459 956" in site["claim_span"]
+
+
+def test_live_registry_history_and_purpose_are_exposed_with_source():
+    live = {"status": "available", "source_type": "official_registry_live",
+            "source_url": "https://data.brreg.no/enhetsregisteret/api/enheter/998401836",
+            "content_sha256": "b" * 64,
+            "value": {"name": "STIFTELSEN ØYNI", "aktivitet": ["Religiøs virksomhet."],
+                      "historiskeNavn": [{"navn": "STIFTELSEN ØYNI MENIGHET", "tilDato": "2025-02-20"},
+                                         {"navn": "STIFTELSEN ØYNI"}]}}
+    profile = {"organisation_number": "998401836", "name": "STIFTELSEN ØYNI", "evidence": {"registry_live": live}}
+    apply_live_registry_precedence(profile, live)
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-20T00:00:00Z")
+    by_field = {claim["field"]: claim for claim in claims}
+    assert profile["former_names"] == ["STIFTELSEN ØYNI MENIGHET"]
+    assert by_field["registered_business_purpose"]["value"] == "Religiøs virksomhet."
+    assert by_field["legal_name_history"]["value"] == [
+        {"name": "STIFTELSEN ØYNI MENIGHET", "from": None, "until": "2025-02-20"}]
+    assert by_field["legal_name_history"]["evidence_ids"] == ["ev-registry_live-998401836"]
+
+
+def test_social_urls_deduplicate_www_aliases():
+    profile = {"organisation_number": "981929055", "name": "TELIA NORGE AS", "evidence": {},
+               "social_profiles": [
+                   {"platform": "facebook", "url": "https://facebook.com/telianorge",
+                    "content_sha256": "a" * 64},
+                   {"platform": "facebook", "url": "https://www.facebook.com/telianorge",
+                    "content_sha256": "a" * 64}]}
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-20T00:00:00Z")
+    links = next(claim["value"] for claim in claims if claim["field"] == "social_profiles")
+    assert len(links) == 1
 
 
 def _role(code: str, description: str, first: str, last: str) -> dict:

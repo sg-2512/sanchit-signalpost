@@ -1,0 +1,12 @@
+{
+  "run_id": "final-reviewed-batch-100-20261120",
+  "passed": null,
+  "criteria_passed": {
+    "find_companies": null,
+    "compare_companies": null,
+    "verify_evidence_and_sources": null,
+    "desktop_responsive": null,
+    "mobile_responsive": null
+  },
+  "profiles_rendered": 100
+}

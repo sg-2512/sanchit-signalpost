@@ -72,6 +72,11 @@ def qualification_copy(score: dict | None, independent_score: dict | None = None
         )
     if "raw_score" in score:
         raw = score.get("raw_score", 0)
+        if raw is None:
+            return (
+                "Competition score unmeasured",
+                "The local run completed, but independent audit, research, refresh and UX scoring remain open.",
+            )
         if score.get("qualification_passed"):
             return (
                 f"Competition proxy qualified · {raw}/100 · independent hidden score still required",

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -319,15 +321,24 @@ def build_contract_claims_and_evidence(
         ev_id = f"ev-{mod}-{org}"
         raw_sha = str(rec.get("content_sha256") or "")
         src_url = str(rec.get("source_url") or "")
-        if not raw_sha:
-            raw_sha = hashlib.sha256(b"").hexdigest()
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", raw_sha):
+            # An absent or malformed digest cannot prove the source content.
+            continue
+        source_span = str(rec.get("evidence_span") or rec.get("claim_span") or "")
+        if mod == "website" and isinstance(rec.get("value"), dict):
+            source_span = str(rec["value"].get("identity_text_excerpt") or source_span)
+        if not source_span and mod in {"registry", "registry_live"} and isinstance(rec.get("value"), dict):
+            registry_value = rec["value"]
+            source_span = f"organisasjonsnummer: {org}; navn: {registry_value.get('name') or registry_value.get('navn') or ''}"
+        if not source_span:
+            source_span = f"{mod} source record; key: {rec.get('source_row_key') or org}"
         evidence_items.append({
             "id": ev_id,
             "source_url": src_url,
             "source_class": str(rec.get("source_class") or rec.get("source_type") or "official"),
             "retrieved_at": rec.get("retrieved_at") or completed_at,
             "content_sha256": raw_sha,
-            "claim_span": f"{mod} observation record for {profile.get('name', org)} ({org})",
+            "claim_span": source_span[:500],
         })
 
     # 2. Legal Identity Claim (prefers live sovereign registry response body with exact SHA-256)
@@ -361,6 +372,27 @@ def build_contract_claims_and_evidence(
             "confidence": 0.0,
             "evidence_ids": [f"ev-registry_live-{org}"] if "registry_live" in ev else ([f"ev-registry-{org}"] if "registry" in ev else []),
         })
+
+    if reg_live_rec.get("status") == "available" and reg_live_rec.get("content_sha256"):
+        live_value = reg_live_rec.get("value") or {}
+        raw_purpose = live_value.get("aktivitet") or live_value.get("vedtektsfestetFormaal")
+        purpose = " ".join(str(part).strip() for part in raw_purpose if part) if isinstance(raw_purpose, list) else str(raw_purpose or "").strip()
+        if purpose:
+            claims.append({"field": "registered_business_purpose", "value": purpose,
+                           "availability": "available", "confidence": 1.0,
+                           "evidence_ids": [f"ev-registry_live-{org}"]})
+        current_name = str(live_value.get("name") or live_value.get("navn") or profile.get("name") or "").strip()
+        history = []
+        for entry in live_value.get("historiskeNavn") or []:
+            if not isinstance(entry, dict):
+                continue
+            old_name = str(entry.get("navn") or "").strip()
+            if old_name and old_name != current_name:
+                history.append({"name": old_name, "from": entry.get("fraDato"), "until": entry.get("tilDato")})
+        if history:
+            claims.append({"field": "legal_name_history", "value": history,
+                           "availability": "available", "confidence": 1.0,
+                           "evidence_ids": [f"ev-registry_live-{org}"]})
 
     # 3. Official Website Claim
     w_status = w_rec.get("status")
@@ -459,10 +491,13 @@ def build_contract_claims_and_evidence(
         s_url = str(s.get("url") or s.get("source_url") or "").strip()
         if not plat or not (s_url.startswith("http://") or s_url.startswith("https://")):
             continue
-        key = (plat, s_url.lower().rstrip("/"))
+        parsed_social = urllib.parse.urlsplit(s_url)
+        social_host = (parsed_social.hostname or "").casefold().removeprefix("www.")
+        key = (plat, social_host + parsed_social.path.casefold().rstrip("/"))
         if key not in seen_social:
             seen_social.add(key)
-            social_links.append({"platform": plat, "url": s_url})
+            social_links.append({"platform": plat, "url": s_url,
+                                 "relationship_scope": "company_site_linked_brand_channel" if is_publishable else "source_linked_channel"})
             if not primary_social_sha and s.get("content_sha256"):
                 primary_social_sha = str(s.get("content_sha256"))
                 primary_social_src = str(s.get("source_url") or s_url)
@@ -577,26 +612,22 @@ def build_contract_claims_and_evidence(
             "confidence": 1.0,
             "evidence_ids": [f"ev-locations-{org}"],
         })
-    elif (ev.get("registered_address") or {}).get("status") == "available" and (ev.get("registered_address") or {}).get("content_sha256"):
-        address_value = (ev.get("registered_address") or {}).get("value") or {}
-        claims.append({
-            "field": "operating_locations",
-            "value": {
-                "locations": [address_value],
-                "scope": "principal_registered_business_address",
-                "separate_subunits_status": address_value.get("subunit_lookup_status"),
-            },
-            "availability": "available",
-            "confidence": 0.85,
-            "evidence_ids": [f"ev-registered_address-{org}"],
-        })
     else:
         claims.append({
             "field": "operating_locations",
             "value": None,
-            "availability": "not_available" if l_status in {"available", "not_found", "absent", None} else _to_availability_state(l_status),
+            "availability": "not_available" if l_status in {"available", "not_available", "not_found", "absent", None} else _to_availability_state(l_status),
             "confidence": 0.0,
             "evidence_ids": [f"ev-locations-{org}"] if "locations" in ev else [],
+        })
+    address_rec = ev.get("registered_address") or {}
+    if address_rec.get("status") == "available" and address_rec.get("content_sha256"):
+        claims.append({
+            "field": "registered_address",
+            "value": address_rec.get("value"),
+            "availability": "available",
+            "confidence": 1.0,
+            "evidence_ids": [f"ev-registered_address-{org}"],
         })
 
     # 7. Hiring / Recruitment Status Claim (and hiring_signal alias)
@@ -1141,6 +1172,8 @@ def build_contract_claims_and_evidence(
     ev_map = {item["id"]: item for item in evidence_items}
     for claim in claims:
         claim["evidence_ids"] = [eid for eid in claim.get("evidence_ids", []) if eid in ev_map]
+        if claim.get("availability") == "available" and not claim["evidence_ids"]:
+            claim.update(value=None, availability="ambiguous", confidence=0.0)
 
     return claims, evidence_items
 

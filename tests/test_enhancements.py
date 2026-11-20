@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import gzip
 import tempfile
@@ -798,6 +799,7 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
         from norway_company_agent.connectors.regulatory_licenses import fetch_regulatory_licenses
 
         mock_payload = {
+            "organisasjonsnummer": "985589003",
             "status": "Godkjent",
             "godkjenningsstatus": "Godkjent renholdsvirksomhet",
         }
@@ -812,6 +814,17 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
             self.assertEqual(obs[0]["platform"], "arbeidstilsynet")
             self.assertEqual(obs[0]["signal_type"], "regulatory_license_record")
             self.assertEqual(obs[0]["metrics"]["status"], "Godkjent")
+            self.assertEqual(obs[0]["content_sha256"], hashlib.sha256(json.dumps(mock_payload).encode("utf-8")).hexdigest())
+
+        self.assertEqual(fetch_regulatory_licenses("991163905", "AGDER REVISJON AS", industry_code="69.202"), [])
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b'{"organisasjonsnummer":"111111111","status":"Godkjent"}'
+            mock_resp.__enter__.return_value = mock_resp
+            mock_open.return_value = mock_resp
+            self.assertEqual(fetch_regulatory_licenses("985589003", "VIK RENHOLD AS", industry_code="81.210"), [])
+            mock_resp.read.return_value = b'{"organisasjonsnummer":"985589003","status":"Ikke godkjent"}'
+            self.assertEqual(fetch_regulatory_licenses("985589003", "VIK RENHOLD AS", industry_code="81.210"), [])
 
     def test_esg_miljofyrtarn_connector(self):
         from norway_company_agent.connectors.esg_certifications import fetch_esg_certifications

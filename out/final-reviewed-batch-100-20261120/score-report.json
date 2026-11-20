@@ -1,0 +1,58 @@
+{
+  "scorer": "signalpost_local_measured_metrics_v2",
+  "claim_boundary": "No 100-point score is assigned without independent audit, research, refresh and UX evaluation.",
+  "rubric_weights": {
+    "external_footprint_intelligence": 55,
+    "official_company_foundation": 15,
+    "research_agent": 10,
+    "daily_extensibility_refresh": 12,
+    "product_ux_design": 8
+  },
+  "profiles": 100,
+  "details": {
+    "external": {
+      "verified_external_identity": 0.0,
+      "multi_source_breadth": 0.0,
+      "workforce_and_jobs": 0.0,
+      "ratings_and_reviews": 0.0,
+      "buzz_and_engagement": 0.0,
+      "qualified_sentiment": 0.0,
+      "external_freshness": 0.0
+    },
+    "foundation": {
+      "official_identity": 4.0,
+      "annual_accounts": 4.0,
+      "roles_and_locations": 4.0,
+      "website_seed_and_terminal_state": 3.0
+    },
+    "extensibility": {
+      "terminal_daily_batch": 4.0,
+      "deterministic_resume": null,
+      "measured_refresh_diffs": null,
+      "latency_budget": 1.0,
+      "connector_rights_and_rate_policy": null
+    }
+  },
+  "category_scores": {
+    "external_footprint_intelligence": 0.0,
+    "official_company_foundation": 15.0,
+    "research_agent": null,
+    "daily_extensibility_refresh": null,
+    "product_ux_design": null
+  },
+  "raw_score": null,
+  "measured_subtotal": 20.0,
+  "qualification_gates": {
+    "external_audit_at_least_100": false,
+    "zero_wrong_company_external_publications": false,
+    "external_claims_supported": false,
+    "external_connector_policy": false,
+    "official_identity_complete": true,
+    "terminal_batch_contract": true,
+    "refresh_replay": false
+  },
+  "qualification_passed": false,
+  "awardable_score": null,
+  "score_kind": "incomplete_local_measurement",
+  "qualification_note": "Only an independent Builderr evaluation can establish qualification."
+}
