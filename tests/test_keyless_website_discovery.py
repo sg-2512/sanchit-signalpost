@@ -116,6 +116,16 @@ def test_norwegian_domain_variants_include_idn_and_legal_suffix() -> None:
     assert "rorvatromas" in candidates
 
 
+def test_short_prefix_and_full_hyphenated_dot_com_are_probed(monkeypatch) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", lambda *args, **kwargs: [(2, 1, 6, "", ("93.184.216.34", 443))])
+    result = discovery.probe_heuristic_domain(
+        {"name": "A-SEAFOOD AS", "organisation_number": "933989208"},
+        accept_candidate=lambda url: url == "https://a-seafood.com",
+        max_candidates=4,
+    )
+    assert result == "https://a-seafood.com"
+
+
 def test_norwegian_mva_footer_is_exact_legal_operator_proof() -> None:
     profile = {"name": "NOVOOI AS", "organisation_number": "827340162", "evidence": {}}
     website = {

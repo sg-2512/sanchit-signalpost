@@ -115,9 +115,11 @@ from norway_company_agent.connectors.patentstyret import (
     is_available as patentstyret_available,
 )
 from norway_company_agent.connectors.doffin import fetch_doffin_procurement
-from norway_company_agent.connectors.kartverket import geocode_address_kartverket
+from norway_company_agent.connectors.kartverket import geocode_address_kartverket, matches_registered_address
 from norway_company_agent.connectors.mattilsynet import fetch_mattilsynet_inspections
 from norway_company_agent.connectors.regulatory_licenses import fetch_regulatory_licenses
+from norway_company_agent.connectors.dibk import fetch_construction_approval
+from norway_company_agent.connectors.scoped_company_sources import fetch_company_press_release, fetch_norwegian_presence
 from norway_company_agent.connectors.esg_certifications import fetch_esg_certifications
 from norway_company_agent.connectors.ats_discovery import verified_career_jobs
 from norway_company_agent.connectors.proff_directory import resolve_commercial_directory_presence
@@ -284,7 +286,7 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
         )
         if not valid:
             continue
-        key = title.casefold()
+        key = url.split("#", 1)[0].rstrip("/")
         if key in seen:
             continue
         seen.add(key)
@@ -315,10 +317,7 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
             "acquisition_mode": "permitted_public_page",
             "rights_status": "approved",
             "source_class": "company_site",
-            "evidence_span": (
-                f"Company website listing: {title} (published {published_at})"
-                if published_at else f"Company website listing: {title}"
-            ),
+            "evidence_span": article_text[:500],
             "text": title,
             "metrics": {"title": title, "url": url, "published_at": published_at},
             "strategy": "website_news_discovery",
@@ -348,11 +347,19 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
     retrieved_at = website.get("retrieved_at") or utc_now()
     observations = []
     seen: set[tuple[str, str]] = set()
+    locations = (((profile.get("evidence") or {}).get("locations") or {}).get("value") or {}).get("locations") or []
+    subunit_orgs = [str(row["organisation_number"]) for row in locations
+                    if isinstance(row, dict) and row.get("organisation_number")]
 
     for item in job_postings:
         title = str(item.get("title") or "Ledig stilling").strip()
         url = str(item.get("url") or site_url).strip()
         if item.get("requires_ad_verification"):
+            continue
+        if item.get("kind") in {"company_site_ad", "verified_career_ad"} and not validate_job_item(
+            item, org=org, company_name=profile.get("name") or "", site_url=site_url,
+            site_publishable=True, subunit_orgs=subunit_orgs,
+        )[0]:
             continue
         key = (title.casefold(), url.casefold())
         if key in seen:
@@ -378,6 +385,7 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
             "employer_org": item.get("employer_org"),
             "hiring_org_match": item.get("hiring_org_match"),
             "valid_through": item.get("valid_through"),
+            "application_due": item.get("application_due"),
             "career_source_url": item.get("career_source_url"),
             "career_link_url": item.get("career_link_url"),
             "active_listing": item.get("active_listing"),
@@ -485,56 +493,48 @@ def extract_profile_metrics_observation(profile: dict[str, Any]) -> list[dict[st
 
 
 def extract_place_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract operating location observations from BRREG subunits."""
+    """Keep the registered office separate from BRREG operating subunits."""
     org = str(profile.get("organisation_number") or "")
     ev = profile.get("evidence") or {}
-    locs = ((ev.get("locations") or {}).get("value") or {}).get("locations") or []
-    if not locs:
-        reg_val = (ev.get("registry_live") or {}).get("value") or (ev.get("registry") or {}).get("value") or {}
-        addr = profile.get("address") or reg_val.get("forretningsadresse") or {}
-        if not isinstance(addr, dict):
-            addr = {}
-        kommune = addr.get("kommune") or profile.get("municipality") or reg_val.get("forretningsadresse.kommune") or ""
-        poststed = addr.get("poststed") or reg_val.get("forretningsadresse.poststed") or ""
-        raw_addr = addr.get("adresse") or reg_val.get("forretningsadresse.adresse") or ""
-        street = ", ".join(raw_addr) if isinstance(raw_addr, list) else str(raw_addr or "")
-        if not kommune and not poststed and not street:
-            return []
-        loc_name = str(profile.get("name") or reg_val.get("navn") or f"Organisation {org}")
-        source_url = (ev.get("registry_live") or {}).get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
-        retrieved_at = (ev.get("registry_live") or {}).get("retrieved_at") or (ev.get("registry") or {}).get("retrieved_at") or utc_now()
-        digest = str((ev.get("registry_live") or {}).get("content_sha256") or (ev.get("registry") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
-        obs_id = f"place-brreg-hq-{org}-{hashlib.sha256(street.encode()).hexdigest()[:16]}"
-        span_parts = [p for p in (loc_name, street, f"{poststed} ({kommune})" if poststed and kommune else (kommune or poststed)) if p]
-        span_str = f"Official registered operating location: {', '.join(span_parts)}"
-        return [{
-            "id": obs_id,
+    observations = []
+    address_rec = ev.get("registered_address") or {}
+    address_value = address_rec.get("value") or {}
+    address = address_value.get("address") or {}
+    address_sha = str(address_rec.get("content_sha256") or "")
+    if address_rec.get("status") == "available" and re.fullmatch(r"[0-9a-fA-F]{64}", address_sha) and address:
+        observations.append({
+            "id": f"address-brreg-{org}-{address_sha[:16]}",
             "organisation_number": org,
             "platform": "brreg",
-            "signal_type": "place_summary",
-            "source_url": source_url,
-            "retrieved_at": retrieved_at,
-            "content_sha256": digest,
+            "signal_type": "registered_address",
+            "source_url": address_rec.get("source_url"),
+            "retrieved_at": address_rec.get("retrieved_at"),
+            "content_sha256": address_sha,
             "exact_entity": True,
-            "identity_proof": [{"type": "official_registered_office", "address": street, "municipality": kommune}],
+            "identity_proof": [{"type": "official_registry_address", "organisation_number": org,
+                                "address": address, "source_url": address_rec.get("source_url")}],
             "acquisition_mode": "official_api",
             "rights_status": "approved",
-            "source_class": "official_subunits",
-            "evidence_span": span_str,
-            "metrics": {"place_name": loc_name, "municipality": kommune, "address": street, "poststed": poststed},
-            "strategy": "official_headquarters_place",
-        }]
-
-    source_url = f"https://data.brreg.no/enhetsregisteret/api/underenheter?overordnetEnhet={org}&size=1000"
-    retrieved_at = (ev.get("locations") or {}).get("retrieved_at") or ""
-    observations = []
-    for loc in locs[:3]:
-        loc_org = loc.get("organisation_number") or org
+            "source_class": "official_registry",
+            "evidence_span": f"BRREG lists the registered business address for {profile.get('name')} ({org}): {address}",
+            "metrics": {"address": address, "relationship_scope": "registered_business_address"},
+            "strategy": "official_registered_address",
+        })
+    locs = ((ev.get("locations") or {}).get("value") or {}).get("locations") or []
+    location_rec = ev.get("locations") or {}
+    location_sha = str(location_rec.get("content_sha256") or "")
+    if location_rec.get("status") != "available" or not re.fullmatch(r"[0-9a-fA-F]{64}", location_sha):
+        return observations
+    source_url = location_rec.get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/underenheter?overordnetEnhet={org}&size=1000"
+    retrieved_at = location_rec.get("retrieved_at") or ""
+    for loc in locs:
+        loc_org = str(loc.get("organisation_number") or "")
+        if not re.fullmatch(r"[0-9]{9}", loc_org) or loc_org == org:
+            continue
         loc_name = loc.get("name") or profile.get("name")
         addr = loc.get("address") or {}
         kommune = addr.get("kommune") or ""
         poststed = addr.get("poststed") or ""
-        digest = str((ev.get("locations") or {}).get("content_sha256") or (ev.get("registry_live") or {}).get("content_sha256") or "") or hashlib.sha256(b"").hexdigest()
         obs_id = f"place-brreg-{org}-{hashlib.sha256(str(loc_org).encode()).hexdigest()[:16]}"
         observations.append({
             "id": obs_id,
@@ -543,13 +543,14 @@ def extract_place_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
             "signal_type": "place_summary",
             "source_url": source_url,
             "retrieved_at": retrieved_at,
-            "content_sha256": digest,
+            "content_sha256": location_sha,
             "exact_entity": True,
-            "identity_proof": [{"type": "official_subunit_record", "subunit_org": loc_org, "name": loc_name}],
+            "identity_proof": [{"type": "official_subunit_record", "parent_org": org,
+                                "subunit_org": loc_org, "name": loc_name, "source_url": source_url}],
             "acquisition_mode": "official_api",
             "rights_status": "approved",
             "source_class": "official_subunits",
-            "evidence_span": f"Official registered operating location: {loc_name} in {kommune} ({poststed}), subunit {loc_org}",
+            "evidence_span": f"BRREG lists subunit {loc_org} ({loc_name}) for {org} in {kommune} ({poststed}).",
             "metrics": {"place_name": loc_name, "municipality": kommune, "subunit_organisation_number": loc_org},
             "strategy": "official_subunits_places",
         })
@@ -685,48 +686,41 @@ def enrich_single_company(
                 retrieved_at=utc_now(),
             )
 
-    # A company can have a valid registered business address and no separate
-    # BRREG subunits. Preserve that distinction so location coverage does not
-    # imply that no registered address exists.
+    # The registered office and subunits are independent registry facts.
     location_rec = profile.get("evidence", {}).get("locations") or {}
     location_val = location_rec.get("value") or {}
-    if not (location_val.get("locations") or []):
-        live_registered_address = reg_live_val.get("forretningsadresse")
-        bulk_registered_address = reg_bulk_val.get("forretningsadresse") or {
-            key: reg_bulk_val.get(f"forretningsadresse.{key}")
-            for key in ("adresse", "postnummer", "poststed", "kommune", "kommunenummer", "land", "landkode")
-            if reg_bulk_val.get(f"forretningsadresse.{key}")
-        }
-        address = live_registered_address or bulk_registered_address
-        if isinstance(address, dict) and any(address.get(key) for key in ("adresse", "postnummer", "poststed", "kommune")):
-            from norway_company_agent.evidence import evidence as make_ev
-            address_source = (
-                reg_live_rec
-                if live_registered_address and reg_live_rec.get("source_type") != "official_registry_bulk"
-                else reg_bulk_rec
-            )
-            subunit_note = (
-                "No separate subunits were returned by the official registry."
-                if location_rec.get("status") == "available"
-                else f"Subunit lookup status: {location_rec.get('status') or 'not completed'}."
-            )
-            profile.setdefault("evidence", {})["registered_address"] = make_ev(
-                "registered_address",
-                "available",
-                "official_registered_address",
-                str(address_source.get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"),
-                value={
-                    "organisation_number": org,
-                    "name": name,
-                    "location_type": "registered_business_address",
-                    "address": address,
-                    "subunit_lookup_status": location_rec.get("status") or "not_completed",
-                },
-                content_sha256=str(address_source.get("content_sha256") or ""),
-                retrieved_at=str(address_source.get("retrieved_at") or utc_now()),
-                source_row_key=org,
-                note=f"Principal registered business address only. {subunit_note}",
-            )
+    live_registered_address = reg_live_val.get("forretningsadresse")
+    bulk_registered_address = reg_bulk_val.get("forretningsadresse") or {
+        key: reg_bulk_val.get(f"forretningsadresse.{key}")
+        for key in ("adresse", "postnummer", "poststed", "kommune", "kommunenummer", "land", "landkode")
+        if reg_bulk_val.get(f"forretningsadresse.{key}")
+    }
+    address = live_registered_address or bulk_registered_address
+    if isinstance(address, dict) and any(address.get(key) for key in ("adresse", "postnummer", "poststed", "kommune")):
+        from norway_company_agent.evidence import evidence as make_ev
+        address_source = reg_live_rec if live_registered_address and reg_live_rec.get("status") == "available" else reg_bulk_rec
+        subunit_note = (
+            f"{len(location_val.get('locations') or [])} registered subunit(s) returned."
+            if location_rec.get("status") == "available"
+            else f"Subunit lookup status: {location_rec.get('status') or 'not completed'}."
+        )
+        profile.setdefault("evidence", {})["registered_address"] = make_ev(
+            "registered_address",
+            "available",
+            "official_registered_address",
+            str(address_source.get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"),
+            value={
+                "organisation_number": org,
+                "name": name,
+                "location_type": "registered_business_address",
+                "address": address,
+                "subunit_lookup_status": location_rec.get("status") or "not_completed",
+            },
+            content_sha256=str(address_source.get("content_sha256") or ""),
+            retrieved_at=str(address_source.get("retrieved_at") or utc_now()),
+            source_row_key=org,
+            note=f"Principal registered business address only. {subunit_note}",
+        )
 
     emp_count = int(profile.get("employees") or 0)
     form_code_upper = str(profile.get("legal_form") or "").upper()
@@ -750,11 +744,46 @@ def enrich_single_company(
             return False
         return True
 
+    industry = str(profile.get("industry_code") or "")
+    if industry.startswith(("41.", "42.", "43.")) and can_run_optional(cost=1, reserve=5):
+        approval = fetch_construction_approval(org, budget=budget)
+        local_reqs += 1
+        if approval:
+            observations.append(approval)
+            profile.setdefault("regulatory_licenses", []).append(approval["metrics"])
+            profile["evidence"]["construction_approval"] = {
+                "field": "construction_approval", "status": "available", "source_url": approval["source_url"],
+                "source_class": approval["source_class"], "retrieved_at": approval["retrieved_at"],
+                "content_sha256": approval["content_sha256"], "evidence_span": approval["evidence_span"],
+                "value": {"organisation_number": org, **approval["metrics"]},
+            }
+
+    release_observations: list[dict[str, Any]] = []
+    leads = profile.get("source_leads")
+    if source_policy == OFFICIAL_SAFE and isinstance(leads, dict):
+        region_url = leads.get("norwegian_contact_url")
+        if isinstance(region_url, str) and can_run_optional(cost=2, reserve=5):
+            presence = fetch_norwegian_presence(region_url, org=org, company=name, budget=budget)
+            local_reqs += 2
+            if presence:
+                profile["evidence"]["norwegian_website_presence"] = presence
+        release_urls = leads.get("press_release_urls")
+        for url in release_urls[:3] if isinstance(release_urls, list) else []:
+            if not isinstance(url, str) or not can_run_optional(cost=2, reserve=5):
+                continue
+            release = fetch_company_press_release(url, org=org, company=name, budget=budget)
+            local_reqs += 2
+            if release:
+                release_observations.append(release)
+
     places_obs: list[dict[str, Any]] = []
     wiki_obs: list[dict[str, Any]] = []
     patent_obs: list[dict[str, Any]] = []
 
+    conflicting_website = None
+
     def gate_website(record: dict[str, Any]) -> dict[str, Any]:
+        nonlocal conflicting_website
         # Discovery pages can reproduce an exact org number without being the
         # company's website. Require on-site legal-operator proof before the
         # broader entity corroboration step, and keep a rejection terminal.
@@ -764,19 +793,16 @@ def enrich_single_company(
             gated = operator_gated
         else:
             gated = apply_entity_identity_gate(profile, operator_gated["website"], operator_assessment=operator_assessment)
-            value = gated["website"].get("value") or {}
-            if gated.get("gate_rejected"):
-                value["identity_assessment"] = {**operator_assessment, "publishable": False,
-                                                "reasons": [*operator_assessment.get("reasons", []), "entity corroboration failed"]}
-            else:
-                value["identity_assessment"] = operator_assessment
-            gated["website"]["value"] = value
         value = gated["website"].get("value") or {}
         assessment = value.get("identity_assessment") or {}
+        conflict = (value.get("entity_identity_assessment") or {}).get("operator_conflict")
+        if conflict:
+            conflicting_website = gated["website"]
         profile.setdefault("website_attempts", []).append({
             "source_url": record.get("source_url"), "final_url": value.get("final_url"),
             "status": gated["website"].get("status"), "publishable": bool(assessment.get("publishable")),
             "reasons": assessment.get("reasons") or [record.get("note") or record.get("error") or "no usable page"],
+            **({"operator_conflict": conflict} if conflict else {}),
         })
         return gated
 
@@ -831,19 +857,42 @@ def enrich_single_company(
     nav_feed_homepages: list[str] = []
     nav_feed_diagnostics: dict[str, Any] = {"feed_state": "not_requested"}
     if "website" in requested_modules and budget.can_proceed(reserve=2):
-        target_site = profile.get("website")
+        bulk_site = profile.get("website")
+        live_site = reg_live_val.get("website") if isinstance(reg_live_val, dict) and reg_live_rec.get("status") == "available" else ""
+        target_site = live_site or bulk_site
         cached_site_raw = str((profile.get("verified_site_cache") or {}).get("url") or "")
         try:
             cached_site = candidate_site_origin(cached_site_raw) if cached_site_raw else ""
         except ValueError:
             cached_site = ""
+        cache_label = (urlsplit(cached_site).hostname or "").removeprefix("www.").split(".")[0]
+        name_words = [word for word in re.findall(r"[^\W_]+", name.casefold())
+                      if word not in {"as", "asa", "ans", "da", "enk", "nuf", "sa"}]
+        weak_cache_hint = bool(len(name_words) > 1 and cache_label in name_words
+                               and not target_site and not extract_email_domain_candidate(profile))
+
+        def accept_site_candidate(url: str) -> bool:
+            nonlocal verified_website
+            if site_requests >= site_limit:
+                return False
+            rec, metrics = fetch_company_site(url)
+            website_metrics["requests"] += metrics.get("requests", 0)
+            website_metrics["bytes"] += metrics.get("bytes", 0)
+            record = gate_website(rec)["website"]
+            value = record.get("value") or {}
+            if record.get("status") == "available" and value.get("identity_assessment", {}).get("publishable"):
+                profile["evidence"]["website"] = record
+                profile["website"] = value.get("final_url") or url
+                verified_website = True
+            return verified_website
 
         # NAV's vacancy feed is indexed once for the whole batch. An employer
         # homepage from a currently ACTIVE ad with an exact org-number match is
         # a discovery hint only; the website still passes the normal gate.
-        if source_policy == OFFICIAL_SAFE and budget.max_requests >= 200 and budget.can_proceed(reserve=2):
+        if budget.max_requests >= 200 and budget.can_proceed(reserve=2):
             nav_feed_jobs, nav_feed_homepages, nav_feed_diagnostics = nav_feed_jobs_for_company(
                 name, org, subunits=location_val.get("locations") or [], budget=budget,
+                allow_experimental_token=source_policy == EXPERIMENTAL,
             )
         profile["nav_feed_diagnostics"] = nav_feed_diagnostics
 
@@ -863,17 +912,10 @@ def enrich_single_company(
         # A prior exact match is a discovery hint, not enduring proof. Re-fetch
         # it and run the current identity gate so refreshes preserve prior
         # evidence without re-publishing a stale or reassigned domain.
-        if not verified_website and cached_site and cached_site != target_site and budget.can_proceed(reserve=2):
-            w_rec, w_met = fetch_company_site(cached_site)
-            website_metrics["requests"] += w_met.get("requests", 0)
-            website_metrics["bytes"] += w_met.get("bytes", 0)
-            gated = gate_website(w_rec)
-            if gated["website"].get("status") == "available":
-                val = gated["website"].get("value") or {}
-                if val.get("identity_assessment", {}).get("publishable"):
-                    profile["evidence"]["website"] = gated["website"]
-                    profile["website"] = val.get("final_url") or cached_site
-                    verified_website = True
+        if not verified_website and cached_site and cached_site != target_site and not weak_cache_hint and budget.can_proceed(reserve=2):
+            accept_site_candidate(cached_site)
+        if not verified_website and bulk_site and bulk_site != target_site and budget.can_proceed(reserve=2):
+            accept_site_candidate(bulk_site)
 
         # Level 2: Official registry corporate email domain (post@firmanavn.no -> firmanavn.no)
         if not verified_website and can_run_optional(cost=2, reserve=2):
@@ -933,24 +975,14 @@ def enrich_single_company(
                     verified_website = True
 
         # Level 3: Free heuristic .no/.com Norwegian domain probe with fast DNS pre-check
-        if not verified_website and not is_passive_entity and can_run_optional(cost=2, reserve=2):
-            def accept_heuristic_site(heuristic_site: str) -> bool:
-                nonlocal verified_website
-                if site_requests >= site_limit:
-                    return False
-                w_rec, w_met = fetch_company_site(heuristic_site)
-                website_metrics["requests"] += w_met.get("requests", 0)
-                website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = gate_website(w_rec)
-                if gated["website"].get("status") == "available":
-                    val = gated["website"].get("value") or {}
-                    if val.get("identity_assessment", {}).get("publishable"):
-                        profile["evidence"]["website"] = gated["website"]
-                        profile["website"] = val.get("final_url") or heuristic_site
-                        verified_website = True
-                return verified_website
-
-            probe_heuristic_domain(profile, budget=budget, accept_candidate=accept_heuristic_site)
+        if not verified_website and can_run_optional(cost=2, reserve=2):
+            probe_heuristic_domain(
+                profile, budget=budget, accept_candidate=accept_site_candidate,
+                max_candidates=2 if is_passive_entity else 8,
+                include_com=not is_passive_entity,
+            )
+        if not verified_website and weak_cache_hint and budget.can_proceed(reserve=2):
+            accept_site_candidate(cached_site)
 
         # Free, rate-limited search proposes candidates only. Search text is never
         # evidence; every destination is crawled and must pass the exact legal-
@@ -1142,7 +1174,9 @@ def enrich_single_company(
                         verified_website = True
 
         # If no website passed the gate, ensure evidence["website"] exists
-        if "website" not in profile.get("evidence", {}):
+        if not verified_website and conflicting_website:
+            profile["evidence"]["website"] = conflicting_website
+        elif "website" not in profile.get("evidence", {}):
             w_rec, _ = fetch_website(None)
             profile["evidence"]["website"] = w_rec
 
@@ -1314,7 +1348,7 @@ def enrich_single_company(
 
     # 9. Populate evidence records for news, jobs, and hiring
     # Only real editorial or company-website news observations that pass strict validation count as news
-    raw_news = list(web_news_obs) + list(news_obs) + list(wire_obs)
+    raw_news = list(web_news_obs) + list(news_obs) + list(wire_obs) + release_observations
     c_name = profile.get("name") or ""
     site_url = str(profile.get("website") or "")
     all_news_obs = []
@@ -1358,6 +1392,9 @@ def enrich_single_company(
                         "content_sha256": o.get("content_sha256"),
                         "verification": o.get("verification") or ("site_listing" if "company_site" in str(o.get("source_class") or "") else ""),
                         "name_in_article": bool(o.get("name_in_article")),
+                        "strategy": o.get("strategy"),
+                        "claim_span": o.get("evidence_span"),
+                        "retrieved_at": o.get("retrieved_at"),
                     }
                     for o in all_news_obs
                 ],
@@ -1398,20 +1435,8 @@ def enrich_single_company(
         u = str(o.get("source_url") or "").strip()
         sha = str(o.get("content_sha256") or "")
         cand = {
-            "title": t,
-            "url": u,
-            "content_sha256": sha,
-            "published_at": o.get("published_at"),
+            **o, "title": t, "url": u, "content_sha256": sha,
             "kind": o.get("kind") or ("nav_ad" if "arbeidsplassen.nav.no" in u else ""),
-            "employer_org": o.get("employer_org") or "",
-            "employer_name": o.get("employer_name") or "",
-            "match_type": o.get("match_type") or "",
-            "hiring_org_match": o.get("hiring_org_match"),
-            "valid_through": o.get("valid_through"),
-            "career_source_url": o.get("career_source_url"),
-            "career_link_url": o.get("career_link_url"),
-            "active_listing": o.get("active_listing"),
-            "ad_text_excerpt": o.get("ad_text_excerpt"),
         }
         ok, _ = validate_job_item(cand, org=org, company_name=c_name, site_url=site_url, site_publishable=verified_website, subunit_orgs=sub_orgs_hiring)
         if ok:
@@ -1443,6 +1468,8 @@ def enrich_single_company(
                         "match_type": o.get("match_type") or "",
                         "hiring_org_match": o.get("hiring_org_match"),
                         "valid_through": o.get("valid_through"),
+                        "application_due": o.get("application_due"),
+                        "nav_feed": o.get("nav_feed"),
                         "career_source_url": o.get("career_source_url"),
                         "career_link_url": o.get("career_link_url"),
                         "active_listing": o.get("active_listing"),
@@ -1544,11 +1571,16 @@ def enrich_single_company(
             observations.append(gleif_obs)
             profile["gleif_lei"] = gleif_obs.get("metrics") or {}
 
-    # 13i. Kartverket & Matrikkelen (Official Cadastral Resolution for Operating Entities)
+    # 13i. Kartverket geocodes an address; BRREG establishes which company registered it.
     if can_run_optional(cost=1, reserve=2):
-        reg_l_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
-        b_addr = profile.get("address") or reg_l_val.get("forretningsadresse") or (profile.get("evidence", {}).get("registry", {}).get("value") or {}).get("forretningsadresse") or {}
-        if isinstance(b_addr, dict):
+        registry_evidence = profile.get("evidence", {})
+        reg_l_rec = registry_evidence.get("registry_live") or {}
+        reg_b_rec = registry_evidence.get("registry") or {}
+        reg_address_rec = reg_l_rec if reg_l_rec.get("status") == "available" else reg_b_rec
+        reg_address_value = reg_address_rec.get("value") or {}
+        b_addr = reg_address_value.get("forretningsadresse") or reg_address_value.get("business_address") or {}
+        reg_address_sha = str(reg_address_rec.get("content_sha256") or "")
+        if isinstance(b_addr, dict) and re.fullmatch(r"[0-9a-fA-F]{64}", reg_address_sha):
             raw_addr = b_addr.get("adresse") or []
             street_candidates = []
             if isinstance(raw_addr, list) and raw_addr:
@@ -1564,27 +1596,35 @@ def enrich_single_company(
             for s_cand in street_candidates:
                 if len(s_cand) >= 4:
                     kart_geo = geocode_address_kartverket(s_cand, municipality=kom_str, postcode=post_str, budget=budget)
-                    if kart_geo and kart_geo.get("cadastral_id"):
+                    if kart_geo and kart_geo.get("cadastral_id") and matches_registered_address(b_addr, kart_geo):
                         break
-            if kart_geo and kart_geo.get("cadastral_id"):
+            if kart_geo and kart_geo.get("cadastral_id") and matches_registered_address(b_addr, kart_geo):
+                k_sha = str(kart_geo.get("content_sha256") or "")
+                if re.fullmatch(r"[0-9a-fA-F]{64}", k_sha):
                     profile["cadastral_info"] = kart_geo
-                    k_sha = str(kart_geo.get("content_sha256") or hashlib.sha256(b"").hexdigest())
                     observations.append({
                         "id": f"cadastre-kartverket-{org}-{k_sha[:16]}",
                         "organisation_number": org,
-                        "platform": "company_directory",
-                        "signal_type": "place_summary",
+                        "platform": "kartverket",
+                        "signal_type": "registered_address_geocode",
                         "source": "Kartverket",
                         "source_url": kart_geo.get("source_url") or "https://ws.geonorge.no/adresser/v1/sok",
                         "retrieved_at": utc_now(),
                         "content_sha256": k_sha,
                         "exact_entity": True,
-                        "identity_proof": [{"type": "official_kartverket_matrikkelen", "cadastral_id": kart_geo.get("cadastral_id"), "address": kart_geo.get("formatted_address")}],
+                        "identity_proof": [
+                            {"type": "official_registry_address", "organisation_number": org,
+                             "source_url": reg_address_rec.get("source_url"), "content_sha256": reg_address_sha,
+                             "registered_address": b_addr},
+                            {"type": "kartverket_address_match", "cadastral_id": kart_geo.get("cadastral_id"),
+                             "address": kart_geo.get("formatted_address"), "postnummer": kart_geo.get("postnummer")},
+                        ],
                         "acquisition_mode": "official_api",
                         "rights_status": "approved",
-                        "source_class": "official_api",
-                        "evidence_span": f"Official Kartverket cadastre for {name}: {kart_geo.get('cadastral_id')} at {kart_geo.get('formatted_address')} ({kart_geo.get('kommunenavn')})",
-                        "metrics": kart_geo,
+                        "source_class": "official_address_geocode",
+                        "evidence_span": f"BRREG registers {name} ({org}) at {b_addr}; Kartverket maps the matching address to {kart_geo.get('cadastral_id')}.",
+                        "metrics": {**kart_geo, "relationship_scope": "registered_business_address",
+                                    "registry_source_url": reg_address_rec.get("source_url")},
                         "strategy": "kartverket_address_geocode",
                     })
 
@@ -1597,7 +1637,7 @@ def enrich_single_company(
             reg_lics = fetch_regulatory_licenses(org, name, industry_code=n_code, budget=budget)
             if reg_lics:
                 observations.extend(reg_lics)
-                profile["regulatory_licenses"] = [obs.get("metrics") or {} for obs in reg_lics if obs.get("metrics")]
+                profile.setdefault("regulatory_licenses", []).extend(obs["metrics"] for obs in reg_lics if obs.get("metrics"))
         except Exception:
             pass
 
@@ -1764,7 +1804,7 @@ def main() -> int:
     # Annotations
     annotations = {item["organisation_number"]: item for item in org_inputs}
     for profile in profiles:
-        for key in ("evaluation_split", "sample_slice"):
+        for key in ("evaluation_split", "sample_slice", "source_leads"):
             if key in annotations[profile["organisation_number"]]:
                 profile[key] = annotations[profile["organisation_number"]][key]
 
@@ -1823,17 +1863,35 @@ def main() -> int:
                         if str(obs.get("organisation_number") or "") in newly_seeded:
                             resumed_observations.append(obs)
     if state:
+        existing_ids = {ob.get("id") for ob in resumed_observations}
+        for prof_obj in state.values():
+            for ob in extract_website_job_observations(prof_obj):
+                if ob.get("kind") in {"company_site_ad", "verified_career_ad"} and ob["id"] not in existing_ids:
+                    resumed_observations.append(ob)
+                    existing_ids.add(ob["id"])
         obs_by_org: dict[str, list[dict[str, Any]]] = {}
-        for ob in resumed_observations:
+        accepted_resumed, _ = filter_publishable_observations(resumed_observations, policy=args.source_policy)
+        for ob in accepted_resumed:
             obs_by_org.setdefault(str(ob.get("organisation_number") or ""), []).append(ob)
         for org_id, prof_obj in state.items():
-            prof_obj["synthesis"] = generate_company_synthesis(prof_obj, obs_by_org.get(org_id, []), budget=budget)
+            approved_observations = obs_by_org.get(org_id, [])
+            nav_jobs = [row for row in approved_observations if row.get("strategy") == "nav_official_vacancy_feed"]
+            if (prof_obj.get("nav_feed_diagnostics") or {}).get("verified_ads") and not nav_jobs:
+                prof_obj["nav_feed_diagnostics"] = {"feed_state": "stored_ads_require_current_registered_verification"}
+                hiring, _ = evaluate_company_hiring(prof_obj, approved_observations, nav_feed_jobs=[])
+                prof_obj["hiring"] = hiring
+                hiring_record = (prof_obj.get("evidence") or {}).get("hiring")
+                if hiring_record:
+                    hiring_record["value"] = hiring
+            prof_obj["synthesis"] = generate_company_synthesis(prof_obj, approved_observations, budget=budget)
         print(f"[INFO] Loaded {len(state)} completed profiles and {len(resumed_observations)} observations from seed/resume state")
 
     all_observations: list[dict[str, Any]] = list(resumed_observations)
     pending_profiles = [profile for profile in profiles if profile["organisation_number"] not in state]
     completed = len(state)
-    worker_fn = enrich_single_company
+    def worker_fn(profile, fetch_modules, requested_modules, budget, source_policy, company_budget_pace):
+        with budget.attributed_to(str(profile["organisation_number"])):
+            return enrich_single_company(profile, fetch_modules, requested_modules, budget, source_policy, company_budget_pace)
     progress_step = 500 if len(profiles) >= 2000 else 10
 
     # Enrich pending companies in parallel
@@ -1872,6 +1930,16 @@ def main() -> int:
 
     # Merge completed state back into profiles order
     profiles = [state.get(org, p) for org, p in zip(orgs, profiles)]
+    budget_report = budget.report()
+    request_attribution = budget_report["request_attribution"]
+    for profile in profiles:
+        row = request_attribution["by_company"].get(str(profile.get("organisation_number")), {})
+        profile.setdefault("run_metrics", {}).update({
+            "requests": int(row.get("requests") or 0),
+            "bytes": int(row.get("bytes") or 0),
+            "third_party_cost_usd": round(float(row.get("cost_usd") or 0), 4),
+            "request_scope": "current_run_company_attributed",
+        })
 
     completed_at = utc_now()
     wall_elapsed = time.monotonic() - wall_start
@@ -1904,6 +1972,9 @@ def main() -> int:
             "source_url": obs.get("source_url"),
             "retrieved_at": obs.get("retrieved_at"),
             "content_sha256": obs.get("content_sha256"),
+            "valid_through": obs.get("valid_through"),
+            "application_due": obs.get("application_due"),
+            "nav_feed": obs.get("nav_feed"),
             "evidence_span": obs.get("evidence_span"),
             "identity_proof": obs.get("identity_proof"),
             "acquisition_mode": obs.get("acquisition_mode"),
@@ -1948,10 +2019,10 @@ def main() -> int:
     audit_passed = False
 
     # Budget report
-    budget_report = budget.report()
+    # The same budget snapshot backs the envelopes and run report.
 
     # Evaluation Contract Measurement schema
-    claim_fields = ["legal_identity", "official_website", "annual_accounts", "roles", "operating_locations", "hiring_status", "accounting_obligation", "dated_news", "job_postings"]
+    claim_fields = ["legal_identity", "official_website", "registry_declared_website", "norwegian_website_presence", "annual_accounts", "roles", "operating_locations", "hiring_status", "accounting_obligation", "dated_news", "job_postings", "construction_approval"]
     per_field = {}
     abstentions = {"total": 0, "by_state": {}, "by_field": {}}
     for env in envelopes:
@@ -2297,7 +2368,8 @@ def main() -> int:
         from norway_company_agent.showcase import write_showcase_html
         showcase_limit = min(max(100, len(profiles)), 500)
         showcase_out = out_dir / "showcase.html"
-        write_showcase_html(profiles, publishable_observations, showcase_out, limit=showcase_limit)
+        write_showcase_html(profiles, publishable_observations, showcase_out, limit=showcase_limit,
+                            reviewed_observations=int(external_report.get("published_audited") or 0))
         html_bytes = showcase_out.read_bytes()
         (out_dir / "index.html").write_bytes(html_bytes)
         if envelopes_out.parent.resolve() != out_dir.resolve():

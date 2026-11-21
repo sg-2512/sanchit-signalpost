@@ -379,12 +379,12 @@ def normalize_entity(body: Any) -> dict[str, Any]:
 
 def _classified(field: str, source_type: str, result: FetchResult, value: Any = None) -> dict[str, Any]:
     if result.status == 200:
-        return evidence(field, "available", source_type, result.url, value=value, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
+        return evidence(field, "available", source_type, result.url, value=value, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at, http_status=result.status)
     if result.status in {404, 410}:
-        return evidence(field, "not_found", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
+        return evidence(field, "not_found", source_type, result.url, note=result.error, retrieved_at=result.retrieved_at, effective_at=result.effective_at, http_status=result.status)
     if result.status in {401, 403, 429}:
-        return evidence(field, "blocked", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
-    return evidence(field, "source_error", source_type, result.url, note=result.error, content_sha256=result.content_sha256, retrieved_at=result.retrieved_at, effective_at=result.effective_at)
+        return evidence(field, "blocked", source_type, result.url, note=result.error, retrieved_at=result.retrieved_at, effective_at=result.effective_at, http_status=result.status)
+    return evidence(field, "source_error", source_type, result.url, note=result.error, retrieved_at=result.retrieved_at, effective_at=result.effective_at, http_status=result.status or None)
 
 
 def fetch_official_modules(org: str, modules: set[str], fetcher: Callable[[str], FetchResult] = fetch_json) -> tuple[dict[str, Any], list[FetchResult]]:

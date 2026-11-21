@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from .connectors.nav_jobs import fetch_nav_jobs
 from .verified_items import validate_job_item
 
 NORWEGIAN_HIRING_PATTERNS = [
-    re.compile(r"\bvi\s+s[øo]ker\b", re.I),
     re.compile(r"\bledige?\s+stilling(?:er)?\b", re.I),
     re.compile(r"\bbli\s+med\s+p[åa]\s+(?:v[åa]rt\s+)?(?:team|laget)\b", re.I),
     re.compile(r"\bkarriere\s+hos\s+oss\b", re.I),
@@ -28,14 +28,10 @@ NORWEGIAN_HIRING_PATTERNS = [
     re.compile(r"\bny(?:e)?\s+medarbeidere?\b", re.I),
 ]
 
-CAREER_URL_PATTERNS = [
-    re.compile(r"/karriere", re.I),
-    re.compile(r"/jobb", re.I),
-    re.compile(r"/career", re.I),
-    re.compile(r"/vacanc", re.I),
-    re.compile(r"/stilling", re.I),
-    re.compile(r"/work-with-us", re.I),
-]
+CAREER_PATH = re.compile(
+    r"(?:^|/)(?:karriere|careers?|jobs?|jobb|jobber|jobbe?-hos-oss|vacancies|stillinger?|ledige?-stillinger?|work-with-us)(?:/|$)",
+    re.I,
+)
 
 
 def extract_website_hiring_signals(website_val: dict[str, Any] | None) -> dict[str, Any]:
@@ -46,56 +42,30 @@ def extract_website_hiring_signals(website_val: dict[str, Any] | None) -> dict[s
     if isinstance(identity_assessment, dict) and not identity_assessment.get("publishable", True):
         return {"has_career_page": False, "career_urls": [], "hiring_keywords_found": []}
 
-    career_urls: list[str] = []
+    career_evidence: dict[str, dict[str, Any]] = {}
     keywords_found: list[str] = []
 
-    def _is_valid_career_url(u: str) -> bool:
-        ul = u.lower()
-        return bool(u and not any(bad in ul for bad in ("pa-jobb", "paa-jobb", "på-jobb")))
-
-    if website_val.get("careers_url") and _is_valid_career_url(str(website_val["careers_url"])):
-        career_urls.append(str(website_val["careers_url"]))
-
-    # 1. Check pages crawl list
-    pages = website_val.get("pages") or []
-    for page in pages:
-        page_url = str(page.get("url") or "")
+    for page in (website_val, *(website_val.get("pages") or [])):
+        page_url = str(page.get("url") or page.get("final_url") or "")
         page_title = str(page.get("title") or "")
-        page_text = str(page.get("main_text_excerpt") or "")
-
-        # Check URL
-        if _is_valid_career_url(page_url) and any(p.search(page_url) for p in CAREER_URL_PATTERNS):
-            career_urls.append(page_url)
-
-        # Check title
-        if any(p.search(page_title) for p in NORWEGIAN_HIRING_PATTERNS):
-            keywords_found.append(f"Title: '{page_title[:60]}'")
-
-        # Check text
-        for pat in NORWEGIAN_HIRING_PATTERNS:
-            m = pat.search(page_text)
-            if m:
-                snippet = page_text[max(0, m.start() - 20) : min(len(page_text), m.end() + 40)].strip()
-                keywords_found.append(f"Keyword '{m.group(0)}' ({snippet})")
-
-    # 2. Check homepage main text & description
-    desc = str(website_val.get("description") or "")
-    main_text = str(website_val.get("main_text_excerpt") or "")
-    combined = desc + " " + main_text
-    for pat in NORWEGIAN_HIRING_PATTERNS:
-        m = pat.search(combined)
-        if m:
-            snippet = combined[max(0, m.start() - 20) : min(len(combined), m.end() + 40)].strip()
-            keywords_found.append(f"Found '{m.group(0)}' on homepage ({snippet})")
-
-    deduped_urls: list[str] = []
-    for u in career_urls:
-        if u and u not in deduped_urls:
-            deduped_urls.append(u)
+        parsed = urlsplit(page_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            continue
+        date_independent_text = page_title
+        if CAREER_PATH.search(parsed.path):
+            date_independent_text += "\n" + str(page.get("main_text_excerpt") or page.get("visible_text_excerpt") or "")
+        match = next((match for pattern in NORWEGIAN_HIRING_PATTERNS if (match := pattern.search(date_independent_text))), None)
+        if match:
+            span = date_independent_text[max(0, match.start() - 35):match.end() + 65].strip()
+            career_evidence.setdefault(page_url, {"source_url": page_url, "claim_span": span,
+                                                    "content_sha256": page.get("content_sha256")})
+            if span not in keywords_found:
+                keywords_found.append(span)
 
     return {
-        "has_career_page": len(deduped_urls) > 0,
-        "career_urls": deduped_urls,
+        "has_career_page": bool(career_evidence),
+        "career_urls": list(career_evidence),
+        "career_evidence": list(career_evidence.values()),
         "hiring_keywords_found": keywords_found[:5],
     }
 
@@ -172,7 +142,7 @@ def evaluate_company_hiring(
         signals.append({
             "source": "company_website",
             "type": "career_section",
-            "detail": f"Active career section: {', '.join(web_signals['career_urls'])}",
+            "detail": f"Recruitment page: {', '.join(web_signals['career_urls'])}",
             "urls": web_signals["career_urls"],
         })
     if web_signals["hiring_keywords_found"]:
@@ -206,6 +176,9 @@ def evaluate_company_hiring(
                 "content_sha256": job.get("content_sha256"),
                 "employer_org": job.get("employer_org"),
                 "employer_name": job.get("employer_name"),
+                "match_type": job.get("match_type"),
+                "valid_through": job.get("valid_through"),
+                "nav_feed": job.get("nav_feed"),
                 "kind": "nav_ad",
             })
     new_obs.extend(nav_jobs)

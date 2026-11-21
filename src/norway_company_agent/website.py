@@ -24,7 +24,7 @@ import tldextract
 import trafilatura
 
 from .evidence import evidence
-from .verified_items import is_hub_url
+from .verified_items import is_hub_url, is_recruitment_page_url, is_website_policy_page, parse_iso_date
 
 USER_AGENT = "builderr-signalpost-poc/0.1 (+https://builderr.ai)"
 SOCIAL_HOSTS = {
@@ -133,7 +133,7 @@ def _site_identity_text(soup: BeautifulSoup) -> str:
     blocks = soup.select("footer, [role='contentinfo'], address")[:12]
     snippets = [block.get_text(" ", strip=True)[:1600] for block in blocks]
     legal_label = re.compile(
-        r"\b(?:org\.?\s*(?:nr|nummer|no\.?)|organisasjonsnummer|foretaks\s*(?:nr|nummer)|organi[sz]ation\s+number|VAT\s*(?:no|number)|MVA\b)",
+        r"\b(?:org\.?\s*(?:nr|nummer|no\.?)|organisasjonsnummer|foretaks\s*(?:nr|nummer)|organi[sz]ation\s+number|reg(?:istration)?\.?\s*(?:no\.?|number)|VAT\s*(?:no|number)|MVA\b|EHF[ -]faktura\s*:\s*ELMA)",
         re.I,
     )
     formatted_number = re.compile(r"(?<!\d)\d{3}[\s.\u00a0-]*\d{3}[\s.\u00a0-]*\d{3}(?!\d)")
@@ -159,16 +159,17 @@ def _site_identity_text(soup: BeautifulSoup) -> str:
 
 
 _ROBOTS_CACHE: dict[str, tuple[Protego, float]] = {}
+_ROBOTS_OUTCOME: ContextVar[str] = ContextVar("website_robots_outcome", default="robots_disallowed")
 
 
-def _robots_allowed(url: str, timeout: float) -> bool:
+def _robots_status(url: str, timeout: float) -> str:
     assert_public_url(url)
     parsed = urllib.parse.urlparse(url)
     robots_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
     now = time.monotonic()
     cached = _ROBOTS_CACHE.get(robots_url)
     if cached and now - cached[1] < 86400:
-        return cached[0].can_fetch(url, USER_AGENT)
+        return "allowed" if cached[0].can_fetch(url, USER_AGENT) else "robots_disallowed"
 
     try:
         request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
@@ -177,14 +178,24 @@ def _robots_allowed(url: str, timeout: float) -> bool:
         if len(raw) > 512 * 1024:
             raw = raw[:512 * 1024].rsplit(b"\n", 1)[0]
     except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            return "robots_access_denied"
         if exc.code not in {404, 410}:
-            return False
+            return "robots_unavailable"
         raw = b""
+    except urllib.error.URLError as exc:
+        return "request_budget_exhausted" if str(exc.reason) == "website request budget exhausted" else "robots_unavailable"
     except (OSError, ValueError):
-        return False
+        return "robots_unavailable"
     parser = Protego.parse(raw.decode("utf-8-sig", errors="replace"))
     _ROBOTS_CACHE[robots_url] = (parser, now)
-    return parser.can_fetch(url, USER_AGENT)
+    return "allowed" if parser.can_fetch(url, USER_AGENT) else "robots_disallowed"
+
+
+def _robots_allowed(url: str, timeout: float) -> bool:
+    outcome = _robots_status(url, timeout)
+    _ROBOTS_OUTCOME.set(outcome)
+    return outcome == "allowed"
 
 
 def _social_links(base_url: str, soup: BeautifulSoup) -> list[dict[str, str]]:
@@ -291,7 +302,7 @@ def extract_date_from_text(text: str) -> str | None:
     m = re.search(r"\b(\d{1,2})\.(\d{1,2})\.(202[0-6])\b", text)
     if m:
         return f"{m.group(3)}-{m.group(2).zfill(2)}-{m.group(1).zfill(2)}"
-    m = re.search(r"\b(\d{1,2})\.?\s+([a-zA-ZæøåÆØÅ]+)\s+(202[0-6])\b", text)
+    m = re.search(r"\b(\d{1,2})\.?\s+([a-zA-ZæøåÆØÅ]+)\.?\s+(20\d{2})\b", text)
     if m:
         month_str = m.group(2).lower()
         if month_str in NORWEGIAN_MONTHS:
@@ -300,6 +311,15 @@ def extract_date_from_text(text: str) -> str | None:
     if m:
         return f"{m.group(1)}-{m.group(2)}-01"
     return None
+
+
+def extract_job_deadline(text: str) -> str | None:
+    """Read an explicitly labelled application deadline from the advert."""
+    match = re.search(r"\b(?:søknadsfrist|application deadline|søk senest)\b\s*:?\s*(.{1,40})", text, re.I)
+    if not match:
+        return None
+    date = parse_iso_date(extract_date_from_text(match[1]))
+    return date.isoformat() if date else None
 
 
 def extract_feed_news(feed_bytes: bytes, feed_url: str, base_url: str) -> list[dict[str, Any]]:
@@ -431,6 +451,8 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
     items: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
     lower_url = page_url.lower()
+    if is_website_policy_page(page_url) or is_recruitment_page_url(page_url):
+        return []
     if any(k in lower_url for k in ["/career", "/karriere", "/jobb", "/stilling", "/vacanc", "/work-with-us", "/ledige-stillinger"]):
         return []
     is_news_page = any(k in lower_url for k in ["aktuelt", "nyhet", "news", "press", "pressemelding", "innsikt", "blogg", "media", "artikkel", "siste-nytt"])
@@ -439,11 +461,8 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
     page_meta_date = None
     for meta_sel in (
         'meta[property="article:published_time"]',
-        'meta[property="article:modified_time"]',
         'meta[name="publish-date"]',
-        'meta[name="date"]',
         'meta[name="DC.date.issued"]',
-        'meta[property="og:updated_time"]',
     ):
         m_node = soup.select_one(meta_sel)
         if m_node and m_node.get("content"):
@@ -509,7 +528,7 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
     # Fallback for news hub pages (/aktuelt, /nyheter) where headings are direct h2/h3 links
     if not items and is_news_page:
         fallback_date = None
-        for meta_prop in ("article:published_time", "article:modified_time", "og:updated_time"):
+        for meta_prop in ("article:published_time",):
             m_tag = soup.find("meta", attrs={"property": meta_prop})
             if m_tag and m_tag.get("content"):
                 fallback_date = extract_date_from_text(str(m_tag["content"]))
@@ -563,12 +582,12 @@ def extract_website_news(page_url: str, soup: BeautifulSoup, raw_html: str, page
             if len(items) >= 6:
                 break
 
-    if not items and is_news_page:
+    if not items and (is_news_page or page_meta_date) and not is_hub_url(page_url):
         h1 = soup.find("h1")
         raw_title = h1.get_text(" ", strip=True) if h1 else (soup.title.get_text(" ", strip=True) if soup.title else "")
         if len(raw_title) >= 5 and not any(skip in raw_title.casefold() for skip in ["om oss", "kontakt", "cookie", "personvern", "meny", "forside"]):
             title = raw_title.split(" - ")[0].split(" | ")[0].strip()
-            pub_date = page_meta_date or extract_date_from_text(raw_html[:3000])
+            pub_date = page_meta_date
             if pub_date and title.casefold() not in {"nyheter", "aktuelt", "news", "presse", "pressemeldinger", "siste nytt"}:
                 items.append({
                     "title": title[:200],
@@ -767,6 +786,8 @@ def _jsonld_jobs(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
 
 
 def _jsonld_news(metadata: dict[str, Any], page_url: str, page_sha256: str | None = None) -> list[dict[str, Any]]:
+    if is_recruitment_page_url(page_url) or is_website_policy_page(page_url):
+        return []
     articles: list[dict[str, Any]] = []
 
     def walk(node: Any) -> None:
@@ -775,7 +796,7 @@ def _jsonld_news(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
             kinds = set(kind if isinstance(kind, list) else [kind])
             if kinds & {"NewsArticle", "Article", "BlogPosting"} and (node.get("headline") or node.get("name")):
                 title = str(node.get("headline") or node.get("name") or "").strip()
-                pub = str(node.get("datePublished") or node.get("dateCreated") or "")
+                pub = str(node.get("datePublished") or "")
                 pub_iso = extract_date_from_text(pub) or (pub[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", pub) else None)
                 url = urllib.parse.urljoin(page_url, str(node.get("url") or "")) if node.get("url") else page_url
                 excerpt = str(node.get("description") or node.get("articleBody") or "")[:300]
@@ -799,6 +820,29 @@ def _jsonld_news(metadata: dict[str, Any], page_url: str, page_sha256: str | Non
     walk(metadata.get("json-ld", []))
     walk(metadata.get("microdata", []))
     return articles
+
+
+def _article_publication_date(soup: BeautifulSoup, page_url: str, structured_articles: list[dict[str, Any]]) -> str | None:
+    for item in structured_articles:
+        if str(item.get("url") or "").rstrip("/") == page_url.rstrip("/"):
+            date = parse_iso_date(item.get("published_at"))
+            if date:
+                return date.isoformat()
+    for node in soup.select('meta[property="article:published_time"], meta[name="publish-date"], '
+                            'meta[name="DC.date.issued"], [itemprop="datePublished"]'):
+        value = str(node.get("content") or node.get("datetime") or node.get_text(" ", strip=True))
+        date = parse_iso_date(value) or parse_iso_date(extract_date_from_text(value))
+        if date:
+            return date.isoformat()
+    article = soup.find("article") or soup.find("main")
+    if article:
+        # A labelled publication date near the article heading is evidence;
+        # a general date elsewhere can be an event, update or footer date.
+        text = article.get_text(" ", strip=True)[:420]
+        labelled = re.search(r"\b(?:publisert|published)\b\s*:?\s*(.{1,40})", text, re.I)
+        if labelled:
+            return extract_date_from_text(labelled[1])
+    return None
 
 
 def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[str], list[str]]:
@@ -900,24 +944,23 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
             career_cands[clean] = min(score, career_cands.get(clean, score))
             continue
 
+        newsroom_hub = re.search(r"(?:^|/)(?:presse|press|pressemeldinger|nyheter|aktuelt|news|nytt|innblikk)/?$", path_lower)
         n_rank = next((i for i, t in enumerate(news_terms) if t in haystack), None)
-        if n_rank is not None:
+        if newsroom_hub or n_rank is not None:
             # A company press/news index is more useful than a product page
             # whose URL merely contains the word "news".
-            newsroom_hub = re.search(r"(?:^|/)(?:presse|press|pressemeldinger|nyheter|aktuelt|news)/?$", path_lower)
             score = (-3 if newsroom_hub else n_rank) + lang_penalty
             news_cands[clean] = min(score, news_cands.get(clean, score))
             continue
 
-        legal_path = re.search(r"(?:^|/)(?:policies/legal-notice|legal-notice|terms|vendor-terms|salgsbetingelser|salgsvilkar|kjopsvilkar)(?:/|$)", path_lower)
+        legal_path = re.search(r"(?:^|/)(?:legal-notice|terms|vendor-terms|salgsbetingelser|salgsvilkar|kjopsvilkar|personvern(?:-[\w-]+)?|privacy(?:-[\w-]+)?)(?:/|\.|$)", path_lower)
         o_rank = -1 if legal_path else next((i for i, t in enumerate(about_terms) if t in haystack), None)
         if o_rank is not None:
             score = o_rank + lang_penalty
             other_cands[clean] = min(score, other_cands.get(clean, score))
 
-    # Sitemaps regularly contain the leaf articles/ads missing from menu HTML.
-    # Use it whenever the verified site has an incomplete careers or news route.
-    if check_sitemap and (len(news_cands) < 2 or len(career_cands) < 1):
+    # Use sitemap discovery when direct navigation and feeds give neither route.
+    if check_sitemap and not news_cands and not career_cands:
         s_news, s_careers = _discover_sitemap_urls(base_url)
         for u in s_careers:
             if u not in career_cands:
@@ -929,6 +972,11 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
     sorted_careers = [u for u, _ in sorted(career_cands.items(), key=lambda x: x[1])]
     sorted_news = [u for u, _ in sorted(news_cands.items(), key=lambda x: x[1])]
     sorted_others = [u for u, _ in sorted(other_cands.items(), key=lambda x: x[1])]
+    contact = next((u for u in sorted_others
+                    if re.search(r"/(?:kontakt(?:-oss)?|contact(?:-us)?)(?:/|\.|$)", urllib.parse.urlsplit(u).path, re.I)), None)
+    if contact and contact not in sorted_others[:2]:
+        sorted_others.remove(contact)
+        sorted_others.insert(1, contact)
 
     selected: list[str] = []
     for bucket in (
@@ -955,7 +1003,7 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
         parsed_url.fragment,
     ))
     if not _robots_allowed(url, timeout):
-        return None, [], 1, 0, 0, "robots.txt disallows page or could not be checked"
+        return None, [], 1, 0, 0, _ROBOTS_OUTCOME.get()
     started = time.monotonic()
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
     try:
@@ -1029,6 +1077,8 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
         page = {
             "url": final_url,
             "title": page_soup.title.get_text(" ", strip=True)[:500] if page_soup.title else "",
+            "heading": (heading.get_text(" ", strip=True)[:250]
+                        if (heading := page_soup.select_one("main h1, article h1, h1")) else ""),
             "news_feed_links": [
                 urllib.parse.urljoin(final_url, str(link["href"]))
                 for link in page_soup.select('link[rel="alternate"][href]')
@@ -1039,6 +1089,7 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
             "main_text_excerpt": page_text[:5000],
             "visible_text_excerpt": page_soup.get_text(" ", strip=True)[:12000],
             "content_sha256": page_sha,
+            "article_publication_date": _article_publication_date(page_soup, final_url, sec_ld_news),
             "news_items": sec_ld_news + extract_website_news(final_url, page_soup, page_html, page_sha256=page_sha),
             "job_postings": sec_ld_jobs + extract_website_jobs(final_url, page_soup, page_html, page_sha256=page_sha),
         }
@@ -1224,6 +1275,21 @@ def fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_
         _REQUEST_CONTEXT.reset(token)
 
 
+def fetch_source_page(url: str, *, budget: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """Fetch one public evidence page under the ordinary robots and request controls."""
+    token = _REQUEST_CONTEXT.set({"budget": budget, "requests": 0})
+    try:
+        page, _, _, size, elapsed, error = _fetch_secondary_page(
+            url, homepage_domain=_registered_domain(url), timeout=8.0, max_bytes=2_000_000,
+        )
+        budget.record_request(count=0, bytes_received=size, elapsed_ms=elapsed)
+        return page, error
+    except (OSError, ValueError) as exc:
+        return None, str(exc)
+    finally:
+        _REQUEST_CONTEXT.reset(token)
+
+
 def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4_000_000) -> tuple[dict[str, Any], dict[str, Any]]:
     supplied_url = str(url or "").strip()
     supplied_scheme = bool(re.match(r"^https?://", supplied_url, re.I))
@@ -1235,7 +1301,9 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
     except ValueError as exc:
         return evidence("website", "blocked", "registry_linked_company_website", normalized, note=str(exc)), {"requests": 0, "bytes": 0, "latencies_ms": []}
     if not _robots_allowed(normalized, timeout):
-        return evidence("website", "blocked", "registry_linked_company_website", normalized, note="robots.txt disallows page or could not be checked"), {"requests": 1, "bytes": 0, "latencies_ms": []}
+        reason = _ROBOTS_OUTCOME.get()
+        status = "blocked" if reason in {"robots_disallowed", "robots_access_denied"} else "source_error"
+        return evidence("website", status, "registry_linked_company_website", normalized, note=reason), {"requests": 1, "bytes": 0, "latencies_ms": []}
     started = time.monotonic()
     request = urllib.request.Request(normalized, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
     try:
@@ -1290,7 +1358,8 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
             "content_sha256": homepage_sha,
             "extraction_state": _extraction_state(text, soup),
         }
-        homepage_news = _jsonld_news(structured, final_url, page_sha256=homepage_sha) + extract_website_news(final_url, soup, html, page_sha256=homepage_sha)
+        homepage_ld_news = _jsonld_news(structured, final_url, page_sha256=homepage_sha)
+        homepage_news = homepage_ld_news + extract_website_news(final_url, soup, html, page_sha256=homepage_sha)
         homepage_jobs = _jsonld_jobs(structured, final_url, page_sha256=homepage_sha) + extract_website_jobs(final_url, soup, html, page_sha256=homepage_sha)
         all_news_items = list(homepage_news)
         all_job_postings = list(homepage_jobs)
@@ -1300,6 +1369,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
             "title": title[:500],
             "main_text_excerpt": text[:5000],
             "content_sha256": value["content_sha256"],
+            "article_publication_date": _article_publication_date(soup, final_url, homepage_ld_news),
             "news_feed_links": [
                 urllib.parse.urljoin(final_url, str(link["href"]))
                 for link in soup.select('link[rel="alternate"][href]')
@@ -1385,9 +1455,15 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
                                for word in listing_title.casefold().split() if len(word) >= 6)
                     or any(term in ad_text.casefold() for term in ("stilling besatt", "stillingen er besatt", "application closed", "søknadsfristen er utløpt"))):
                 continue
+            application_due = extract_job_deadline(ad_text)
+            structured_ad = next((job for job in ad_page.get("job_postings") or []
+                                  if job.get("kind") == "jsonld_job" and job.get("url") == ad_page["url"]), {})
+            closing_dates = [value for value in (structured_ad.get("valid_through"), application_due) if value]
             verified_job_adverts.append({
-                "title": listing_title, "url": ad_page["url"], "source_url": ad_page["url"],
+                "title": ad_page.get("heading") or listing_title, "url": ad_page["url"], "source_url": ad_page["url"],
                 "content_sha256": ad_page["content_sha256"], "kind": "company_site_ad",
+                "published_at": structured_ad.get("published_at"),
+                "valid_through": min(closing_dates, default=None), "application_due": application_due,
                 "ad_text_excerpt": ad_text,
                 "career_source_url": career_url,
                 "active_listing": {"source_url": career_url,
@@ -1397,7 +1473,11 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         all_job_postings.extend(verified_job_adverts)
         value["verified_job_adverts"] = verified_job_adverts
 
-        if not any(item.get("published_at") for item in all_news_items):
+        if not any(item.get("published_at") and str(item.get("url") or "").startswith("https://")
+                   and not is_website_policy_page(str(item["url"]), str(item.get("title") or ""))
+                   and not is_recruitment_page_url(str(item["url"]))
+                   and (item.get("verification") == "inline_newsroom" or not is_hub_url(str(item["url"])))
+                   for item in all_news_items):
             for feed in (link for page in pages for link in page.get("news_feed_links", [])):
                 if not feed.startswith("https://") or _registered_domain(feed) != homepage_domain or feed.rstrip("/") in seen_pages:
                     continue
@@ -1418,15 +1498,24 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         # publication evidence. Reuse pages already fetched for site discovery.
         checked_articles = 0
         article_pages = {str(page.get("url") or "").rstrip("/"): page for page in pages}
-        for item in all_news_items:
+        checked_article_urls: set[str] = set()
+        for item in sorted(all_news_items, key=lambda value: (
+            str(value.get("url") or "").rstrip("/") in article_pages, str(value.get("published_at") or "")
+        ), reverse=True):
             if item.get("verification") not in {"feed_listing", "site_listing"}:
                 continue
             article_url = str(item.get("url") or "")
             if (not article_url.startswith("https://")
                     or _registered_domain(article_url) != homepage_domain
+                    or is_website_policy_page(article_url, str(item.get("title") or ""))
+                    or is_recruitment_page_url(article_url)
                     or is_hub_url(article_url)):
                 continue
-            article = article_pages.get(article_url.rstrip("/"))
+            article_key = article_url.rstrip("/")
+            if article_key in checked_article_urls:
+                continue
+            checked_article_urls.add(article_key)
+            article = article_pages.get(article_key)
             if article is None:
                 if checked_articles >= 2:
                     continue
@@ -1446,23 +1535,27 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
                     crawl_errors.append({"url": article_url, "error": error})
             article_title = str(article.get("title") or "") if article else ""
             listing_title = str(item.get("title") or "")
-            if (article and len(str(article.get("main_text_excerpt") or "")) >= 80
+            if (article and article.get("article_publication_date")
+                    and not is_website_policy_page(article["url"], article_title)
+                    and not is_recruitment_page_url(article["url"])
+                    and len(str(article.get("main_text_excerpt") or "")) >= 80
                     and listing_title and listing_title.casefold() in article_title.casefold()):
                 item["verification"] = "article_fetched"
                 item["article_text_excerpt"] = article["main_text_excerpt"]
                 item["url"] = article["url"]
                 item["source_url"] = article["url"]
                 item["content_sha256"] = article["content_sha256"]
+                item["published_at"] = article["article_publication_date"]
         value["pages"] = pages
         value["social_links"] = list({(item["platform"], item["url"]): item for item in social}.values())
 
-        # Deduplicate news items by title and prioritize specific dated articles over index pages
+        # Prefer retrieved articles and deduplicate on their URL rather than title.
         seen_news: set[str] = set()
         dedup_news: list[dict[str, Any]] = []
-        for n in all_news_items:
+        for n in sorted(all_news_items, key=lambda item: item.get("verification") == "article_fetched", reverse=True):
             if not n.get("published_at"):
                 continue
-            k = n["title"].casefold()
+            k = str(n.get("url") or "").split("#", 1)[0].rstrip("/")
             if k not in seen_news:
                 seen_news.add(k)
                 dedup_news.append(n)
@@ -1485,12 +1578,6 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         value["news_items"] = dedup_news
         value["job_postings"] = dedup_jobs
         value["crawl_errors"] = crawl_errors
-        for pg in pages[1:]:
-            pu = str(pg.get("url") or "")
-            pul = pu.lower()
-            if any(k in pul for k in ("/karriere", "/career", "/vacanc", "/stilling", "/jobber", "jobb-hos-oss", "jobbe-hos-oss", "ledige-stillinger")) and not any(b in pul for b in ("pa-jobb", "paa-jobb", "på-jobb")):
-                value["careers_url"] = pu
-                break
         return evidence("website", "available", "registry_linked_company_website", final_url, value=value, note="Company-controlled claim layer; not an official registry fact", content_sha256=value["content_sha256"]), {"requests": requests, "bytes": bytes_received, "latencies_ms": page_latencies}
     except urllib.error.HTTPError as exc:
         elapsed = int((time.monotonic() - started) * 1000)

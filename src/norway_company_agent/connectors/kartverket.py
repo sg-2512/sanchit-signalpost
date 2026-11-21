@@ -2,19 +2,41 @@
 
 Queries official Norwegian national address and cadastre registers via Geonorge (ws.geonorge.no)
 to resolve official Gnr/Bnr/Snr cadastral identifiers, verified poststed, and exact WGS84
-geographic coordinates (lat/long) for company operating locations.
+geographic coordinates (lat/long) for registered addresses.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from typing import Any
 
 GEONORGE_ADRESSER_ENDPOINT = "https://ws.geonorge.no/adresser/v1/sok"
 USER_AGENT = "SignalPostAgent/1.0 (+https://builderr.ai/signalpost)"
+
+
+def matches_registered_address(registered: dict[str, Any], geocoded: dict[str, Any]) -> bool:
+    """Reject fuzzy Geonorge hits that differ from the registry address."""
+    lines = registered.get("adresse") or []
+    street = str(lines[-1] if isinstance(lines, list) and lines else lines or "")
+    postcode = str(registered.get("postnummer") or "")
+    if not street or not re.fullmatch(r"\d{4}", postcode):
+        return False
+    if postcode != str(geocoded.get("postnummer") or ""):
+        return False
+    reg_municipality = str(registered.get("kommunenummer") or "")
+    geo_municipality = str(geocoded.get("kommunenummer") or "")
+    if reg_municipality and reg_municipality != geo_municipality:
+        return False
+
+    def compact(value: str) -> str:
+        return re.sub(r"[^\w]", "", unicodedata.normalize("NFKC", value).casefold())
+
+    return compact(street) == compact(str(geocoded.get("formatted_address") or ""))
 
 
 def geocode_address_kartverket(
@@ -88,11 +110,11 @@ def geocode_address_kartverket(
         digest = hashlib.sha256(raw).hexdigest()
 
         return {
-            "formatted_address": hit.get("adressetekst") or clean_addr,
-            "postnummer": hit.get("postnummer") or postcode,
-            "poststed": hit.get("poststed") or municipality,
+            "formatted_address": hit.get("adressetekst"),
+            "postnummer": hit.get("postnummer"),
+            "poststed": hit.get("poststed"),
             "kommunenummer": hit.get("kommunenummer"),
-            "kommunenavn": hit.get("kommunenavn") or municipality,
+            "kommunenavn": hit.get("kommunenavn"),
             "latitude": lat,
             "longitude": lon,
             "gardsnummer": gnr,

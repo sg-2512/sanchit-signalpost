@@ -12,7 +12,77 @@ import pytest
 from norway_company_agent.batch import terminal_envelope
 from norway_company_agent.budget import BudgetTracker
 from norway_company_agent.connectors.ats_discovery import verified_career_jobs
-from norway_company_agent.verified_items import validate_job_item
+from norway_company_agent.source_policy import filter_publishable_observations
+from norway_company_agent.verified_items import validate_job_item, validate_news_item
+
+
+def test_news_gate_rejects_dated_policy_pages_and_retains_privacy_news():
+    site = "https://example.no"
+    policy = f"{site}/personvern-cookies/"
+    news = f"{site}/nyheter/nye-personvernverktoy-lansert/"
+    item = {
+        "title": "Personvern og cookies - Example",
+        "url": policy,
+        "source_url": policy,
+        "published_at": datetime.now(timezone.utc).date().isoformat(),
+        "content_sha256": "a" * 64,
+        "verification": "article_fetched",
+        "name_in_article": True,
+    }
+    args = {"company_name": "Example AS", "site_url": site}
+    assert validate_news_item(item, **args) == (False, "website_policy_page_not_news")
+    assert validate_news_item({**item, "url": news}, **args) == (False, "website_policy_page_not_news")
+    assert validate_news_item({
+        **item, "url": news, "source_url": news, "title": "Example lanserer nye personvernverktøy",
+    }, **args)[0]
+
+    saved_observation = {
+        "signal_type": "dated_news", "strategy": "website_news_discovery",
+        "source_class": "company_site", "source_url": policy, "article_url": policy,
+        "metrics": {"title": item["title"]},
+    }
+    accepted, quarantined = filter_publishable_observations([saved_observation])
+    assert accepted == []
+    assert quarantined[0]["quarantine_reason"] == "website_policy_page_not_news"
+
+    news_record = {
+        "status": "available", "source_url": policy, "content_sha256": item["content_sha256"],
+        "value": {"items": [item], "count": 1},
+    }
+    profile = {"organisation_number": "923609016", "name": "Example AS", "evidence": {"news": news_record}}
+    now = datetime.now(timezone.utc).isoformat()
+    result = terminal_envelope(profile, run_id="news-regression", modules=[], started_at=now, completed_at=now)
+    claim = next(claim for claim in result["claims"] if claim["field"] == "dated_news")
+    assert claim["availability"] == "not_available"
+    assert news_record["status"] == "not_available"
+    assert news_record["value"] == {"items": [], "count": 0}
+
+
+def test_job_ad_is_excluded_from_news_and_kept_in_job_observations():
+    from run_agent import extract_website_job_observations
+
+    site = "https://example.no"
+    url = f"{site}/jobs/12345-senior-engineer"
+    careers = f"{site}/careers"
+    now = datetime.now(timezone.utc).isoformat()
+    digest = "a" * 64
+    job = {
+        "title": "Senior engineer", "url": url, "source_url": url,
+        "kind": "company_site_ad", "content_sha256": digest, "career_source_url": careers,
+        "active_listing": {"source_url": careers, "content_sha256": "b" * 64, "retrieved_at": now},
+        "ad_text_excerpt": "Example AS is hiring a senior engineer. Please apply through our careers site. " * 3,
+    }
+    profile = {"organisation_number": "923609016", "name": "Example AS", "evidence": {"website": {
+        "status": "available", "source_url": site,
+        "value": {"identity_assessment": {"publishable": True}, "verified_job_adverts": [job]},
+    }}}
+    assert extract_website_job_observations(profile)[0]["source_url"] == url
+    news = {**job, "verification": "article_fetched", "name_in_article": True, "published_at": now}
+    assert validate_news_item(news, company_name="Example AS", site_url=site) == (False, "recruitment_page_not_news")
+    accepted, quarantined = filter_publishable_observations([
+        {"signal_type": "dated_news", "source_url": url, "strategy": "website_news_discovery"},
+    ])
+    assert not accepted and quarantined[0]["quarantine_reason"] == "recruitment_page_not_news"
 
 
 def test_linked_sitemap_job_reaches_envelope_with_its_own_evidence():
@@ -64,7 +134,9 @@ def test_linked_sitemap_job_reaches_envelope_with_its_own_evidence():
                          "source_url": "https://data.brreg.no/enhetsregisteret/api/enheter/923609016",
                          "value": {"navn": "EXAMPLE ASA"}},
             "website": {"status": "available", "source_url": site, "content_sha256": "a" * 64,
-                        "value": {"final_url": site, "title": "Example ASA", "identity_assessment": {"publishable": True}}},
+                        "value": {"final_url": site, "title": "Example ASA",
+                                  "identity_text_excerpt": "Example ASA, org.nr 923609016",
+                                  "identity_assessment": {"publishable": True}}},
             "jobs": {"status": "available", "source_url": advert, "value": {"items": jobs}},
         },
     }

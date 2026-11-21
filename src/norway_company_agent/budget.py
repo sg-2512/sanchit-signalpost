@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import contextmanager
 from typing import Any
 
 from .http import FetchResult, fetch_json as _raw_fetch_json
@@ -30,6 +31,8 @@ class BudgetTracker:
         request_reserve: int = 150,
     ) -> None:
         self._lock = threading.Lock()
+        self._request_owner = threading.local()
+        self._request_attribution: dict[str, dict[str, float | int]] = {}
         self.max_requests = max_requests
         self.max_cost_usd = max_cost_usd
         self.max_time_seconds = max_time_seconds
@@ -40,6 +43,23 @@ class BudgetTracker:
         self.bytes_received = 0
         self.latencies_ms: list[int] = []
         self._start_time = time.monotonic()
+
+    @contextmanager
+    def attributed_to(self, organisation_number: str):
+        """Attribute requests on the current worker thread to one company."""
+        previous = getattr(self._request_owner, "value", None)
+        self._request_owner.value = str(organisation_number)
+        try:
+            yield
+        finally:
+            self._request_owner.value = previous
+
+    def _attribute_locked(self, count: int, cost_usd: float, bytes_received: int) -> None:
+        owner = getattr(self._request_owner, "value", None) or "shared"
+        row = self._request_attribution.setdefault(owner, {"requests": 0, "cost_usd": 0.0, "bytes": 0})
+        row["requests"] += count
+        row["cost_usd"] += cost_usd
+        row["bytes"] += bytes_received
 
     def elapsed_seconds(self) -> float:
         return time.monotonic() - self._start_time
@@ -86,6 +106,7 @@ class BudgetTracker:
             self.requests += actual
             self.cost_usd += cost_usd
             self.bytes_received += bytes_received
+            self._attribute_locked(actual, cost_usd, bytes_received)
             if elapsed_ms:
                 self.latencies_ms.append(elapsed_ms)
 
@@ -94,6 +115,7 @@ class BudgetTracker:
             self.requests += count
             self.cost_usd += cost_usd
             self.bytes_received += bytes_received
+            self._attribute_locked(count, cost_usd, bytes_received)
             latency = elapsed_ms or latency_ms
             if latency:
                 self.latencies_ms.append(latency)
@@ -147,4 +169,8 @@ class BudgetTracker:
                 "elapsed_seconds": round(self.elapsed_seconds(), 1),
                 "p50_ms": latencies[len(latencies) // 2] if latencies else None,
                 "p95_ms": latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))] if latencies else None,
+                "request_attribution": {
+                    "by_company": {owner: dict(row) for owner, row in self._request_attribution.items() if owner != "shared"},
+                    "shared": dict(self._request_attribution.get("shared", {"requests": 0, "cost_usd": 0.0, "bytes": 0})),
+                },
             }

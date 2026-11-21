@@ -56,7 +56,12 @@ def generate_company_synthesis(
     valid_years = [y[:4] for y in (reg_year, rec_year_str) if len(y) >= 4 and y[:4].isdigit()]
     filing_year = max(valid_years, key=int) if valid_years else (rec_year_str or reg_year or None)
     raw_rev = latest_fin.get("revenue") if latest_fin.get("revenue") is not None else latest_rec.get("revenue")
-    raw_profit = latest_fin.get("profit") if latest_fin.get("profit") is not None else (latest_rec.get("annual_result") if latest_rec.get("annual_result") is not None else latest_rec.get("operating_result"))
+    raw_profit = (
+        latest_fin.get("annual_result") if latest_fin.get("annual_result") is not None
+        else latest_fin.get("profit") if latest_fin.get("profit") is not None
+        else latest_rec.get("annual_result")
+    )
+    raw_operating_result = latest_fin.get("operating_result") if latest_fin.get("operating_result") is not None else latest_rec.get("operating_result")
     try:
         revenue = float(raw_rev) if raw_rev is not None else None
     except (ValueError, TypeError):
@@ -65,6 +70,10 @@ def generate_company_synthesis(
         profit = float(raw_profit) if raw_profit is not None else None
     except (ValueError, TypeError):
         profit = None
+    try:
+        operating_result = float(raw_operating_result) if raw_operating_result is not None else None
+    except (ValueError, TypeError):
+        operating_result = None
 
     roles = (evidence.get("roles") or {}).get("value") or {}
     roles_list = roles.get("roles") or []
@@ -231,12 +240,14 @@ def generate_company_synthesis(
         lead_parts.append(f"CEO {ceo}")
     if chair:
         lead_parts.append(f"board chair {chair}")
-    loc_str = f"operating across {loc_count} registered workplace(s)" if loc_count > 1 else f"headquartered in {muni}"
+    location_sentence = ""
+    if loc_count:
+        units = "subunit" if loc_count == 1 else "subunits"
+        location_sentence = f"BRREG lists {loc_count} registered {units}."
+    leadership_sentence = ""
     if lead_parts:
-        leadership_sentence = f"Led by {' and '.join(lead_parts)}, {loc_str}."
-    else:
-        leadership_sentence = f"The entity is {loc_str}."
-    what_it_does_full = f"{what_it_does} {leadership_sentence}"
+        leadership_sentence = f"Led by {' and '.join(lead_parts)}."
+    what_it_does_full = " ".join(filter(None, (what_it_does, leadership_sentence, location_sentence)))
 
     # Financials & Digital Presence
     fin_trends = financials.get("financial_trends") or {}
@@ -244,14 +255,25 @@ def generate_company_synthesis(
     eq_ratio = fin_trends.get("equity_ratio")
     growth_label = fin_trends.get("growth_label")
 
-    if filing_year and revenue is not None and rec_year_str == str(filing_year):
-        rev_str = f"{revenue:,.0f} NOK revenue"
-        prof_str = f"net profit of {profit:,.0f} NOK" if profit is not None else "net profit unrecorded"
-        fin_str = f"Latest {filing_year} filings report {rev_str} and {prof_str}"
-    elif filing_year and revenue is not None:
-        rev_str = f"{revenue:,.0f} NOK revenue"
-        prof_str = f"net profit of {profit:,.0f} NOK" if profit is not None else "net profit unrecorded"
-        fin_str = f"Annual accounts filed through {filing_year} (prior {rec_year_str} statement reports {rev_str} and {prof_str})"
+    def result_text(value: float, *, annual: bool) -> str:
+        label = "net" if annual else "operating"
+        if value < 0:
+            return f"{label} loss of {abs(value):,.0f} NOK"
+        if value > 0:
+            return f"{label} profit of {value:,.0f} NOK"
+        return f"{label} result of 0 NOK"
+
+    reported_figures = []
+    if revenue is not None:
+        reported_figures.append(f"{revenue:,.0f} NOK revenue")
+    if operating_result is not None:
+        reported_figures.append(result_text(operating_result, annual=False))
+    if profit is not None:
+        reported_figures.append(result_text(profit, annual=True))
+    if filing_year and reported_figures and rec_year_str == str(filing_year):
+        fin_str = f"Latest {filing_year} filings report {', '.join(reported_figures)}"
+    elif filing_year and reported_figures:
+        fin_str = f"Annual accounts filed through {filing_year} (prior {rec_year_str} statement reports {', '.join(reported_figures)})"
         if solv_status and eq_ratio is not None:
             fin_str += f" (financial health: {solv_status}, {eq_ratio*100:.1f}% equity ratio"
             if growth_label:
@@ -321,7 +343,10 @@ def generate_company_synthesis(
         lead_eids.append(f"ev-roles-{org}")
     if site_url:
         lead_eids.append(f"ev-website-{org}")
-    _add_sentence(leadership_sentence, lead_eids or [f"ev-registry_live-{org}"])
+    if leadership_sentence:
+        _add_sentence(leadership_sentence, lead_eids or [f"ev-registry_live-{org}"])
+    if location_sentence:
+        _add_sentence(location_sentence, [f"ev-locations-{org}"])
 
     # Sentence 3: performance (financials) → financials evidence
     perf_eids: list[str] = []

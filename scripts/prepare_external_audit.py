@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.external_footprint import publishable_observation  # noqa: E402
-from norway_company_agent.source_policy import OFFICIAL_SAFE, observation_decision  # noqa: E402
+from norway_company_agent.source_policy import OFFICIAL_SAFE, audit_snapshot_time, observation_decision  # noqa: E402
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -30,7 +30,7 @@ def main() -> None:
     parser.add_argument("--profiles", required=True)
     parser.add_argument("--observations", required=True)
     parser.add_argument("--output", required=True, help="Output JSONL path for reviewers to complete")
-    parser.add_argument("--sample-size", type=int, default=100, help="Deterministic stratified sample size (default: 100)")
+    parser.add_argument("--sample-size", type=int, default=100, help="Minimum deterministic stratified sample size (default: 100), including all published jobs and news")
     parser.add_argument("--seed", default="signalpost-external-audit-v1", help="Stable seed used to reproduce the sample")
     parser.add_argument(
         "--source-policy",
@@ -43,13 +43,15 @@ def main() -> None:
         parser.error("--sample-size must be at least 1")
 
     profiles = read_jsonl(Path(args.profiles))
-    observations = read_jsonl(Path(args.observations))
+    observations_path = Path(args.observations)
+    observations = read_jsonl(observations_path)
+    snapshot_time = audit_snapshot_time(observations_path)
     profile_by_org = {str(profile.get("organisation_number")): profile for profile in profiles}
     queue: list[dict[str, Any]] = []
     seen: set[str] = set()
     for obs in observations:
         if (
-            not observation_decision(obs, policy=args.source_policy).publishable
+            not observation_decision(obs, policy=args.source_policy, snapshot_time=snapshot_time).publishable
             or not publishable_observation(obs)
         ):
             continue
@@ -74,6 +76,9 @@ def main() -> None:
             "source_url": obs.get("source_url"),
             "retrieved_at": obs.get("retrieved_at"),
             "content_sha256": obs.get("content_sha256"),
+            "valid_through": obs.get("valid_through"),
+            "application_due": obs.get("application_due"),
+            "nav_feed": obs.get("nav_feed"),
             "evidence_span": obs.get("evidence_span"),
             "identity_proof": obs.get("identity_proof"),
             "acquisition_mode": obs.get("acquisition_mode"),
@@ -101,9 +106,12 @@ def main() -> None:
         strata,
         key=lambda key: hashlib.sha256(f"{args.seed}:{key[0]}:{key[1]}".encode()).hexdigest(),
     )
-    sample: list[dict[str, Any]] = []
-    selected_ids: set[str] = set()
-    selected_orgs: set[str] = set()
+    sample = [
+        row for key in ordered_strata if key[1] in {"dated_news", "job_posting"}
+        for row in strata[key]
+    ]
+    selected_ids = {row["id"] for row in sample}
+    selected_orgs = {row["organisation_number"] for row in sample}
     # First spread across strata and companies; only repeat a company if needed
     # to reach the requested size.
     while len(sample) < min(args.sample_size, len(queue)):

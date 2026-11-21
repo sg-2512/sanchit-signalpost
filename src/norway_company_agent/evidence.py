@@ -32,6 +32,7 @@ class Evidence:
     content_sha256: str | None = None
     source_row_key: str | None = None
     effective_at: str | None = None
+    http_status: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,6 +79,7 @@ def evidence(
     content_sha256: str | None = None,
     source_row_key: str | None = None,
     effective_at: str | None = None,
+    http_status: int | None = None,
 ) -> dict[str, Any]:
     return Evidence(
         field=field,
@@ -92,4 +94,5 @@ def evidence(
         content_sha256=content_sha256,
         source_row_key=source_row_key,
         effective_at=effective_at,
+        http_status=http_status,
     ).to_dict()

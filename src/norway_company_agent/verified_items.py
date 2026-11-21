@@ -46,6 +46,15 @@ GENERIC_NEWS_TITLES = {
     "artikler", "articles", "media", "innsikt", "nyhetsarkiv", "arkiv",
 }
 
+WEBSITE_POLICY_SLUGS = {
+    "privacy", "privacy-policy", "privacy-notice", "privacy-cookies", "privacy-and-cookies",
+    "cookie-policy", "cookies", "cookie-notice",
+    "personvern", "personvernerklaering", "personvernerklæring",
+    "personvern-cookies", "personvern-og-cookies", "personvern-og-informasjonskapsler",
+    "informasjonskapsler", "cookie-policy-og-personvern",
+    "terms-and-conditions", "terms-of-use", "brukervilkar", "brukervilkår",
+}
+
 # Hosts that are never a news article about the company.
 NON_NEWS_HOSTS = (
     "news.google.com", "google.com", "brreg.no", "patentstyret.no", "doffin.no", "mattilsynet.no",
@@ -87,6 +96,22 @@ def path_segments(url: str) -> list[str]:
     return [seg for seg in path.split("/") if seg]
 
 
+def is_website_policy_page(url: str, title: str = "") -> bool:
+    """Identify standalone policy pages without rejecting articles about privacy."""
+    segments = path_segments(url)
+    leaf = urllib.parse.unquote(segments[-1]).casefold() if segments else ""
+    leaf = re.sub(r"\.(?:html?|aspx?|php)$", "", leaf)
+    title_slug = re.sub(r"[^\w]+", "-", _norm_text(title).casefold()).strip("-")
+    return leaf in WEBSITE_POLICY_SLUGS or title_slug in WEBSITE_POLICY_SLUGS
+
+
+def is_recruitment_page_url(url: str) -> bool:
+    return any(urllib.parse.unquote(part).casefold() in {
+        "job", "jobs", "career", "careers", "jobb", "karriere", "stilling",
+        "stillinger", "ledige-stillinger", "vacancies", "recruitment",
+    } for part in path_segments(url))
+
+
 def _looks_like_leaf(segment: str) -> bool:
     """A leaf is an item slug or id, not a navigation word."""
     seg = segment.casefold().strip()
@@ -110,7 +135,17 @@ def is_hub_url(url: str) -> bool:
     # Schibsted / E24 news article pattern (e.g. /category/i/{article_id}/{slug})
     if len(segs) >= 2 and segs[-2] == "i":
         return False
+    if cision_release_channel(url):
+        return False
     return not _looks_like_leaf(segs[-1])
+
+
+def cision_release_channel(url: str) -> str | None:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or parsed.netloc != "news.cision.com":
+        return None
+    match = re.fullmatch(r"/(?:[a-z]{2}/)?([a-z0-9-]+)/r/[^/,]+,c[0-9]{5,}/?", urllib.parse.unquote(parsed.path))
+    return match.group(1) if match else None
 
 
 def parse_iso_date(value: Any) -> date | None:
@@ -213,6 +248,34 @@ def is_generic_job_title(title: str) -> bool:
 
 
 _NAV_AD_RE = re.compile(r"^https://arbeidsplassen\.nav\.no/stillinger/stilling/[0-9a-f-]{8,}$", re.I)
+
+
+def is_unexpired_nav_deadline(value: str, as_of: datetime | None = None) -> bool:
+    """Check the NAV closing timestamp, retaining its UTC offset."""
+    now = as_of or datetime.now(timezone.utc)
+    try:
+        closing = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    if closing.tzinfo:
+        return now < closing
+    return now.date() <= closing.date()
+
+
+def has_current_registered_nav_evidence(item: dict[str, Any], as_of: datetime | None = None) -> bool:
+    verification = item.get("nav_feed") or {}
+    now = as_of or datetime.now(timezone.utc)
+    try:
+        checked = datetime.fromisoformat(str(verification.get("checked_at") or ""))
+    except ValueError:
+        return False
+    return bool(
+        verification.get("registered_access") is True
+        and verification.get("status") == "ACTIVE"
+        and str(verification.get("source_url") or "").startswith("https://pam-stilling-feed.nav.no/api/v1/feedentry/")
+        and checked.tzinfo and checked <= now and checked.astimezone(timezone.utc).date() == now.date()
+        and is_unexpired_nav_deadline(str(item.get("valid_through") or item.get("expires_at") or ""), now)
+    )
 
 
 def validate_job_item(
@@ -319,13 +382,17 @@ def validate_job_item(
     if kind == "nav_ad" or host == "arbeidsplassen.nav.no":
         if not _NAV_AD_RE.match(url.split("?")[0].split("#")[0]):
             return False, "nav_not_single_ad"
+        match_type = str(item.get("match_type") or "")
+        if match_type == "nav_feed_employer_orgnr_match" and (
+            not item.get("employer_org") or not has_current_registered_nav_evidence(item)
+        ):
+            return False, "nav_current_registered_check_required"
         emp_org = str(item.get("employer_org") or "")
         sub_set = {str(s) for s in (subunit_orgs or ()) if s}
         if emp_org:
             if emp_org != str(org) and emp_org not in sub_set:
                 return False, "nav_employer_orgnr_mismatch"
             return True, "nav_single_ad_exact_orgnr" if emp_org == str(org) else "nav_single_ad_subunit_orgnr"
-        match_type = str(item.get("match_type") or "")
         emp_name = str(item.get("employer_name") or item.get("businessName") or "")
         if emp_name:
             if name_in_text(company_name, emp_name):
@@ -394,6 +461,10 @@ def validate_news_item(
     title = _norm_text(item.get("title"))
     if not url.startswith(("http://", "https://")):
         return False, "no_url"
+    if is_recruitment_page_url(url) or is_recruitment_page_url(str(item.get("source_url") or "")):
+        return False, "recruitment_page_not_news"
+    if is_website_policy_page(url, title) or is_website_policy_page(str(item.get("source_url") or "")):
+        return False, "website_policy_page_not_news"
     if len(title) < 8 or title.casefold() in GENERIC_NEWS_TITLES:
         return False, "generic_title"
     if not item.get("content_sha256"):

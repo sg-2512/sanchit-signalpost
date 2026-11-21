@@ -369,6 +369,9 @@ class OperatingLocationPlaceTests(unittest.TestCase):
             "name": "TEST NORGE AS",
             "evidence": {
                 "locations": {
+                    "status": "available",
+                    "source_url": "https://data.brreg.no/enhetsregisteret/api/underenheter?overordnetEnhet=912345678",
+                    "content_sha256": "a" * 64,
                     "value": {
                         "locations": [
                             {
@@ -388,7 +391,7 @@ class OperatingLocationPlaceTests(unittest.TestCase):
         self.assertEqual(obs[0]["platform"], "brreg")
         self.assertTrue(publishable_observation(obs[0]))
 
-    def test_extract_place_fallback_to_headquarters(self):
+    def test_registered_office_is_not_called_an_operating_location(self):
         import run_agent
         from norway_company_agent.external_footprint import publishable_observation
 
@@ -398,14 +401,20 @@ class OperatingLocationPlaceTests(unittest.TestCase):
             "address": {"kommune": "BERGEN", "poststed": "BERGEN", "adresse": ["Strandgaten 1"]},
             "evidence": {
                 "locations": {"value": {"locations": []}},
-                "registry": {"retrieved_at": "2026-09-28T12:00:00Z"},
+                "registered_address": {
+                    "status": "available",
+                    "source_url": "https://data.brreg.no/enhetsregisteret/api/enheter/912345678",
+                    "retrieved_at": "2026-09-28T12:00:00Z",
+                    "content_sha256": "b" * 64,
+                    "value": {"address": {"kommune": "BERGEN", "poststed": "BERGEN", "adresse": ["Strandgaten 1"]}},
+                },
             },
         }
         obs = run_agent.extract_place_observations(profile)
         self.assertEqual(len(obs), 1)
-        self.assertEqual(obs[0]["signal_type"], "place_summary")
-        self.assertEqual(obs[0]["strategy"], "official_headquarters_place")
-        self.assertEqual(obs[0]["metrics"]["municipality"], "BERGEN")
+        self.assertEqual(obs[0]["signal_type"], "registered_address")
+        self.assertEqual(obs[0]["strategy"], "official_registered_address")
+        self.assertEqual(obs[0]["metrics"]["relationship_scope"], "registered_business_address")
         self.assertTrue(publishable_observation(obs[0]))
 
     def test_read_organisation_inputs_norwegian_variants(self):
@@ -744,7 +753,7 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
             self.assertIn("IKT-driftstjenester", obs[0]["evidence_span"])
 
     def test_kartverket_cadastre_connector(self):
-        from norway_company_agent.connectors.kartverket import geocode_address_kartverket
+        from norway_company_agent.connectors.kartverket import geocode_address_kartverket, matches_registered_address
 
         mock_payload = {
             "adresser": [{
@@ -771,6 +780,13 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
             self.assertEqual(res["bruksnummer"], 2)
             self.assertEqual(res["latitude"], 61.215)
             self.assertIn("Gnr 14, Bnr 2", res["cadastral_id"])
+
+            registered = {"adresse": ["Sentrumsvegen 12"], "postnummer": "6899"}
+            self.assertTrue(matches_registered_address(registered, res))
+            del mock_payload["adresser"][0]["postnummer"]
+            mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
+            incomplete = geocode_address_kartverket("Sentrumsvegen 12", "VIK", "6899")
+            self.assertFalse(matches_registered_address(registered, incomplete))
 
     def test_mattilsynet_smilefjes_connector(self):
         from norway_company_agent.connectors.mattilsynet import fetch_mattilsynet_inspections

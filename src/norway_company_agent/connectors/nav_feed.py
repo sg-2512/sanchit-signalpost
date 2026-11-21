@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from ..verified_items import is_unexpired_nav_deadline
 from .nav_jobs import _strict_employer_core
 
 BASE = "https://pam-stilling-feed.nav.no"
@@ -32,6 +33,16 @@ _lock = threading.Lock()
 _index: dict[str, list[dict[str, Any]]] | None = None
 _token = ""
 _state = "not_started"
+
+
+class _NoNavRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep NAV bearer credentials on the exact API origin."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoNavRedirect())
 
 
 def reset_nav_feed() -> None:
@@ -63,7 +74,7 @@ def _get(url: str, budget: Any, *, token: str = "", since: str = "", timeout: fl
         started = time.monotonic()
         received = 0
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
+            with _OPENER.open(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
                 if not _nav_url(response.geturl(), "/api/"):
                     raise RuntimeError("unexpected_nav_redirect")
                 raw = response.read(5_000_001)
@@ -84,8 +95,7 @@ def _get(url: str, budget: Any, *, token: str = "", since: str = "", timeout: fl
     raise RuntimeError("nav_retry_exhausted")
 
 
-def _build_index(budget: Any) -> tuple[dict[str, list[dict[str, Any]]], str, str]:
-    token = os.environ.get("SIGNALPOST_NAV_FEED_TOKEN", "").strip()
+def _build_index(budget: Any, token: str) -> tuple[dict[str, list[dict[str, Any]]], str, str]:
     if not token:
         raw, _ = _get(TOKEN_URL, budget)
         token = raw.decode("utf-8", errors="replace").strip().splitlines()[-1]
@@ -131,13 +141,17 @@ def _build_index(budget: Any) -> tuple[dict[str, list[dict[str, Any]]], str, str
 
 def nav_feed_jobs_for_company(
     company_name: str, org_number: str, *, subunits: Any = (), budget: Any,
+    allow_experimental_token: bool = False,
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
     """Return currently active jobs and employer homepages for an exact entity."""
     global _index, _token, _state
+    registered_token = os.environ.get("SIGNALPOST_NAV_FEED_TOKEN", "").strip()
+    if not registered_token and not allow_experimental_token:
+        return [], [], {"feed_state": "registered_token_required", "candidate_ads": 0, "verified_ads": 0}
     with _lock:
         if _index is None and _state == "not_started":
             try:
-                _index, _token, _state = _build_index(budget)
+                _index, _token, _state = _build_index(budget, registered_token)
             except Exception as exc:
                 _index, _token, _state = {}, "", f"failed:{type(exc).__name__}"
         index, token, state = _index or {}, _token, _state
@@ -168,9 +182,9 @@ def nav_feed_jobs_for_company(
             ad = detail.get("ad_content") or {}
             employer = ad.get("employer") or {}
             employer_org = re.sub(r"\D", "", str(employer.get("orgnr") or ""))
-            expires = str(ad.get("expires") or "")[:10]
+            expires = str(ad.get("expires") or "")
             if (str(detail.get("status") or "").upper() != "ACTIVE" or employer_org not in wanted
-                    or (expires and expires < datetime.now(timezone.utc).date().isoformat())):
+                    or not is_unexpired_nav_deadline(expires)):
                 continue
             uuid = str(detail.get("uuid") or "")
             if uuid != item["uuid"]:
@@ -187,6 +201,10 @@ def nav_feed_jobs_for_company(
                 "organisation_number": str(org_number), "platform": "job_board", "signal_type": "job_posting",
                 "source_url": f"https://arbeidsplassen.nav.no/stillinger/stilling/{uuid}",
                 "retrieved_at": now, "published_at": ad.get("published"), "expires_at": ad.get("expires"),
+                "valid_through": expires,
+                "application_due": str(ad.get("applicationDue") or "").strip()[:80] or None,
+                "nav_feed": {"status": "ACTIVE", "checked_at": now, "source_url": item["url"],
+                             "registered_access": bool(registered_token and token == registered_token)},
                 "exact_entity": True, "content_sha256": hashlib.sha256(raw).hexdigest(),
                 "kind": "nav_ad", "employer_org": employer_org, "employer_name": employer.get("name"),
                 "match_type": "nav_feed_employer_orgnr_match", "job_title": title,

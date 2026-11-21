@@ -75,6 +75,8 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
             "title": title,
             "location": j.get("location") or row.get("municipality") or "Norge",
             "date_posted": j.get("published_at") or "",
+            "valid_through": j.get("valid_through"),
+            "application_due": j.get("application_due"),
             "job_url": j_url,
             "source": j_url,
             "sourceClass": (evidence.get("jobs") or {}).get("source_class") or "job_board",
@@ -99,6 +101,8 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
                 "title": title,
                 "location": metrics.get("location") or item.get("location") or row.get("municipality") or "Norge",
                 "date_posted": item.get("date_published") or item.get("published_at") or (item.get("retrieved_at", "")[:10] if item.get("retrieved_at") else ""),
+                "valid_through": item.get("valid_through"),
+                "application_due": item.get("application_due"),
                 "job_url": j_url,
                 "source": item.get("source_url"),
                 "sourceClass": item.get("source_class") or "job_board",
@@ -597,7 +601,7 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
         "municipality": row.get("municipality", ""),
         "industryCode": row.get("industry_code", ""),
         "industry": row.get("industry_label", ""),
-        "website": row.get("website"),
+        "website": None if identity_assessment and not identity_assessment.get("publishable") else row.get("website"),
         "adverse": bool(row.get("bankrupt") or row.get("liquidating")),
         "slice": row.get("sample_slice", "preserved_eligible"),
         "split": row.get("evaluation_split", "development"),
@@ -629,6 +633,8 @@ def render_showcase_html(
     rows: List[dict],
     external_by_org: Optional[Dict[str, List[dict]]] = None,
     limit: Optional[int] = None,
+    *,
+    reviewed_observations: int = 0,
 ) -> str:
     external_by_org = external_by_org or {}
     compacted = [compact_company_profile(row, external_by_org.get(str(row.get("organisation_number")), [])) for row in rows]
@@ -646,7 +652,8 @@ def render_showcase_html(
 
     payload = json.dumps(compacted, ensure_ascii=False).replace("</", "<\\/")
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
-    return template.replace("__DATA_PAYLOAD__", payload)
+    audit = f"{reviewed_observations} published observations reviewed" if reviewed_observations > 0 else "No independent review recorded"
+    return template.replace("__AUDIT_STATUS__", audit).replace("__DATA_PAYLOAD__", payload)
 
 
 def write_showcase_html(
@@ -654,6 +661,8 @@ def write_showcase_html(
     observations: Optional[List[dict]] = None,
     output_path: Optional[Path] = None,
     limit: Optional[int] = None,
+    *,
+    reviewed_observations: int = 0,
 ) -> Path:
     if output_path is None:
         output_path = Path("out/showcase.html")
@@ -671,6 +680,6 @@ def write_showcase_html(
         if org:
             external_by_org[org].append(obs)
 
-    html_content = render_showcase_html(profiles, external_by_org, limit=limit)
+    html_content = render_showcase_html(profiles, external_by_org, limit=limit, reviewed_observations=reviewed_observations)
     output_path.write_text(html_content, encoding="utf-8")
     return output_path

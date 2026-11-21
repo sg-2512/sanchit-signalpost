@@ -7,7 +7,9 @@ from bs4 import BeautifulSoup
 
 from run_agent import apply_live_registry_precedence, extract_social_observations, extract_workforce_observation, merge_verified_jobs
 from norway_company_agent.connectors.patentstyret import classify_ip_status
+from norway_company_agent.connectors.kartverket import matches_registered_address
 from norway_company_agent.batch import build_contract_claims_and_evidence
+from norway_company_agent.budget import BudgetTracker
 from norway_company_agent.hiring import evaluate_company_hiring
 from norway_company_agent.http import FetchResult
 from norway_company_agent.identity import assess_entity_identity, apply_entity_identity_gate, apply_website_identity_gate
@@ -15,6 +17,84 @@ from norway_company_agent.official import fetch_official_modules, normalize_grou
 from norway_company_agent.synthesis import generate_company_synthesis
 from norway_company_agent.website import _priority_links, extract_website_jobs
 from norway_company_agent.verified_items import validate_job_item
+
+
+def test_service_page_with_jobber_in_url_is_not_recruitment():
+    from norway_company_agent.hiring import extract_website_hiring_signals
+
+    service = {"url": "https://example.no/tjenester/nybygg-og-takjobber/", "title": "Nybygg og takjobber",
+               "main_text_excerpt": "Vi gjør store og små takjobber.", "content_sha256": "a" * 64}
+    site = {"careers_url": service["url"], "pages": [service]}
+    assert not extract_website_hiring_signals(site)["has_career_page"]
+    opening = {"url": "https://example.no/stillinger/", "title": "Ledige stillinger",
+               "main_text_excerpt": "Ingen ledige stillinger for tiden.", "content_sha256": "b" * 64}
+    site["pages"].append(opening)
+    assert extract_website_hiring_signals(site)["career_urls"] == [opening["url"]]
+
+
+def test_article_publication_date_uses_article_evidence_and_ignores_modification():
+    from norway_company_agent.website import _article_publication_date
+
+    url = "https://example.no/aktuelt/ny-avtale-signert"
+    modified_only = BeautifulSoup(
+        '<meta property="article:modified_time" content="2026-11-21"><article>Contract date 12 November 2026</article>',
+        "html.parser",
+    )
+    assert _article_publication_date(modified_only, url, []) is None
+    assert _article_publication_date(modified_only, url, [
+        {"url": "https://example.no/other", "published_at": "2026-11-01"},
+    ]) is None
+    article = BeautifulSoup('<main><h1>Ny avtale</h1><p>Publisert: 12. november 2026</p></main>', "html.parser")
+    assert _article_publication_date(article, url, []) == "2026-11-12"
+
+
+def test_job_deadline_requires_an_explicit_label_in_the_advert():
+    from norway_company_agent.website import extract_job_deadline
+
+    assert extract_job_deadline("Søknadsfrist: 29. november. 2026.") == "2026-11-29"
+    assert extract_job_deadline("Publisert: 29. november 2026.") is None
+    assert extract_job_deadline("Søknadsfrist: Snarest mulig.") is None
+
+
+def test_dibk_uses_exact_approval_row(monkeypatch):
+    from norway_company_agent.connectors import dibk
+    from norway_company_agent.external_footprint import publishable_observation
+
+    org = "994223402"
+    result = FetchResult(f"{dibk.ENDPOINT}/{org}", 200, 1, 100,
+                         body={"enterprise": {"organizational_number": org, "name": "EXAMPLE AS"},
+                               "status": {"approved": True, "approval_period_to": "2099-01-01"}},
+                         retrieved_at="2026-11-21T10:00:00Z", content_sha256="a" * 64)
+    monkeypatch.setattr(dibk, "fetch_json", lambda *args, **kwargs: result)
+    approval = dibk.fetch_construction_approval(org)
+    assert approval["metrics"]["status"] == "approved"
+    assert publishable_observation(approval)
+    result.body["enterprise"]["organizational_number"] = "923609016"
+    assert dibk.fetch_construction_approval(org) is None
+
+
+def test_scoped_country_contact_and_company_release_use_fetched_identity(monkeypatch):
+    from norway_company_agent.connectors import scoped_company_sources as sources
+
+    contact = "https://example.com/no/support/contact/"
+    release = "https://news.cision.com/no/example-motor/r/ny-norsk-avtale,c9999999"
+    company = "EXAMPLE MOTOR NORWAY AS"
+    org = "958684975"
+    pages = {
+        contact: {"url": contact, "content_sha256": "a" * 64,
+                  "visible_text_excerpt": f"Organisasjonsnummer {org} {company}"},
+        release: {"url": release, "content_sha256": "b" * 64,
+                  "main_text_excerpt": f"{company} har inngått en avtale i Norge.",
+                  "news_items": [{"source_url": release, "title": "Norsk avtale inngått", "published_at": "2026-11-01"}]},
+    }
+    monkeypatch.setattr(sources, "fetch_source_page", lambda url, **_: (pages[url], None))
+    presence = sources.fetch_norwegian_presence(contact, org=org, company=company, budget=None)
+    assert presence["value"]["url"] == "https://example.com/no/"
+    item = sources.fetch_company_press_release(release, org=org, company=company, budget=None)
+    assert item["source_url"] == release and item["content_sha256"] == "b" * 64
+    pages[release]["main_text_excerpt"] = "Et annet selskap har signert avtalen."
+    pages[release]["visible_text_excerpt"] = company
+    assert sources.fetch_company_press_release(release, org=org, company=company, budget=None) is None
 
 
 def test_registered_address_does_not_count_as_operating_location():
@@ -31,6 +111,92 @@ def test_registered_address_does_not_count_as_operating_location():
     assert all(item["content_sha256"] != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" for item in evidence)
 
 
+def test_registered_address_and_subunit_are_both_published():
+    profile = {"organisation_number": "981929055", "name": "TELIA NORGE AS", "evidence": {
+        "locations": {"status": "available", "source_url": "https://data.brreg.no/subunits",
+                      "content_sha256": "a" * 64,
+                      "value": {"locations": [{"organisation_number": "123456789", "name": "TELIA SHOP"}]}},
+        "registered_address": {"status": "available", "source_url": "https://data.brreg.no/entity",
+                               "content_sha256": "b" * 64,
+                               "value": {"location_type": "registered_business_address", "address": {"postnummer": "0150"}}},
+    }}
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-21T00:00:00Z")
+    by_field = {claim["field"]: claim for claim in claims}
+    assert by_field["registered_address"]["availability"] == "available"
+    assert by_field["operating_locations"]["availability"] == "available"
+    assert by_field["registered_address"]["evidence_ids"] != by_field["operating_locations"]["evidence_ids"]
+
+
+def test_registry_declared_url_does_not_verify_blocked_website():
+    profile = {"organisation_number": "888567232", "evidence": {
+        "registry_live": {"status": "available", "source_url": "https://data.brreg.no/enheter/888567232",
+                          "content_sha256": "a" * 64,
+                          "value": {"organisasjonsnummer": "888567232", "hjemmeside": "www.example.no"}},
+        "website": {"status": "blocked", "source_url": "https://www.example.no/"},
+    }}
+    claims, evidence = build_contract_claims_and_evidence(profile, "2026-11-21T00:00:00Z")
+    by_field = {claim["field"]: claim for claim in claims}
+    assert by_field["official_website"]["availability"] == "blocked"
+    assert by_field["registry_declared_website"]["value"] == "www.example.no"
+    claim_id, = by_field["registry_declared_website"]["evidence_ids"]
+    record = next(row for row in evidence if row["id"] == claim_id)
+    assert record["content_sha256"] == "a" * 64
+    assert "hjemmeside: www.example.no" in record["claim_span"]
+
+
+def test_group_404_preserves_status_without_empty_response_evidence():
+    empty_digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    def fetcher(url):
+        return FetchResult(url, 404, 1, 0, error="HTTP 404", content_sha256=empty_digest)
+    records, _ = fetch_official_modules("981929055", {"group"}, fetcher=fetcher)
+    group = records["group"]
+    assert group["status"] == "not_found"
+    assert group["http_status"] == 404
+    assert group["content_sha256"] is None
+
+
+def test_geocode_requires_exact_registry_address_match():
+    registered = {"adresse": ["Kongens gate 24"], "postnummer": "0153", "kommunenummer": "0301"}
+    geocoded = {"formatted_address": "Kongens gate 24", "postnummer": "0153", "kommunenummer": "0301"}
+    assert matches_registered_address(registered, geocoded)
+    assert not matches_registered_address(registered, {**geocoded, "postnummer": "0154"})
+    assert not matches_registered_address(registered, {**geocoded, "formatted_address": "Kongens gate 26"})
+    assert not matches_registered_address(registered, {**geocoded, "kommunenummer": None})
+
+
+def test_synthesis_distinguishes_operating_profit_from_net_loss_without_revenue():
+    profile = {"organisation_number": "986308970", "name": "GURIÅSEN AS", "legal_form": "AS",
+               "latest_submitted_accounts": "2025", "evidence": {
+                   "financials": {"status": "available", "source_url": "https://data.brreg.no/accounts",
+                                  "value": {"records": [{"period": {"tilDato": "2025-12-31"},
+                                                         "revenue": None, "operating_result": 100,
+                                                         "annual_result": -250}]}},
+               }}
+    profile["evidence"]["locations"] = {"status": "available", "value": {"locations": [{"organisation_number": "123456789"}]}}
+    synthesis = generate_company_synthesis(profile)
+    summary = synthesis["summary"]
+    assert "operating profit of 100 NOK" in summary
+    assert "net loss of 250 NOK" in summary
+    assert "net profit of -250" not in summary
+    assert "headquartered" not in summary
+    assert {"sentence": "BRREG lists 1 registered subunit.", "evidence_ids": ["ev-locations-986308970"], "cited": True} in synthesis["sentence_citations"]
+
+
+def test_request_attribution_reconciles_company_and_shared_calls():
+    budget = BudgetTracker(max_requests=20, request_reserve=0)
+    budget.record_request(count=2)
+    with budget.attributed_to("986308970"):
+        budget.record_request(count=3, cost_usd=0.01)
+    with budget.attributed_to("928940837"):
+        assert budget.try_start_request()
+    report = budget.report()
+    attribution = report["request_attribution"]
+    assert attribution["shared"]["requests"] == 2
+    assert attribution["by_company"]["986308970"]["requests"] == 3
+    assert attribution["by_company"]["928940837"]["requests"] == 1
+    assert sum(row["requests"] for row in attribution["by_company"].values()) + attribution["shared"]["requests"] == report["total_requests"]
+
+
 def test_missing_source_digest_never_becomes_empty_content_hash():
     profile = {"organisation_number": "981929055", "name": "TELIA NORGE AS", "evidence": {
         "roles": {"status": "available", "source_url": "https://data.brreg.no/example",
@@ -39,6 +205,40 @@ def test_missing_source_digest_never_becomes_empty_content_hash():
     claims, evidence = build_contract_claims_and_evidence(profile, "2026-11-15T00:00:00Z")
     assert not any(item["id"] == "ev-roles-981929055" for item in evidence)
     assert next(claim for claim in claims if claim["field"] == "roles")["availability"] != "available"
+
+
+def test_captured_privacy_operator_vetoes_a_positive_website_association():
+    profile = {"organisation_number": "937691513", "name": "DVERSI AS"}
+    url = "https://example.no/"
+    website = {"status": "available", "source_url": url, "content_sha256": "a" * 64, "value": {
+        "final_url": url, "title": "Dversi AS", "identity_text_excerpt": "Dversi AS. Org nr 937 691 513",
+        "identity_assessment": {"publishable": True},
+        "pages": [{"url": url + "privacy", "content_sha256": "b" * 64,
+                   "main_text_excerpt": 'Hundred Solutions AS ("we," "our," or "us") operates the Dversi platform.'}],
+    }}
+    profile["evidence"] = {"website": website}
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-21T00:00:00Z", first_party_activity_only=True)
+    claim = next(c for c in claims if c["field"] == "official_website")
+    assert claim["availability"] == "ambiguous"
+    assert "ev-website-operator-conflict-937691513" in claim["evidence_ids"]
+    conflict = website["value"]["entity_identity_assessment"]["operator_conflict"]
+    assert conflict["operator"] == "Hundred Solutions AS"
+    assert conflict["source_url"] == url + "privacy"
+    profile["website_attempts"] = [{"source_url": url, "publishable": True}]
+    build_contract_claims_and_evidence(profile, "2026-11-21T00:00:00Z", first_party_activity_only=True)
+    assert not profile["website_attempts"][0]["publishable"]
+    assert profile["website_attempts"][0]["operator_conflict"] == conflict
+
+
+def test_norwegian_ehf_elma_number_can_verify_site_operator():
+    profile = {"organisation_number": "956298660", "name": "MUSEENE ARVEN AS"}
+    url = "https://example.no/"
+    website = {"status": "available", "source_url": url, "content_sha256": "a" * 64, "value": {
+        "final_url": url, "title": "Museene Arven", "identity_text_excerpt": "EHF-faktura: ELMA 956 298 660",
+    }}
+    gated = apply_website_identity_gate(profile, website, require_legal_operator=True)
+    checked = apply_entity_identity_gate(profile, gated["website"], operator_assessment=gated["assessment"])
+    assert checked["website"]["value"]["identity_assessment"]["publishable"]
 
 
 def test_website_evidence_uses_captured_operator_text():
@@ -246,6 +446,16 @@ def test_press_archive_beats_product_news_link_with_one_news_slot():
             '<a href="/presse/">Presse</a>')
     links = _priority_links("https://example.no/", BeautifulSoup(html, "html.parser"), limit=1)
     assert links == ["https://example.no/presse/"]
+
+
+def test_direct_newsroom_takes_priority_over_feed_and_sitemap(monkeypatch):
+    def unexpected_sitemap(_):
+        raise AssertionError("The linked newsroom should be fetched first")
+
+    monkeypatch.setattr("norway_company_agent.website._discover_sitemap_urls", unexpected_sitemap)
+    html = '<link rel="alternate" type="application/rss+xml" href="/feed/"><a href="/nytt/">Les mer</a>'
+    links = _priority_links("https://example.no/", BeautifulSoup(html, "html.parser"), limit=1, check_sitemap=True)
+    assert links == ["https://example.no/nytt/"]
 
 
 def test_company_site_ad_requires_fresh_career_link_and_named_employer():

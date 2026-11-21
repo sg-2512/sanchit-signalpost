@@ -394,6 +394,40 @@ def assess_social_identity(profile: dict[str, Any], link: dict[str, str]) -> dic
     }
 
 
+def _declared_operator_conflict(profile: dict[str, Any], value: dict[str, Any]) -> dict[str, str] | None:
+    """Find a different legal entity explicitly acting as operator on a legal page."""
+    target = str(profile.get("name") or "")
+    if not target:
+        return None
+    declaration = re.compile(
+        r"^[ \t-]*([^\W\d_][\w.'& -]{0,95}?\s+(?:AS|ASA|AB|LTD|LIMITED|INC\.?))"
+        r"\s*\([^\n)]{0,100}\b(?:we|our|us|vi|oss)\b[^\n)]{0,100}\)"
+        r"\s+(?:operates|provides|driver|drifter)\b[^\n.]*",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    def normalize(name: str) -> list[str]:
+        return re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", name).casefold())
+
+    site_url = str(value.get("final_url") or "")
+    site_host = (urllib.parse.urlsplit(site_url).hostname or "").removeprefix("www.")
+    for page in (value, *(value.get("pages") or [])):
+        url = str(page.get("url") or page.get("final_url") or "")
+        parsed = urllib.parse.urlsplit(url)
+        if not site_host or (parsed.hostname or "").removeprefix("www.") != site_host:
+            continue
+        if not re.search(r"(?:^|/)(?:privacy|personvern|terms|vilkår|vilkar|legal)(?:[-./]|$)", parsed.path, re.I):
+            continue
+        digest = str(page.get("content_sha256") or "")
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+            continue
+        for match in declaration.finditer(str(page.get("main_text_excerpt") or "")):
+            operator = match.group(1).strip()
+            if normalize(operator) != normalize(target):
+                return {"operator": operator, "source_url": url, "content_sha256": digest,
+                        "claim_span": match.group(0).strip()[:300]}
+    return None
+
+
 def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) -> bool:
     """Require an on-site operator identifier without dropping legal-name tokens."""
     org = str(profile.get("organisation_number") or "")
@@ -415,7 +449,7 @@ def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) ->
     for index, page in enumerate(pages):
         identity_text = str(page.get("identity_text_excerpt") or "")
         for match in re.finditer(
-            r"\b(?:org\.?\s*(?:nr\.?|nummer|no\.?)|organisasjonsnummer|foretaks\s*(?:nr\.?|nummer)|organisation\s+number|organization\s+number|VAT\s*(?:no\.?|number)|MVA)\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0-]*){8}\d)(?!\d)",
+            r"\b(?:org\.?\s*(?:nr\.?|nummer|no\.?)|organisasjonsnummer|foretaks\s*(?:nr\.?|nummer)|organi[sz]ation\s+number|reg(?:istration)?\.?\s*(?:no\.?|number)|VAT\s*(?:no\.?|number)|MVA|EHF[ -]faktura\s*:\s*ELMA)\s*[:.]?\s*(?:NO\s*)?((?:\d[\s.\u00a0-]*){8}\d)(?!\d)",
             identity_text,
             re.I,
         ):
@@ -788,15 +822,36 @@ def apply_entity_identity_gate(
         return {"website": website, "assessment": None, "entity_assessment": None, "quarantined_social_links": 0}
 
     temporary_profile = {**profile, "evidence": {**profile.get("evidence", {}), "website": website}}
+    value = website.get("value") or {}
     website_assessment = (
         operator_assessment
         if operator_assessment is not None and operator_assessment.get("method") == "onsite_legal_operator_v1"
         else assess_website_identity(temporary_profile)
     )
     entity_assessment = assess_entity_identity(temporary_profile, evidence_items)
+    operator_conflict = _declared_operator_conflict(profile, value)
+    if operator_conflict:
+        reason = "A captured legal page names another platform operator"
+        website_assessment = {**website_assessment, "publishable": False, "status": "related_or_uncertain",
+                              "relationship": "ambiguous_or_unproven", "reasons": [reason]}
+        entity_assessment = {**entity_assessment, "publishable": False, "status": "rejected",
+                             "veto_reasons": [*entity_assessment.get("veto_reasons", []), reason],
+                             "operator_conflict": operator_conflict}
 
     # Zero-tolerance: either assessment can veto publication
     if not website_assessment.get("publishable") or not entity_assessment.get("publishable"):
+        value["identity_assessment"] = {**website_assessment, "publishable": False}
+        value["entity_identity_assessment"] = entity_assessment
+        if operator_conflict:
+            value["relationship_label"] = "ambiguous_or_unproven"
+            value["relationship_note"] = reason
+            value["social_links"] = []
+            conflict_host = urllib.parse.urlsplit(operator_conflict["source_url"]).hostname or ""
+            for attempt in profile.get("website_attempts") or []:
+                attempt_host = urllib.parse.urlsplit(attempt.get("final_url") or attempt.get("source_url") or "").hostname or ""
+                if attempt_host.removeprefix("www.") == conflict_host.removeprefix("www."):
+                    attempt.update(publishable=False, reasons=[reason], operator_conflict=operator_conflict)
+        website["value"] = value
         return {
             "website": website,
             "assessment": website_assessment,
@@ -806,7 +861,6 @@ def apply_entity_identity_gate(
             "rejection_reasons": entity_assessment.get("veto_reasons", []),
         }
 
-    value = website.get("value") or {}
     value["identity_assessment"] = website_assessment
     value["entity_identity_assessment"] = entity_assessment
     rel = website_assessment.get("relationship") or "exact_legal_entity"

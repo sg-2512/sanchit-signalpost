@@ -271,10 +271,13 @@ def _domain_slugs(name: str) -> list[str]:
     unicode_name = clean_name.casefold()
     variants: list[str] = []
     for text in (ascii_name, unicode_name):
-        words = [word for word in re.findall(r"[\w]+", text, re.UNICODE) if len(word) > 1 or word == "i"]
-        if not words:
+        words = re.findall(r"[^\W_]+", text)
+        if not any(len(word) > 1 for word in words):
             continue
-        for label in ("".join(words), "-".join(words) if len(words) > 1 else ""):
+        labels = ["".join(words), "-".join(words)]
+        if re.search(r"\w-\w", text):
+            labels.reverse()
+        for label in labels:
             label = label.strip("-")
             if not label or len(label) < 3:
                 continue
@@ -299,10 +302,12 @@ def probe_heuristic_domain(
     budget: Any | None = None,
     timeout: float = 4.0,
     accept_candidate: Any = None,
+    max_candidates: int = 8,
+    include_com: bool = True,
 ) -> str | None:
     """Heuristic Level-3 Norwegian domain probe (e.g. equinor.no, kongsberg.no).
 
-    Generates high-probability Norwegian .no domain candidates from the legal name.
+    Tries bounded .no and .com candidates based on the full legal name.
     When ``accept_candidate`` is supplied, DNS is only a cheap pre-filter and the
     caller performs the authoritative crawl and identity gate.
     """
@@ -313,9 +318,11 @@ def probe_heuristic_domain(
 
     tokens = [t for t in _tokens(name) if t not in GENERIC_NAME_TOKENS]
     if not tokens:
+        profile.setdefault("domain_probe_diagnostics", []).append({"status": "no_name_derived_candidate"})
         return None
 
     candidates = _domain_slugs(name)
+    full_name_slugs = {slug for slug in candidates[:2] if slug not in {candidates[0] + "as", candidates[0] + "-as"}}
     for cand in (tokens[0] if len(tokens[0]) >= 5 else "",):
         if cand and len(cand) >= 3 and cand not in candidates:
             candidates.insert(min(2, len(candidates)), cand)
@@ -331,12 +338,11 @@ def probe_heuristic_domain(
             continue
         for cand in _domain_slugs(subunit_name)[:1]:
             if cand not in candidates:
-                candidates.append(cand)
+                candidates.insert(min(3, len(candidates)), cand)
 
     org_clean = re.sub(r"\D", "", org)
     org_spaced = f"{org_clean[:3]} {org_clean[3:6]} {org_clean[6:]}" if len(org_clean) == 9 else org_clean
     clean_core = re.sub(r"\b(?:AS|ASA|BA|DA|ANS|ENK|NUF|STI)\b", "", name, flags=re.I).strip().lower()
-    is_intl_scale = str(profile.get("legal_form") or "").upper() == "ASA" or int(profile.get("employees") or 0) >= 20
 
     import socket as _socket
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeoutError
@@ -352,38 +358,38 @@ def probe_heuristic_domain(
             ex.shutdown(wait=False, cancel_futures=True)
             return False
 
-    for slug in candidates[:8]:
-        if len(slug) < 3:
-            continue
-        domains_to_try = [f"{slug}.no"]
-        if is_intl_scale and slug == candidates[0]:
-            domains_to_try.append(f"{slug}.com")
-        for dom in domains_to_try:
-            url = f"https://{dom}"
-            if not hasattr(urllib.request.urlopen, "_mock_name") and not _dns_resolves(dom, 2.0):
-                www_host = f"www.{dom}"
-                if not _dns_resolves(www_host, 2.0):
-                    continue
-                url = f"https://{www_host}"
-            if accept_candidate is not None:
-                if accept_candidate(url):
-                    return url
+    domains = []
+    for slug in candidates:
+        domains.append(f"{slug}.no")
+        if include_com and slug in full_name_slugs:
+            domains.append(f"{slug}.com")
+    for dom in domains[:max(0, max_candidates)]:
+        url = f"https://{dom}"
+        if not hasattr(urllib.request.urlopen, "_mock_name") and not _dns_resolves(dom, 2.0):
+            www_host = f"www.{dom}"
+            if not _dns_resolves(www_host, 2.0):
+                profile.setdefault("domain_probe_diagnostics", []).append({"url": url, "status": "dns_unresolved"})
                 continue
-            if budget and not budget.can_proceed(reserve=5):
-                return None
-            for candidate_url in (url,):
-                page = _read_candidate_page(candidate_url, budget, timeout)
-                if page is None:
-                    continue
-                raw, final_url = page
-                raw_lower = raw.lower()
-                if (
-                    (org_clean and org_clean in raw)
-                    or (org_spaced and org_spaced in raw)
-                    or name.lower() in raw_lower
-                    or (len(clean_core) >= 5 and clean_core in raw_lower)
-                ):
-                    return final_url
+            url = f"https://{www_host}"
+        profile.setdefault("domain_probe_diagnostics", []).append({"url": url, "status": "candidate_proposed"})
+        if accept_candidate is not None:
+            if accept_candidate(url):
+                return url
+            continue
+        if budget and not budget.can_proceed(reserve=5):
+            return None
+        page = _read_candidate_page(url, budget, timeout)
+        if page is None:
+            continue
+        raw, final_url = page
+        raw_lower = raw.lower()
+        if (
+            (org_clean and org_clean in raw)
+            or (org_spaced and org_spaced in raw)
+            or name.lower() in raw_lower
+            or (len(clean_core) >= 5 and clean_core in raw_lower)
+        ):
+            return final_url
 
     return None
 

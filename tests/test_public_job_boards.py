@@ -95,7 +95,9 @@ def test_linked_board_advert_without_deadline_keeps_listing_evidence(board, fiel
     assert not validate_job_item(expired, **kwargs)[0]
     profile = {"organisation_number": "923609016", "name": "EXAMPLE AS", "website": "https://example.no", "evidence": {
         "website": {"status": "available", "source_url": "https://example.no", "content_sha256": "a" * 64,
-                    "value": {"final_url": "https://example.no", "title": "Example AS", "identity_assessment": {"publishable": True}}},
+                    "value": {"final_url": "https://example.no", "title": "Example AS",
+                              "identity_text_excerpt": "Example AS, org.nr 923609016",
+                              "identity_assessment": {"publishable": True}}},
         "jobs": {"status": "available", "source_url": ad, "value": {"items": jobs}},
     }}
     stamp = datetime.now(timezone.utc).isoformat()

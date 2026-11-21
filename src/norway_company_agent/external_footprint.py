@@ -27,6 +27,7 @@ PLATFORMS = {
     "wikipedia",
     "company_directory",
     "patentstyret",
+    "dibk",
     "norid",
     "kartverket",
 }
@@ -36,6 +37,8 @@ SIGNAL_TYPES = {
     "profile_handle",
     "profile_metrics",
     "place_summary",
+    "registered_address",
+    "registered_address_geocode",
     "review",
     "review_summary",
     "job_posting",
@@ -45,6 +48,7 @@ SIGNAL_TYPES = {
     "buzz_metrics",
     "dated_news",
     "patent_trademark_record",
+    "regulatory_license_record",
     "official_notice",
     "legal_domain_ownership",
 }

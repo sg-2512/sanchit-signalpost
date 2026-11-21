@@ -16,7 +16,7 @@ from norway_company_agent.external_footprint import (  # noqa: E402
     INDEPENDENT_SENTIMENT_CLASSES,
     publishable_observation,
 )
-from norway_company_agent.source_policy import OFFICIAL_SAFE, observation_decision  # noqa: E402
+from norway_company_agent.source_policy import OFFICIAL_SAFE, audit_snapshot_time, observation_decision  # noqa: E402
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -149,9 +149,10 @@ def main() -> None:
     incomplete_labels = sum(not reviewed(item) for item in label_rows)
     labels = {key: item for key, item in labels.items() if reviewed(item)}
 
+    snapshot_time = audit_snapshot_time(Path(args.observations))
     policy_accepted = [
         item for item in observations
-        if observation_decision(item, policy=args.source_policy).publishable
+        if observation_decision(item, policy=args.source_policy, snapshot_time=snapshot_time).publishable
     ]
     policy_accepted_ids = {str(item.get("id")) for item in policy_accepted}
     audited = [item for item in observations if str(item.get("id")) in labels]

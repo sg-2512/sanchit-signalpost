@@ -8,9 +8,12 @@ scored output.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any
+
+from .verified_items import has_current_registered_nav_evidence, is_recruitment_page_url, is_website_policy_page
 
 
 OFFICIAL_SAFE = "official_safe"
@@ -28,6 +31,7 @@ OFFICIAL_SAFE_STRATEGIES = frozenset({
     "company_site_news",
     "company_site_job",
     "official_registry",
+    "official_registered_address",
     "official_annual_accounts",
     "kartverket_address_geocode",
     "independent_news_discovery",
@@ -69,7 +73,21 @@ def validate_policy_name(value: str) -> str:
     return value
 
 
-def observation_decision(observation: dict[str, Any], *, policy: str = OFFICIAL_SAFE) -> PublicationDecision:
+def audit_snapshot_time(observations_path: Path) -> datetime | None:
+    """Use the original completion timestamp for an offline audit of a saved batch."""
+    report = observations_path.with_name("batch-report.json")
+    if not report.exists():
+        return None
+    completed_at = json.loads(report.read_text(encoding="utf-8")).get("completed_at")
+    if not completed_at:
+        return None
+    timestamp = datetime.fromisoformat(completed_at)
+    return timestamp.astimezone(timezone.utc) if timestamp.tzinfo else None
+
+
+def observation_decision(
+    observation: dict[str, Any], *, policy: str = OFFICIAL_SAFE, snapshot_time: datetime | None = None,
+) -> PublicationDecision:
     """Return whether an observation may be emitted as scored evidence.
 
     Experimental mode is intentionally explicit; it does not certify rights.
@@ -77,6 +95,21 @@ def observation_decision(observation: dict[str, Any], *, policy: str = OFFICIAL_
     official competition result.
     """
     validate_policy_name(policy)
+    if (
+        policy == OFFICIAL_SAFE
+        and observation.get("strategy") == "nav_official_vacancy_feed"
+        and not has_current_registered_nav_evidence(observation, snapshot_time)
+    ):
+        return PublicationDecision(False, "nav_current_registered_check_required")
+    if observation.get("signal_type") == "dated_news":
+        metrics = observation.get("metrics") or {}
+        title = str(metrics.get("title") or observation.get("title") or observation.get("text") or "")
+        source_url = str(observation.get("source_url") or "")
+        article_url = str(observation.get("article_url") or metrics.get("url") or "")
+        if is_recruitment_page_url(source_url) or is_recruitment_page_url(article_url):
+            return PublicationDecision(False, "recruitment_page_not_news")
+        if is_website_policy_page(source_url, title) or is_website_policy_page(article_url):
+            return PublicationDecision(False, "website_policy_page_not_news")
     if policy == EXPERIMENTAL:
         return PublicationDecision(True, "experimental_mode")
 
