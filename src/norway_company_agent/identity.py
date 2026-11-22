@@ -428,6 +428,49 @@ def _declared_operator_conflict(profile: dict[str, Any], value: dict[str, Any]) 
     return None
 
 
+def published_website_url(record: dict[str, Any], fallback: str | None = None) -> str | None:
+    value = record.get("value") or {}
+    if (record.get("status") != "available" or not (value.get("identity_assessment") or {}).get("publishable")
+            or not re.fullmatch(r"[a-fA-F0-9]{64}", str(record.get("content_sha256") or ""))):
+        return None
+    url = str(value.get("final_url") or record.get("source_url") or fallback or "")
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    return url if parsed.scheme in {"http", "https"} and parsed.hostname and not parsed.username and not parsed.password else None
+
+
+def _registry_site_operator_declaration(profile: dict[str, Any], value: dict[str, Any]) -> dict[str, str] | None:
+    """Find an exact controller declaration in a registry-declared site's legal text."""
+    org = str(profile.get("organisation_number") or "")
+    names = re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", str(profile.get("name") or "")))
+    registry = (profile.get("evidence") or {}).get("registry_live") or {}
+    declared = str((registry.get("value") or {}).get("website") or "")
+    domain = registered_domain(str(value.get("final_url") or ""))
+    if (len(names) < 2 or not re.fullmatch(r"\d{9}", org) or not domain or registry.get("status") != "available"
+            or registered_domain(declared if "://" in declared else "https://" + declared) != domain):
+        return None
+    legal_name = r"[\W_]+".join(map(re.escape, names))
+    org_number = r"[\s.\u00a0-]*".join(org)
+    declaration = re.compile(
+        rf"\b{legal_name}\s*\(\s*(?:reg(?:istration)?\.?\s*(?:no\.?|nr\.?|number)?|org\.?\s*(?:nr\.?|nummer)|organisasjonsnummer)"
+        rf"\s*[:.]?\s*{org_number}\s*\)\s*(?:we|vi|operates|driver|is the data controller|er behandlingsansvarlig)\b",
+        re.I,
+    )
+    for page in value.get("pages") or []:
+        url = str(page.get("url") or "")
+        digest = str(page.get("content_sha256") or "")
+        if (registered_domain(url) != domain or not re.fullmatch(r"[a-f0-9]{64}", digest)
+                or not re.search(r"/(?:privacy|personvern|terms|legal|vilkar)(?:[-./]|$)", urllib.parse.urlsplit(url).path, re.I)):
+            continue
+        text = unicodedata.normalize("NFKC", str(page.get("visible_text_excerpt") or page.get("main_text_excerpt") or ""))
+        match = declaration.search(text)
+        if match:
+            return {"source_url": url, "content_sha256": digest, "literal_excerpt": match[0]}
+    return None
+
+
 def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) -> bool:
     """Require an on-site operator identifier without dropping legal-name tokens."""
     org = str(profile.get("organisation_number") or "")
@@ -454,6 +497,8 @@ def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) ->
             re.I,
         ):
             explicit_orgs.add(re.sub(r"\D", "", match.group(1)))
+        for match in re.finditer(r"(?<!\w)(?:NO\s*)?((?:\d[\s.\u00a0-]*){8}\d)\s*MVA\b", identity_text, re.I):
+            explicit_orgs.add(re.sub(r"\D", "", match.group(1)))
         for text in (operator_title if index == 0 else "", identity_text):
             normalized = unicodedata.normalize("NFKC", text).casefold()
             name_match |= bool(re.search(legal_pattern, normalized))
@@ -477,6 +522,14 @@ def _has_legal_operator_proof(profile: dict[str, Any], value: dict[str, Any]) ->
     email_host = str(reg.get("epostadresse") or "").rsplit("@", 1)[-1].lower()
     if not final_host or final_host != declared_host or final_host != email_host:
         return False
+    # Shared group sites can list a Norwegian office while identifying a
+    # different local business as the site's operator in structured data.
+    for operator in value.get("structured_organisations") or []:
+        operator_host = (urllib.parse.urlsplit(str(operator.get("url") or "")).hostname or "").lower().removeprefix("www.")
+        address = operator.get("address")
+        country = address.get("addressCountry") if isinstance(address, dict) else None
+        if operator_host == final_host and isinstance(country, str) and country.strip().casefold() not in {"", "no", "nor", "norway", "norge", "noreg"}:
+            return False
     address = reg.get("forretningsadresse") or reg.get("business_address") or {}
     if not isinstance(address, dict):
         return False
@@ -511,9 +564,13 @@ def apply_website_identity_gate(
     value = website.get("value") or {}
     assessment = assess_website_identity(temporary_profile)
     if require_legal_operator:
+        value.pop("operator_proof", None)
         reasons = assessment.get("reasons", [])
         unusable_page = any(reason.startswith(("captured page is a parked", "captured URL redirected", "business sports-club")) for reason in reasons)
-        exact = not unusable_page and _has_legal_operator_proof(profile, value)
+        declaration = _registry_site_operator_declaration(profile, value) if not unusable_page else None
+        exact = not unusable_page and bool(declaration or _has_legal_operator_proof(profile, value))
+        if declaration:
+            value["operator_proof"] = declaration
         assessment = {
             **assessment,
             "publishable": exact,
@@ -647,6 +704,8 @@ def assess_entity_identity(
         w_value.get("main_text_excerpt"),
     ]
     all_text_parts.extend(str(p or "") for p in homepage_parts if p)
+    if w_value.get("operator_proof"):
+        all_text_parts.append(str(w_value["operator_proof"].get("literal_excerpt") or ""))
     rendered = w_value.get("js_fallback") or {}
     all_text_parts.append(str(rendered.get("main_text_excerpt") or ""))
     for page in w_value.get("pages", []):
@@ -668,6 +727,8 @@ def assess_entity_identity(
 
     # --- Factor 2: Legal name ---
     name_match = name_in_text(name, combined_text) if name else False
+    if not name_match and orgnr_match and w_value.get("operator_proof"):
+        name_match = _registry_site_operator_declaration(profile, w_value) is not None
     if not name_match and orgnr_match and len(core) == 1 and len(core[0]) >= 3:
         # The generic text matcher deliberately rejects short one-word brands.
         # An exact number and that brand in the same on-site operator block is
@@ -779,10 +840,10 @@ def assess_entity_identity(
         status = "exact"
         publishable = True
     elif registry_declares_brand and name_match and not found_orgs:
-        status = "exact"
+        status = "registry_declared"
         publishable = True
     elif name_score >= 0.95 and domain_score >= 0.90 and weighted_score >= 0.95:
-        status = "exact"
+        status = "corroborated"
         publishable = True
     else:
         status = "review"
@@ -811,6 +872,7 @@ def apply_entity_identity_gate(
     evidence_items: list[dict[str, Any]] | None = None,
     *,
     operator_assessment: dict[str, Any] | None = None,
+    require_legal_operator: bool = False,
 ) -> dict[str, Any]:
     """Apply both website identity and multi-factor entity identity gates.
 
@@ -821,6 +883,11 @@ def apply_entity_identity_gate(
     if website.get("status") != "available":
         return {"website": website, "assessment": None, "entity_assessment": None, "quarantined_social_links": 0}
 
+    if require_legal_operator:
+        website_gate = apply_website_identity_gate(profile, website, require_legal_operator=True)
+        operator_assessment = website_gate["assessment"]
+        if not operator_assessment.get("publishable"):
+            return website_gate
     temporary_profile = {**profile, "evidence": {**profile.get("evidence", {}), "website": website}}
     value = website.get("value") or {}
     website_assessment = (
@@ -864,6 +931,8 @@ def apply_entity_identity_gate(
     value["identity_assessment"] = website_assessment
     value["entity_identity_assessment"] = entity_assessment
     rel = website_assessment.get("relationship") or "exact_legal_entity"
+    if rel == "exact_legal_entity" and entity_assessment.get("status") == "registry_declared":
+        rel = "registry_declared_company_site"
     value["relationship_label"] = rel
     if rel == "exact_legal_entity":
         value["relationship_note"] = "Verified official website of target legal entity (multi-factor confirmed)."

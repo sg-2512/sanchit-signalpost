@@ -7,14 +7,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 ALLOWED = {"available", "not_available", "blocked", "not_applicable", "ambiguous", "failed"}
+REQUIRED_SECTIONS = {"legal_identity", "claims", "evidence", "modules", "changes", "errors", "run", "operations"}
+CREDENTIAL_PARAMETERS = {"key", "api_key", "apikey", "access_token", "token", "secret", "client_secret", "password"}
 
 
 def jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open(encoding="utf-8-sig") as stream:
+        return [json.loads(line) for line in stream if line.strip()]
 
 
 def main() -> int:
@@ -38,6 +43,8 @@ def main() -> int:
     emitted = [str(row.get("organisation_number") or "") for row in envelopes]
     if len(expected) != len(set(expected)):
         errors.append("input has duplicate organisation numbers")
+    if not expected or any(not re.fullmatch(r"[0-9]{9}", org) for org in expected):
+        errors.append("input must contain valid nine-digit organisation numbers")
     if len(emitted) != len(expected):
         errors.append(f"expected {len(expected)} envelopes, found {len(emitted)}")
     if set(emitted) != set(expected):
@@ -47,12 +54,18 @@ def main() -> int:
     available_claims = 0
     linked_claims = 0
     for env in envelopes:
-        if env.get("availability") not in ALLOWED:
+        if missing := REQUIRED_SECTIONS.difference(env):
+            errors.append(f"envelope missing sections for {env.get('organisation_number')}: {', '.join(sorted(missing))}")
+        if env.get("availability") not in ALLOWED or env.get("state") not in ALLOWED:
             errors.append(f"invalid envelope availability for {env.get('organisation_number')}")
         for state in (env.get("modules") or {}).values():
             if state.get("state") not in ALLOWED:
                 errors.append(f"invalid module state for {env.get('organisation_number')}")
         evidence = {str(item.get("id") or item.get("evidence_id") or ""): item for item in env.get("evidence") or []}
+        for item in evidence.values():
+            url = urlsplit(str(item.get("source_url") or ""))
+            if url.username or any(name.casefold() in CREDENTIAL_PARAMETERS for name, _ in parse_qsl(url.query)):
+                errors.append(f"credential parameter in evidence URL for {env.get('organisation_number')}")
         for claim in env.get("claims") or []:
             if claim.get("availability") not in ALLOWED:
                 errors.append(f"invalid claim availability for {env.get('organisation_number')}:{claim.get('field')}")
@@ -66,13 +79,19 @@ def main() -> int:
             linked_claims += 1
             for item_id in ids:
                 item = evidence[item_id]
-                if not item.get("source_url") or not item.get("retrieved_at") or not item.get("content_sha256"):
+                if not item.get("source_url") or not item.get("retrieved_at") or not re.fullmatch(r"[0-9a-fA-F]{64}", str(item.get("content_sha256") or "")):
                     errors.append(f"incomplete evidence metadata: {env.get('organisation_number')}:{claim.get('field')}")
     if not report_path.exists():
         errors.append("missing run-report.json")
     if not registry_path.exists():
         errors.append("missing source-rights registry")
     run = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+    if run.get("source_policy") != "official_safe":
+        errors.append("run must use official_safe source policy")
+    if run.get("resource_budget_passed") is not True:
+        errors.append("run did not demonstrate compliance with its resource budget")
+    if (run.get("validation") or {}).get("passed") is not True:
+        errors.append("run did not pass its envelope validation")
     report = {
         "report_kind": "submission_readiness_v1",
         "input_companies": len(expected),

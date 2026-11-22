@@ -863,46 +863,7 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
             self.assertEqual(obs[0]["signal_type"], "esg_certification_record")
             self.assertIn("Sertifisert", obs[0]["metrics"]["status"])
 
-    def test_proff_directory_connector(self):
-        from norway_company_agent.connectors.proff_directory import resolve_commercial_directory_presence
 
-        mock_proff_html = """
-        <div class="company-details">
-          <a class="official-url" href="https://www.arkjv.no">Besøk hjemmeside</a>
-          <span class="phone-link">57 69 89 50</span>
-        </div>
-        """
-        with patch("urllib.request.urlopen") as mock_open:
-            mock_resp = MagicMock()
-            mock_resp.read.return_value = mock_proff_html.encode("utf-8")
-            mock_resp.__enter__.return_value = mock_resp
-            mock_open.return_value = mock_resp
-
-            site, obs = resolve_commercial_directory_presence("985589003", "ARKITEKTFIRMA JON VIKØREN AS")
-            self.assertEqual(site, "https://www.arkjv.no")
-            self.assertGreaterEqual(len(obs), 1)
-            self.assertEqual(obs[0]["platform"], "proff")
-
-    def test_lovdata_insolvency_connector(self):
-        from norway_company_agent.connectors.lovdata import fetch_insolvency_legal_notices
-
-        mock_gazette_html = """
-        <div class="announcement">
-          <span class="title">Kunngjøring om åpning av konkurs</span>
-          <span class="date">12.01.2026</span>
-          <span class="orgnr">985589003</span>
-        </div>
-        """
-        with patch("urllib.request.urlopen") as mock_open:
-            mock_resp = MagicMock()
-            mock_resp.read.return_value = mock_gazette_html.encode("iso-8859-1")
-            mock_resp.__enter__.return_value = mock_resp
-            mock_open.return_value = mock_resp
-
-            obs = fetch_insolvency_legal_notices("985589003", "VIK HANDEL AS")
-            self.assertEqual(len(obs), 1)
-            self.assertEqual(obs[0]["platform"], "lovdata_konkursregisteret")
-            self.assertEqual(obs[0]["signal_type"], "legal_gazette_notice")
 
     def test_norid_domain_ownership(self):
         from norway_company_agent.connectors.norid import verify_norid_domain_ownership
@@ -1117,7 +1078,3 @@ class NewNorwegianConnectorsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-

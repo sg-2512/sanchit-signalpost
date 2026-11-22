@@ -23,6 +23,119 @@ import urllib.request
 from typing import Any
 
 
+def synthesize_published_claims(claims: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the public brief from finalized claims with per-fact evidence IDs."""
+    by_field = {claim["field"]: claim for claim in claims}
+    by_id = {record["id"]: record for record in evidence}
+    facts: list[dict[str, Any]] = []
+
+    def value(field: str) -> Any:
+        claim = by_field.get(field, {})
+        return claim.get("value") if claim.get("availability") == "available" else None
+
+    def add(field: str, sentence: str, section: str = "what_it_does") -> None:
+        ids = [eid for eid in by_field[field].get("evidence_ids", []) if eid in by_id]
+        if ids:
+            facts.append({"id": field, "fact_id": f"{field}-{len(facts) + 1}", "sentence": sentence,
+                          "section": section, "evidence_ids": ids, "cited": True})
+
+    identity = value("legal_identity")
+    if identity:
+        add("legal_identity", f"{identity['name']} is registered under organisation number {identity['organisation_number']} ({identity.get('legal_form') or 'legal form unavailable'}).")
+    if activity := value("registered_industry"):
+        add("registered_industry", f"BRREG classifies the company under {activity['description']}.")
+    if description := value("website_description"):
+        add("website_description", f"The company's website describes its business as follows. {description}")
+    address = value("registered_address")
+    if address:
+        parts = address.get("address") or address
+        if isinstance(parts, dict) and parts.get("poststed"):
+            add("registered_address", f"The registered address is in {parts['poststed']}.")
+    roles = value("roles") or []
+    for role_code, label in (("DAGL", "general manager"), ("LEDE", "board chair")):
+        role = next((r for r in roles if r.get("role_code") == role_code and not r.get("inactive") and r.get("name")), None)
+        if role:
+            add("roles", f"BRREG lists {role['name']} as {label}.")
+    locations = value("operating_locations")
+    if locations:
+        units = locations.get("locations") if isinstance(locations, dict) else locations
+        if units:
+            add("operating_locations", f"BRREG lists {len(units)} registered subunit(s).")
+    accounts = value("annual_accounts")
+    if accounts and accounts.get("fiscal_year"):
+        year = accounts["fiscal_year"]
+        currency = accounts.get("currency")
+        label_by_field = {"revenue": "revenue", "operating_result": "operating result", "annual_result": "annual result"}
+        amounts = []
+        for field, label in label_by_field.items():
+            amount = accounts.get(field)
+            if isinstance(amount, (int, float)):
+                if amount < 0 and field != "revenue":
+                    label = "operating loss" if field == "operating_result" else "net loss"
+                    amount = abs(amount)
+                amounts.append(f"{label} of {amount:,.0f}" + (f" {currency}" if currency else ""))
+        if amounts:
+            add("annual_accounts", f"The {year} annual accounts report {', '.join(amounts)}.", "latest_facts")
+        if isinstance(accounts.get("equity"), (int, float)) and accounts["equity"] < 0:
+            add("annual_accounts", f"The {year} filing shows negative equity of {abs(accounts['equity']):,.0f}"
+                + (f" {currency}." if currency else "."), "latest_facts")
+    if comparison := value("annual_accounts_comparison"):
+        labels = {"revenue": "Revenue", "operating_result": "Operating result", "annual_result": "Annual result"}
+        for field, label in labels.items():
+            change = comparison["changes"].get(field)
+            if not change:
+                continue
+            direction = "rose" if change["change"] > 0 else "fell"
+            percent = change.get("change_pct")
+            by = f" by {abs(percent):.1f}%" if percent is not None else ""
+            add("annual_accounts_comparison", f"{label} {direction}{by} from {change['previous']:,.0f} {comparison['currency']} "
+                f"in {comparison['previous_year']} to {change['current']:,.0f} {comparison['currency']} in {comparison['current_year']}.",
+                "what_changed")
+    site = value("official_website")
+    if site:
+        url = site.get("url") if isinstance(site, dict) else site
+        if url:
+            add("official_website", f"A verified company website was found at {url}.")
+    approval = value("construction_approval")
+    if approval:
+        expiry = f" through {approval['valid_through']}" if approval.get("valid_through") else ""
+        add("construction_approval", f"DiBK lists a construction approval{expiry}.", "latest_facts")
+        for area in approval.get("approval_areas") or []:
+            scope = ", ".join(str(area[key]) for key in ("function", "subject_area") if area.get(key))
+            if scope:
+                grade = f" (grade {area['grade']})" if area.get("grade") else ""
+                add("construction_approval", f"DiBK approval covers {scope}{grade}.", "latest_facts")
+    news = value("dated_news")
+    if news:
+        add("dated_news", f"The evidence includes {news['count']} dated article(s) about the company.", "latest_facts")
+    jobs = value("job_postings")
+    if jobs:
+        add("job_postings", f"The snapshot records {jobs['count']} verified vacancy posting(s).", "latest_facts")
+
+    unknowns = [
+        label for field, label in (
+            ("annual_accounts", "annual accounts"), ("official_website", "official website"),
+            ("dated_news", "dated news"), ("job_postings", "active vacancies"),
+        ) if not value(field)
+    ]
+    ids = list(dict.fromkeys(eid for fact in facts for eid in fact["evidence_ids"]))
+    sources = [by_id[eid] for eid in ids]
+    summary = " ".join(fact["sentence"] for fact in facts)
+    what_it_does = " ".join(fact["sentence"] for fact in facts if fact["section"] == "what_it_does")
+    what_changed = " ".join(fact["sentence"] for fact in facts if fact["section"] == "what_changed")
+    latest_facts = " ".join(fact["sentence"] for fact in facts if fact["section"] == "latest_facts")
+    return {
+        "summary": summary, "text": summary, "what_it_does": what_it_does, "what_changed": what_changed,
+        "latest_facts": latest_facts, "evidence_linked": bool(facts),
+        "what_remains_unknown": f"The run could not verify {', '.join(unknowns)}." if unknowns else "",
+        "unknowns": unknowns, "sources": sources, "citations": sources, "evidence_ids": ids,
+        "source_urls": list(dict.fromkeys(item["source_url"] for item in sources if item.get("source_url"))),
+        "sentence_citations": facts,
+        "citation_density": float(bool(facts)), "citation_density_pct": 100.0 if facts else 0.0,
+        "model": "deterministic_published_claims", "grounded": bool(facts),
+    }
+
+
 def generate_company_synthesis(
     profile: dict[str, Any],
     observations: list[dict[str, Any]] | None = None,

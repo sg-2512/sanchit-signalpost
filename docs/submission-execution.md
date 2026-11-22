@@ -2,15 +2,7 @@
 
 ## Official-safe command
 
-```powershell
-uv run python run_agent.py `
-  --organisations <builderr-supplied-input.jsonl> `
-  --bulk brreg-enheter.csv `
-  --output-dir out/official-run `
-  --expected-count <input-count> `
-  --workers 8 `
-  --source-policy official_safe
-```
+Use the [evaluator command in the submission checklist](../SUBMISSION.md) with Builderr's input, frozen registry and budget.
 
 The run must emit one terminal envelope for every input. Official-safe mode
 does not use unofficial LinkedIn, Meta, Proff, or undeclared sources.
@@ -23,7 +15,19 @@ are never evidence. The candidate is fetched and must pass the legal-entity
 identity gate before website claims publish. When the variable is absent, the
 agent skips this step and continues normally.
 
-Do not store secrets in Git, `.env`, output JSONL, evidence, or logs.
+Supply evaluator secrets through process environment variables. Do not store them in Git, output JSONL, evidence, or logs.
+
+The public company-site crawler checks robots rules and rejects private or reserved addresses. The connection checks the resolved address before opening a socket, including after redirects. Public Tavily keyless search is rate-limited and supplies website leads. Google Places is optional and transient. See the [source registry](../config/source-rights.json) for publication boundaries and platform documentation.
+
+Paid discovery reserves the request and its estimated cost before making the call. Estimates use $0.005 per Brave search, $0.035 per Places Text Search (New) request and up to $0.057 when a separate Legacy Text Search and Place Details request are needed. [Brave pricing](https://brave.com/search/api/), [Google Maps Platform pricing](https://developers.google.com/maps/billing-and-pricing/pricing).
+
+| Source | Rights and use |
+| --- | --- |
+| Brønnøysundregistrene | NLOD 2.0 for open entity, role and subunit data. The run records the registry file hash and links to source records. [Open registry API](https://data.brreg.no/enhetsregisteret/api/dokumentasjon/en/index.html) |
+| Patentstyret | NLOD for public trademark, patent and design case data with source attribution. The connector uses an evaluator-provided subscription key if configured. [NIPO open data](https://www.patentstyret.no/en/open-data) |
+| Kartverket | Open address API under Kartverket's open-data terms. Address corroboration is linked to the registry record for the company. [Kartverket open data](https://www.kartverket.no/en/api-and-data/eiendomsdata/apent-tilgjengelige-data-og-tjenester) |
+| NAV | Registered feed access under the NAV vacancy API terms. Evaluation artifacts are timestamped snapshots. A public service displaying live NAV adverts needs prompt updates and removals. [Feed terms](https://arbeidsplassen.nav.no/vilkar-api) |
+| Company sites and recruitment boards | Public pages with permitted automated access and documented board APIs linked by the employer. Published evidence identifies the individual source item and its legal employer or operator. [Builderr source policy](https://builderr.ai/starter-briefs/signalpost-sources.md) |
 
 ## Prior verified-site cache
 

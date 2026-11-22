@@ -37,10 +37,10 @@ python3 first_run.py
 If the launcher does not work, run the same check directly:
 
 ```bash
-python3 scripts/run_refresh_replay.py --manifest tests/fixtures/refresh-snapshots.json --output out/refresh-demo.json
+python3 scripts/run_refresh_replay.py --manifest tests/fixtures/refresh-snapshots.json --output out/refresh-test.json
 ```
 
-Open `out/refresh-demo.json`. The `events` list shows what changed between two
+Open `out/refresh-test.json`. The `events` list shows what changed between two
 versions of one company profile and the source evidence for each change. The sample
 should find two expected changes, no false changes, and no extra changes when the
 same data is checked again.
@@ -74,13 +74,6 @@ uv run python run_agent.py \
   --output-dir out/eval-run \
   --expected-count 100
 
-# Master 6-pillar pipeline orchestrator:
-uv run python run_pipeline.py \
-  --organisations dev-100-companies.jsonl \
-  --bulk brreg-enheter.csv \
-  --output-dir out/eval-run \
-  --expected-count 100
-
 # Batch contract runner:
 uv run python scripts/run_competition_batch.py \
   --organisations entry-companies.jsonl \
@@ -97,6 +90,12 @@ uv run --group dev python -m pytest -q
 The published archive was clean-room verified on August 24, 2026: 104 tests and 5 subtests passed, followed by a one-company live BRREG smoke run with one terminal envelope, five requests and zero silent drops. That historical verification does not establish current challenge qualification.
 
 The local score reports are optimization proxies only. Their generated audit labels are not independent judgments, so proxy scores must never be described as official scores or qualification. Only Builderr's verified run can establish either.
+
+For a live benchmark, pass `--resume-mode refresh`. Use `--resume-mode revalidate` with a previous output directory to reuse verified website hints and refetch evidence. The default `reuse` mode can rebuild a saved snapshot and reports how many profiles came from that snapshot.
+
+Registered NAV consumers can supply `SIGNALPOST_NAV_FEED_TOKEN` and use `--nav-feed-cache` to retain a local cursor between runs. SignalPost checks each candidate vacancy live before publication.
+
+Run `python -m strategies.freeze --verify` to compare the workspace source hashes with the manifest. Run `python -m strategies.freeze --verify --release` from a clean checkout to also verify that the manifest is committed at the current Git HEAD.
 
 Increase `--count` and `--expected-count` together for larger local experiments. These local profiles are not submitted for scoring: Builderr supplies the official company batch at run time.
 
@@ -121,21 +120,15 @@ Read `docs/competition-control-loop.md`, `docs/external-connectors.md` and the p
 
 ## Optional API Keys & Configuration
 
-The agent is designed to be **100% self-contained and reproducible without any required API keys**. By default, it operates completely free on official Norwegian state registers and open public sources (Brønnøysundregistrene, Kartverket Matrikkelen, NAV Arbeidsplassen, Doffin Public Procurement, and Norid RDAP).
-
-If evaluators wish to enable optional external connectors, copy `.env.example` to `.env` or export environment variables:
-
-```bash
-cp .env.example .env
-```
+The official agent works without API keys. Use `--max-cost 0` to enforce zero spend on paid website discovery. Supply optional credentials as process environment variables. See `.env.example` for their names.
 
 | Environment Variable | Connector | Description | Default / Fallback |
 | :--- | :--- | :--- | :--- |
-| `GOOGLE_PLACES_API_KEY` | Google Places API (New) | Ratings, customer reviews, place data | Off ($0.00) / Official Kartverket cadastre |
+| `GOOGLE_PLACES_API_KEY` | Google Places API | Transient website candidates using evaluator-authorized access | Off ($0.00) / Registry and company-site discovery |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 | Official video channel metrics & engagement | Off ($0.00) / Website-linked channels |
 | `PATENTSTYRET_API_KEY`| Patentstyret API | Norwegian patents & registered trademarks | Off ($0.00) / Bulk NIPO records |
 | `BRAVE_API_KEY` | Brave Search API | Fallback search discovery for missing websites | Off ($0.00) / Norid RDAP & heuristic engine |
-| `OPENAI_API_KEY` | OpenAI API (gpt-4o) | LLM executive narrative synthesis | Off ($0.00) / 12-point deterministic rubric |
+| `SIGNALPOST_NAV_FEED_TOKEN` | NAV Job Vacancy Feed | Registered access for active job verification | Off / Verified company career pages |
 
 ## Submission contract
 
@@ -149,7 +142,7 @@ Submit a repository with:
 - a machine-readable run report with runtime, request count and third-party cost;
 - declared models, APIs, licences and source-rights assumptions.
 
-Email the repository URL, run command, models/APIs and expected cost per 100-company run to `submit@builderr.ai`.
+Email the repository URL, exact commit, public smoke report, evaluator command, API and licence disclosures, expected cost per official run, agent name and contact to `submit@builderr.ai`. See [SUBMISSION.md](SUBMISSION.md).
 
 ## Independent audit (optional local evidence)
 

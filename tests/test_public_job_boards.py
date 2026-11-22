@@ -200,3 +200,16 @@ def test_places_quota_failure_is_counted_and_reported_without_credentials(monkey
     status = google_places.connector_status()
     assert status["disabled_reason"] == "http_429_quota_exhausted"
     assert "test-secret" not in json.dumps(status)
+
+
+def test_zero_api_budget_rejects_paid_places_and_allows_free_requests(monkeypatch):
+    from norway_company_agent.connectors import google_places
+
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "test-secret")
+    monkeypatch.setattr(google_places, "_QUOTA_EXHAUSTED", False)
+    budget = BudgetTracker(max_requests=3, max_cost_usd=0, request_reserve=0)
+    with patch("urllib.request.urlopen") as request:
+        assert google_places.fetch_place_data("923609016", "Example AS", budget=budget) == []
+        request.assert_not_called()
+    assert budget.requests == 0
+    assert budget.try_start_request()

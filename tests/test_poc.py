@@ -1253,9 +1253,10 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(diff_profile(row, dict(row)), [])
 
     def test_missing_to_zero_is_a_real_change_with_provenance(self):
-        source = evidence("registry", "available", "official", "https://example.test/entity")
-        old = {"organisation_number": "923609016", "employees": None, "evidence": {"registry": source}}
-        new = {"organisation_number": "923609016", "employees": 0, "evidence": {"registry": source}}
+        old_source = evidence("registry", "available", "official", "https://example.test/entity", content_sha256="a" * 64)
+        new_source = evidence("registry", "available", "official", "https://example.test/entity", content_sha256="b" * 64)
+        old = {"organisation_number": "923609016", "employees": None, "evidence": {"registry": old_source}}
+        new = {"organisation_number": "923609016", "employees": 0, "evidence": {"registry": new_source}}
         change = diff_profile(old, new)[0]
         self.assertIsNone(change["old_value"])
         self.assertEqual(change["new_value"], 0)

@@ -28,13 +28,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 from bs4 import BeautifulSoup
 from protego import Protego
 
 from ..verified_items import host_of, is_generic_job_title, is_hub_url, parse_iso_date, registered_domain
-from ..website import USER_AGENT as CRAWLER_AGENT, _jsonld_jobs, assert_public_url
+from ..website import USER_AGENT as CRAWLER_AGENT, _jsonld_jobs, assert_public_url, extract_job_deadline
+from ..public_http import public_opener
 from .job_boards import board_endpoint, listed_adverts
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36"
@@ -70,7 +71,7 @@ class _NoJobRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_JOB_OPENER = urllib.request.build_opener(_NoJobRedirect())
+_JOB_OPENER = public_opener(_NoJobRedirect())
 
 
 def _read_job_source(url: str, budget: Any, timeout: float) -> bytes:
@@ -83,7 +84,13 @@ def _read_job_source(url: str, budget: Any, timeout: float) -> bytes:
         with _JOB_OPENER.open(request, timeout=timeout) as response:
             raw = response.read(750_001)
         budget.record_request(bytes_received=len(raw), count=0)
+        if not raw and urllib.parse.urlsplit(url).path == "/robots.txt":
+            return b"User-agent: *\nDisallow:\n"
         return raw if len(raw) <= 750_000 else b""
+    except urllib.error.HTTPError as exc:
+        if exc.code in {404, 410} and urllib.parse.urlsplit(url).path == "/robots.txt":
+            return b"User-agent: *\nDisallow:\n"
+        return b""
     except (OSError, ValueError):
         return b""
 
@@ -171,12 +178,16 @@ def verified_career_jobs(
         individual_ad = not is_hub_url(url) and (not workday or "/job/" in path)
         active_listing = listed_adverts(url, read) if public_board else {}
         ad_urls = list(active_listing) if public_board else [url] if individual_ad else []
+        company_listing = None
         if teamtailor or eu_greenhouse or first_party_jobs_index:
             tenant_path = path.strip("/").split("/")[0]
-            pattern = rf"/{re.escape(tenant_path)}/jobs/[0-9]+/?" if eu_greenhouse else r"/jobs/[0-9]+(?:-[^/]+)?/?"
+            pattern = (rf"/{re.escape(tenant_path)}/jobs/[0-9]+/?" if eu_greenhouse
+                       else r"/jobs/[0-9]+(?:-[^/]+)?/?" if teamtailor
+                       else r"/(?:jobs/[0-9]+(?:-[^/]+)?|job/[^/]+-jid-[0-9]+)/?")
             ad_urls = [url] if re.fullmatch(pattern, path) else []
             if not ad_urls and robots.can_fetch(url, CRAWLER_AGENT):
-                listing = BeautifulSoup(read(url), "html.parser")
+                listing_raw = read(url)
+                listing = BeautifulSoup(listing_raw, "html.parser")
                 index_url = ""
                 for anchor in listing.select("a[href]"):
                     address = urllib.parse.urljoin(url, str(anchor["href"]))
@@ -185,6 +196,9 @@ def verified_career_jobs(
                         ad_urls.append(parsed._replace(query="", fragment="").geturl())
                     elif (teamtailor or first_party_jobs_index) and parsed.scheme == "https" and parsed.netloc == urllib.parse.urlsplit(url).netloc and parsed.path.rstrip("/") == "/jobs":
                         index_url = parsed._replace(query="", fragment="").geturl()
+                if first_party_jobs_index and ad_urls:
+                    company_listing = {"source_url": url, "content_sha256": hashlib.sha256(listing_raw).hexdigest(),
+                                       "retrieved_at": datetime.now(timezone.utc).isoformat()}
                 if not ad_urls and index_url and index_url.rstrip("/") != url.rstrip("/") and remaining >= 2 and robots.can_fetch(index_url, CRAWLER_AGENT):
                     index = BeautifulSoup(read(index_url), "html.parser")
                     for anchor in index.select("a[href]"):
@@ -241,6 +255,29 @@ def verified_career_jobs(
                 if declared_org and declared_org not in employer_ids:
                     record("employer_mismatch")
                     continue
+                if company_listing and item["url"].rstrip("/") == ad_url.rstrip("/"):
+                    brand = re.sub(r"\s+(?:as|asa)$", "", legal_name)
+                    local_brand = site_domain.endswith(".no") and employer_name in {brand + " norway", brand + " norge"}
+                    if declared_org or employer_name == legal_name or local_brand:
+                        ad_content = soup.select_one("main") or soup.body or soup
+                        ad_text = ad_content.get_text(" ", strip=True)
+                        posted = parse_iso_date(item.get("published_at"))
+                        deadline = extract_job_deadline(ad_text)
+                        closes = parse_iso_date(deadline) or parse_iso_date(item.get("valid_through"))
+                        if not deadline and closes and closes > (posted or today) + timedelta(days=366):
+                            closes = None  # A distant schema sentinel is not an application deadline.
+                        application = re.search(r"\b(?:søk (?:her|nå|på stillingen)|søknad(?:sfrist)?|apply(?: now)?|application)\b", ad_text, re.I)
+                        closed = re.search(r"søknadsfristen (?:er )?utløpt|stillingen er besatt|no longer accepting|position has (?:closed|been filled)", ad_text, re.I)
+                        if (len(ad_text) >= 180 and application and not closed
+                                and (not posted or posted <= today) and (not closes or closes >= today)
+                                and not is_generic_job_title(item["title"])):
+                            jobs.append({**item, "employer_name": employer, "kind": "company_site_ad",
+                                         "valid_through": closes.isoformat() if closes else None, "application_due": deadline,
+                                         "ad_text_excerpt": ad_text[:2500], "career_source_url": url,
+                                         "career_link_url": url, "hiring_org_match": True, "active_listing": company_listing})
+                            record("verified_adverts")
+                            break
+                        continue
                 if not declared_org and employer_name != legal_name:
                     record("employer_mismatch")
                     continue
@@ -318,7 +355,7 @@ def _fetch(url: str, *, timeout: float = 10.0) -> tuple[bytes | None, int]:
                 "Accept": "text/html,application/xhtml+xml",
             },
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _JOB_OPENER.open(req, timeout=timeout) as resp:
             raw = resp.read(1_000_000)
             return raw, len(raw)
     except Exception:
@@ -474,19 +511,16 @@ def fetch_ats_jobs(
             break
         if probes_done >= max_probes:
             break
-        if budget and not budget.can_proceed(reserve=1):
+        if budget and not budget.try_start_request(reserve=1):
             break
 
         probes_done += 1
 
         raw, bytes_received = _fetch(url, timeout=timeout)
-        if not raw:
-            if budget:
-                budget.record_request(bytes_received=0, elapsed_ms=0, cost_usd=0.0)
-            continue
-
         if budget:
-            budget.record_request(bytes_received=bytes_received, elapsed_ms=0, cost_usd=0.0)
+            budget.record_request(count=0, bytes_received=bytes_received)
+        if not raw:
+            continue
 
         # Confirm this ATS page belongs to this company by checking page text
         html = raw.decode("utf-8", errors="replace")

@@ -16,20 +16,28 @@ if (-not $OutputRoot) { $OutputRoot = Join-Path $repo "out\clean-machine-100" }
 # execution path; no current working-tree modules or virtualenv are reused.
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("signalpost-clean-" + [guid]::NewGuid().ToString("N"))
 git clone --no-local $repo $temp
+if ($LASTEXITCODE -ne 0) { throw "git clone failed ($LASTEXITCODE)" }
 Push-Location $temp
 try {
     uv sync --locked
-    uv run python run_agent.py `
+    if ($LASTEXITCODE -ne 0) { throw "uv sync failed ($LASTEXITCODE)" }
+    uv run --locked python -m strategies.freeze --verify --release
+    if ($LASTEXITCODE -ne 0) { throw "Frozen commit verification failed ($LASTEXITCODE)" }
+    uv run --locked python run_agent.py `
       --organisations $input `
       --bulk $bulk `
       --output-dir $OutputRoot `
       --expected-count $ExpectedCount `
       --workers 8 `
-      --source-policy official_safe
-    uv run python scripts/validate_submission_ready.py `
+      --source-policy official_safe `
+      --resume-mode refresh `
+      --max-cost 0
+    if ($LASTEXITCODE -ne 0) { throw "Agent smoke test failed ($LASTEXITCODE)" }
+    uv run --locked python scripts/validate_submission_ready.py `
       --input $input `
       --output-dir $OutputRoot `
       --output (Join-Path $OutputRoot "submission-readiness.json")
+    if ($LASTEXITCODE -ne 0) { throw "Submission readiness check failed ($LASTEXITCODE)" }
 }
 finally {
     Pop-Location

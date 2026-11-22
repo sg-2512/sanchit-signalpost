@@ -22,7 +22,7 @@ def main() -> int:
     root = Path(__file__).resolve().parent
     runner = root / "scripts" / "run_refresh_replay.py"
     fixture = root / "tests" / "fixtures" / "refresh-snapshots.json"
-    output = root / "out" / "refresh-demo.json"
+    output = root / "out" / "refresh-test.json"
 
     if not runner.is_file() or not fixture.is_file():
         print("Starter files are missing. Put first_run.py inside the extracted signalpost-starter-kit folder, then run it again.")
@@ -78,7 +78,7 @@ def main() -> int:
     print("It found both saved changes, added no false change, kept the evidence, and produced the same result on a repeat check.")
     print(f"Result: {output}")
     print("This is practice only. It does not enter or qualify your agent.")
-    print("Next: open README.md and try the 10-company live run.")
+    print("Next: see README.md for the live company batch command.")
     return 0
 
 

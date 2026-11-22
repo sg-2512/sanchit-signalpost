@@ -19,24 +19,6 @@ from .verified_items import has_current_registered_nav_evidence, is_recruitment_
 OFFICIAL_SAFE = "official_safe"
 EXPERIMENTAL = "experimental"
 
-# These routes have an identity anchor or originate from a verified company
-# controlled page.  They can still be rejected by the claim-level validators.
-OFFICIAL_SAFE_STRATEGIES = frozenset({
-    "official_subunit_workforce",
-    "brreg_kunngjoringer_announcements",
-    "brreg_kunngjoringer_ledger",
-    "norid_rdap_verification",
-    "wikidata_p2333",
-    "company_site_activity",
-    "company_site_news",
-    "company_site_job",
-    "official_registry",
-    "official_registered_address",
-    "official_annual_accounts",
-    "kartverket_address_geocode",
-    "independent_news_discovery",
-})
-
 # These platforms require a declared API, licence, or written permission for
 # the submitted collection pattern.  They are not publishable by default.
 RESTRICTED_PLATFORMS = frozenset({
@@ -95,9 +77,10 @@ def observation_decision(
     official competition result.
     """
     validate_policy_name(policy)
+    strategy = str(observation.get("strategy") or "").casefold()
     if (
         policy == OFFICIAL_SAFE
-        and observation.get("strategy") == "nav_official_vacancy_feed"
+        and strategy == "nav_official_vacancy_feed"
         and not has_current_registered_nav_evidence(observation, snapshot_time)
     ):
         return PublicationDecision(False, "nav_current_registered_check_required")
@@ -114,9 +97,6 @@ def observation_decision(
         return PublicationDecision(True, "experimental_mode")
 
     platform = str(observation.get("platform") or "").casefold()
-    strategy = str(observation.get("strategy") or "").casefold()
-    source_class = str(observation.get("source_class") or "").casefold()
-    mode = str(observation.get("acquisition_mode") or "").casefold()
 
     if platform in RESTRICTED_PLATFORMS:
         return PublicationDecision(False, f"restricted_platform:{platform}")
@@ -125,12 +105,8 @@ def observation_decision(
         return PublicationDecision(True, "source_rights_registry_official_safe")
     if declared and declared.get("publication") in {"experimental", "conditional", "discovery_only"}:
         return PublicationDecision(False, f"registry_{declared['publication']}:{strategy}")
-    if strategy in OFFICIAL_SAFE_STRATEGIES:
-        return PublicationDecision(True, "declared_official_safe_strategy")
     if strategy.startswith(CONDITIONAL_STRATEGY_PREFIXES):
         return PublicationDecision(False, f"rights_not_declared:{strategy}")
-    if source_class in {"company_site", "company_owned", "official", "official_api", "official_registry", "official_subunits"} and mode not in {"unofficial_scraper", "guest_api", "public_directory"}:
-        return PublicationDecision(True, "verified_company_or_official_source")
     return PublicationDecision(False, "undeclared_source_route")
 
 

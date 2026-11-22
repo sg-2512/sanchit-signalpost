@@ -141,11 +141,22 @@ def is_hub_url(url: str) -> bool:
 
 
 def cision_release_channel(url: str) -> str | None:
-    parsed = urllib.parse.urlsplit(url)
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
     if parsed.scheme != "https" or parsed.netloc != "news.cision.com":
         return None
     match = re.fullmatch(r"/(?:[a-z]{2}/)?([a-z0-9-]+)/r/[^/,]+,c[0-9]{5,}/?", urllib.parse.unquote(parsed.path))
     return match.group(1) if match else None
+
+
+def first_party_news_about_company(company_name: str, title: str, article_text: str) -> bool:
+    """An incidental recommendation at the end of an article does not make it company news."""
+    return name_in_text(company_name, article_text, allow_short_single_token=True) and (
+        name_in_text(company_name, title, allow_short_single_token=True)
+        or name_in_text(company_name, article_text[:1200], allow_short_single_token=True)
+    )
 
 
 def parse_iso_date(value: Any) -> date | None:
@@ -324,10 +335,10 @@ def validate_job_item(
                    (item.get("content_sha256"), listing.get("content_sha256"))):
             return False, "invalid_evidence_hash"
         if (len(ad_text) < 180 or not name_in_text(company_name, ad_text, allow_short_single_token=True)
-                or not any(term in ad_text.casefold() for term in ("søknad", "soknad", "apply", "application"))):
+                or not any(term in ad_text.casefold() for term in ("søknad", "soknad", "søk her", "søk nå", "søk på stillingen", "apply", "application"))):
             return False, "company_not_named_in_active_ad"
         closes = parse_iso_date(item.get("valid_through"))
-        if closes is not None and closes <= today:
+        if closes is not None and closes < today:
             return False, "career_ad_expired"
         return True, "verified_company_site_ad"
     if kind == "verified_career_ad":

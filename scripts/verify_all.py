@@ -40,7 +40,7 @@ def main() -> int:
     steps = [
         (
             1,
-            "Unit & Connector Test Suite (219 tests)",
+            "Unit & Connector Test Suite",
             [sys.executable, "-m", "pytest", "tests/", "-q"],
         ),
         (
@@ -63,9 +63,9 @@ def main() -> int:
                 "--corpus",
                 "eval/gold_companies.jsonl",
                 "--profiles",
-                "out/fresh-smoke-100/profiles.jsonl",
+                "out/demo-100/profiles.jsonl",
                 "--envelopes",
-                "out/fresh-smoke-100/envelopes.jsonl",
+                "out/demo-100/envelopes.jsonl",
             ],
         ),
     ]
@@ -82,7 +82,7 @@ def main() -> int:
     print("="*75)
     if not failed_steps:
         print("ALL 4 VERIFICATION STEPS PASSED!")
-        print("Agent is 100% compliant, tested, and sealed for official evaluation.")
+        print("Local tests, replay, manifest integrity and fixture benchmark passed.")
         return 0
     else:
         print(f"FAILED STEPS: {len(failed_steps)}")

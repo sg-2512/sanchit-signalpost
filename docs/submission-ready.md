@@ -8,8 +8,8 @@ quarantined, and results never self-certify Builderr qualification.
 
 ```bash
 uv sync --locked
-uv run --with pytest python -m pytest -q
-uv run python scripts/check_source_registry.py
+uv run --locked --group dev python -m pytest -q
+uv run --locked python scripts/check_source_registry.py
 ```
 
 Review `config/source-rights.json`. Each route must specify access, publication
@@ -20,15 +20,17 @@ report passes.
 ## Run the 100-company smoke test
 
 ```bash
-uv run python run_agent.py \
+uv run --locked python run_agent.py \
   --organisations dev-100-companies.jsonl \
   --bulk brreg-enheter.csv \
   --output-dir out/official-safe-100 \
   --expected-count 100 \
   --workers 8 \
-  --source-policy official_safe
+  --source-policy official_safe \
+  --resume-mode refresh \
+  --max-cost 0
 
-uv run python scripts/validate_submission_ready.py \
+uv run --locked python scripts/validate_submission_ready.py \
   --input dev-100-companies.jsonl \
   --output-dir out/official-safe-100 \
   --output out/official-safe-100/submission-readiness.json
@@ -55,7 +57,7 @@ organisation numbers; the command rejects them.
 
 ```bash
 uv run python scripts/promote_connector.py \
-  --strategy nav_arbeidsplassen_search \
+  --strategy <declared-strategy> \
   --labels out/reviewed-held-out.jsonl \
   --run-report out/official-safe-100/run-report.json \
   --output out/nav-promotion-report.json
@@ -65,3 +67,5 @@ The promotion report requires coverage gain, zero wrong-company claims,
 complete evidence, in-budget operations, and an `official_safe` source-rights
 declaration. A passing report permits a code/config promotion; it is not a
 Builderr qualification result.
+
+Use the [submission checklist](../SUBMISSION.md) for the final public artifact and evaluator command.

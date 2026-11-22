@@ -108,26 +108,19 @@ DEFAULT_FRAMEWORK_FILES = [
     "strategies/freeze.py",
 ]
 
-DEFAULT_CONNECTOR_FILES = [
-    "config/source-rights.json",
-    "run_agent.py",
-    "src/norway_company_agent/batch.py",
-    "src/norway_company_agent/connectors/ats_discovery.py",
-    "src/norway_company_agent/connectors/job_boards.py",
-    "src/norway_company_agent/connectors/brave_search.py",
-    "src/norway_company_agent/connectors/google_places.py",
-    "src/norway_company_agent/connectors/nav_jobs.py",
-    "src/norway_company_agent/connectors/nav_feed.py",
-    "src/norway_company_agent/connectors/google_news.py",
-    "src/norway_company_agent/connectors/youtube.py",
-    "src/norway_company_agent/connectors/linkedin.py",
-    "src/norway_company_agent/budget.py",
-    "src/norway_company_agent/hiring.py",
-    "src/norway_company_agent/identity.py",
-    "src/norway_company_agent/synthesis.py",
-    "src/norway_company_agent/verified_items.py",
-    "src/norway_company_agent/website.py",
-]
+def connector_files() -> list[str]:
+    package = ROOT / "src" / "norway_company_agent"
+    return sorted([
+        "config/source-rights.json", "run_agent.py", "scripts/evaluate_external_footprint.py",
+        "scripts/prepare_external_audit.py", "pyproject.toml", "uv.lock",
+        *(path.relative_to(ROOT).as_posix() for path in package.rglob("*")
+          if path.is_file() and path.suffix in {".py", ".html"}),
+    ])
+
+
+def _manifest_digest(data: dict[str, Any]) -> str:
+    payload = {key: value for key, value in data.items() if key != "overall_manifest_hash"}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def freeze_strategies(
@@ -162,7 +155,7 @@ def freeze_strategies(
 
     # 3. Hash connector and core files
     connector_hashes: dict[str, str] = {}
-    for rel_path in DEFAULT_CONNECTOR_FILES:
+    for rel_path in connector_files():
         full_path = ROOT / rel_path
         if full_path.exists():
             connector_hashes[rel_path] = compute_file_sha256(full_path)
@@ -189,10 +182,7 @@ def freeze_strategies(
     )
 
     # Compute overall manifest hash over canonical JSON payload without overall_manifest_hash
-    preliminary_dict = manifest.to_dict()
-    preliminary_dict.pop("overall_manifest_hash", None)
-    canonical_repr = json.dumps(preliminary_dict, sort_keys=True)
-    manifest.overall_manifest_hash = hashlib.sha256(canonical_repr.encode("utf-8")).hexdigest()
+    manifest.overall_manifest_hash = _manifest_digest(manifest.to_dict())
 
     # Save to disk
     dest_path.write_text(json.dumps(manifest.to_dict(), indent=2), encoding="utf-8")
@@ -202,6 +192,8 @@ def freeze_strategies(
 def verify_strategies(
     manifest_path: Optional[Path] = None,
     raise_on_error: bool = False,
+    *,
+    release: bool = False,
 ) -> VerificationResult:
     """Verify runtime source code files against the frozen manifest."""
     target_path = manifest_path or (ROOT / "snapshots" / "strategy_manifest.json")
@@ -236,6 +228,23 @@ def verify_strategies(
 
     # Check framework files
     all_files = {**manifest_data.get("framework_files", {}), **manifest_data.get("connector_files", {})}
+    missing_entries = set(DEFAULT_FRAMEWORK_FILES + connector_files()) - all_files.keys()
+    missing_files.extend(sorted(missing_entries))
+    digest = _manifest_digest(manifest_data)
+    if manifest_hash != digest:
+        mismatches.append({"file": "manifest", "expected": manifest_hash, "current": digest})
+    if release:
+        head, dirty = _get_git_commit()
+        if dirty or head == "unknown_commit":
+            mismatches.append({"file": "Git checkout", "expected": "clean checkout", "current": head})
+        try:
+            tracked_manifest = subprocess.check_output(
+                ["git", "show", f"HEAD:{target_path.resolve().relative_to(ROOT).as_posix()}"], cwd=ROOT,
+            )
+            if json.loads(tracked_manifest) != manifest_data:
+                raise ValueError("manifest differs from HEAD")
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            mismatches.append({"file": "manifest", "expected": "manifest committed at HEAD", "current": "unverified"})
     for rel_path, expected_hash in all_files.items():
         file_path = ROOT / rel_path
         if not file_path.exists():
@@ -251,7 +260,7 @@ def verify_strategies(
 
     is_valid = (len(mismatches) == 0 and len(missing_files) == 0)
     msg = (
-        "Strategy code integrity VERIFIED and sealed."
+        (f"Release integrity VERIFIED for Git commit {head}." if release else "VERIFIED strategy manifest and source file hashes.")
         if is_valid
         else f"Integrity violations detected: {len(mismatches)} modified file(s), {len(missing_files)} missing file(s)."
     )
@@ -287,7 +296,7 @@ def generate_version_table(manifest: Optional[FreezeManifest] = None) -> str:
     lines = [
         "=" * 100,
         f"SignalPost Strategy Route Registry - Frozen Manifest v{manifest.manifest_version}",
-        f"Git Commit: {manifest.git_commit[:8]} | Platform: {manifest.environment.get('platform', 'unknown')} | Python: {manifest.environment.get('python_version', 'unknown')}",
+        f"Git HEAD when generated: {manifest.git_commit[:8]} | Platform: {manifest.environment.get('platform', 'unknown')} | Python: {manifest.environment.get('python_version', 'unknown')}",
         f"Manifest SHA-256: {manifest.overall_manifest_hash}",
         "=" * 100,
         f"{'Route Name':<20} {'Version':<8} {'Category':<12} {'Req':<5} {'Cost ($)':<10} {'Description'}",
@@ -325,6 +334,7 @@ def main() -> int:
         help="Path to strategy manifest JSON",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress informational logging")
+    parser.add_argument("--release", action="store_true", help="Require a clean checkout and the exact manifest committed at HEAD")
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -337,7 +347,7 @@ def main() -> int:
         return 0
 
     elif args.verify:
-        result = verify_strategies(manifest_path=manifest_path)
+        result = verify_strategies(manifest_path=manifest_path, release=args.release)
         if not args.quiet:
             print(result.message)
             if not result.is_valid:

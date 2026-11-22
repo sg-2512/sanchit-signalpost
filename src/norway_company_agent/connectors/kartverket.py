@@ -19,6 +19,16 @@ GEONORGE_ADRESSER_ENDPOINT = "https://ws.geonorge.no/adresser/v1/sok"
 USER_AGENT = "SignalPostAgent/1.0 (+https://builderr.ai/signalpost)"
 
 
+def _address_components(value: str) -> tuple[str, int, str] | None:
+    text = " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+    match = re.fullmatch(r"(.+?)\s+(\d+)\s*([a-zæøå]?)", text)
+    if not match:
+        return None
+    name = re.sub(r"\b(?:v|vn)\.$", "vei", match[1])
+    name = re.sub(r"\bgt\.$", "gate", name)
+    return re.sub(r"[^\w]", "", name), int(match[2]), match[3]
+
+
 def matches_registered_address(registered: dict[str, Any], geocoded: dict[str, Any]) -> bool:
     """Reject fuzzy Geonorge hits that differ from the registry address."""
     lines = registered.get("adresse") or []
@@ -33,10 +43,13 @@ def matches_registered_address(registered: dict[str, Any], geocoded: dict[str, A
     if reg_municipality and reg_municipality != geo_municipality:
         return False
 
-    def compact(value: str) -> str:
-        return re.sub(r"[^\w]", "", unicodedata.normalize("NFKC", value).casefold())
-
-    return compact(street) == compact(str(geocoded.get("formatted_address") or ""))
+    registered_parts = _address_components(street)
+    if not registered_parts:
+        return False
+    name = geocoded.get("adressenavn")
+    number = geocoded.get("nummer")
+    address = f"{name} {number}{geocoded.get('bokstav') or ''}" if name and number is not None else str(geocoded.get("formatted_address") or "")
+    return registered_parts == _address_components(address)
 
 
 def geocode_address_kartverket(
@@ -49,9 +62,6 @@ def geocode_address_kartverket(
 ) -> dict[str, Any] | None:
     """Geocode a Norwegian address via Kartverket's official national Geonorge API."""
     if not address_str or len(address_str.strip()) < 3:
-        return None
-
-    if budget and not budget.can_proceed():
         return None
 
     clean_addr = address_str.strip()
@@ -69,6 +79,8 @@ def geocode_address_kartverket(
         "treffPerSide": "1",
     }
     url = f"{GEONORGE_ADRESSER_ENDPOINT}?{urllib.parse.urlencode(params)}"
+    if budget and not budget.try_start_request():
+        return None
     start_time = time.perf_counter()
     bytes_received = 0
 
@@ -84,10 +96,6 @@ def geocode_address_kartverket(
             raw = resp.read(200_000)
             bytes_received = len(raw)
             data = json.loads(raw.decode("utf-8", errors="replace"))
-
-        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-        if budget:
-            budget.record_request(cost_usd=0.0, bytes_received=bytes_received, elapsed_ms=elapsed_ms)
 
         adresser = data.get("adresser") or []
         if not adresser:
@@ -111,6 +119,9 @@ def geocode_address_kartverket(
 
         return {
             "formatted_address": hit.get("adressetekst"),
+            "adressenavn": hit.get("adressenavn"),
+            "nummer": hit.get("nummer"),
+            "bokstav": hit.get("bokstav"),
             "postnummer": hit.get("postnummer"),
             "poststed": hit.get("poststed"),
             "kommunenummer": hit.get("kommunenummer"),
@@ -126,8 +137,9 @@ def geocode_address_kartverket(
             "content_sha256": digest,
         }
 
-    except Exception:
-        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-        if budget:
-            budget.record_request(cost_usd=0.0, bytes_received=bytes_received, elapsed_ms=elapsed_ms)
+    except (OSError, ValueError, TypeError, AttributeError):
         return None
+    finally:
+        if budget:
+            budget.record_request(count=0, bytes_received=bytes_received,
+                                  elapsed_ms=int((time.perf_counter() - start_time) * 1000))

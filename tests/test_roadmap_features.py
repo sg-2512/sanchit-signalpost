@@ -64,7 +64,7 @@ class RoadmapFeaturesTests(unittest.TestCase):
         self.assertEqual(r0["operating_result"], 1500000)
         self.assertEqual(r0["operating_margin"], 0.15)
         self.assertEqual(r0["wage_expenses"], 4000000)
-        self.assertEqual(r0["wage_per_employee"], 400000)
+        self.assertNotIn("wage_per_employee", r0)
         self.assertEqual(r0["cash_and_bank_deposits"], 2500000)
         self.assertEqual(r0["retained_earnings"], 4500000)
         self.assertEqual(r0["current_assets"], 6000000)
@@ -72,10 +72,11 @@ class RoadmapFeaturesTests(unittest.TestCase):
         self.assertEqual(r0["current_ratio"], 3.0)
         self.assertEqual(r0["debt_to_equity"], 0.7143)
         self.assertEqual(r0["solvency_status"], "Strong")
+        self.assertEqual(r0["derived_assessment"]["solvency"]["formula"], "equity / assets")
 
         # Verify trends
         trends = res["financial_trends"]
-        self.assertEqual(trends["wage_per_employee"], 400000)
+        self.assertNotIn("wage_per_employee", trends)
         self.assertEqual(trends["current_ratio"], 3.0)
         self.assertEqual(trends["cash_and_bank_deposits"], 2500000)
         self.assertEqual(trends["operating_costs"], 8500000)

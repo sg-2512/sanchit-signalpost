@@ -322,10 +322,18 @@ def probe_heuristic_domain(
         return None
 
     candidates = _domain_slugs(name)
+    if not candidates:
+        return None
     full_name_slugs = {slug for slug in candidates[:2] if slug not in {candidates[0] + "as", candidates[0] + "-as"}}
     for cand in (tokens[0] if len(tokens[0]) >= 5 else "",):
         if cand and len(cand) >= 3 and cand not in candidates:
             candidates.insert(min(2, len(candidates)), cand)
+    # A distinctive first word plus the line of business is commonly used
+    # for local company domains. The site still needs exact operator proof.
+    if len(tokens) >= 3 and len(tokens[0]) >= 4:
+        shorter = "".join(tokens[:2])
+        if shorter not in candidates:
+            candidates.insert(2, shorter)
     # Registered workplaces sometimes trade under a shorter name. Their
     # domains are only crawl hints; the parent company's identity gate still
     # decides whether the website can be attributed to the requested entity.

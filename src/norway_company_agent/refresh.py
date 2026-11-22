@@ -31,8 +31,11 @@ def _read(value: Any, path: tuple[str, ...]) -> Any:
 def _evidence_for(profile: dict[str, Any], field: str) -> dict[str, Any]:
     module = field.split(".", 1)[0]
     records = profile.get("evidence", {})
+    if field == "registry.website":
+        return records.get("website", {})
     if module == "registry":
-        return records.get("registry_live") or records.get("registry", {})
+        live = records.get("registry_live") or {}
+        return live if live.get("status") == "available" else records.get("registry", {})
     return records.get(module, {})
 
 
@@ -49,6 +52,14 @@ def diff_profile(previous: dict[str, Any], current: dict[str, Any]) -> list[dict
             continue
         record = _evidence_for(current, field)
         previous_record = _evidence_for(previous, field)
+        old_hash = previous_record.get("content_sha256")
+        new_hash = record.get("content_sha256")
+        if record.get("status") != "available" or not new_hash or old_hash == new_hash:
+            continue
+        if field.startswith("website.") or field == "registry.website":
+            identity = (record.get("value") or {}).get("identity_assessment")
+            if identity is not None and not identity.get("publishable"):
+                continue
         changes.append({
             "organisation_number": new_org,
             "field": field,
@@ -58,8 +69,10 @@ def diff_profile(previous: dict[str, Any], current: dict[str, Any]) -> list[dict
             "retrieved_at": record.get("retrieved_at"),
             "effective_at": record.get("effective_at") or record.get("as_of"),
             "source_class": record.get("source_class") or record.get("source_type"),
-            "old_content_sha256": previous_record.get("content_sha256"),
-            "new_content_sha256": record.get("content_sha256"),
+            "old_source_url": previous_record.get("source_url"),
+            "old_retrieved_at": previous_record.get("retrieved_at"),
+            "old_content_sha256": old_hash,
+            "new_content_sha256": new_hash,
             "status": record.get("status"),
         })
     return changes

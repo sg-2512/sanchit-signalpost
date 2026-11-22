@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -45,14 +46,6 @@ def _load_env_file() -> None:
 import socket
 socket.setdefaulttimeout(15.0)
 
-# Force IPv4 resolution to prevent Windows hanging on broken IPv6/NAT64 routes or double-resolving NXDOMAIN
-_orig_getaddrinfo = socket.getaddrinfo
-def _ipv4_first_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    if family == 0 or family == socket.AF_UNSPEC:
-        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-    return _orig_getaddrinfo(host, port, family, type, proto, flags)
-socket.getaddrinfo = _ipv4_first_getaddrinfo
-
 from norway_company_agent.batch import (
     profiles_from_bulk,
     read_organisation_inputs,
@@ -60,7 +53,7 @@ from norway_company_agent.batch import (
     validate_envelopes,
 )
 from norway_company_agent.budget import BudgetTracker
-from norway_company_agent.evidence import utc_now
+from norway_company_agent.evidence import observation_provenance, utc_now
 from norway_company_agent.external_footprint import (
     aggregate_footprint,
     INDEPENDENT_SENTIMENT_CLASSES,
@@ -73,10 +66,10 @@ from norway_company_agent.source_policy import (
     filter_publishable_observations,
     validate_policy_name,
 )
-from norway_company_agent.identity import apply_website_identity_gate, apply_entity_identity_gate
+from norway_company_agent.identity import apply_entity_identity_gate, published_website_url
 from norway_company_agent.official import fetch_official_modules
-from norway_company_agent.website import fetch_website
-from norway_company_agent.verified_items import name_in_text, validate_job_item, validate_news_item
+from norway_company_agent.website import fetch_website, normalize_homepage, norwegian_presence_path
+from norway_company_agent.verified_items import first_party_news_about_company, name_in_text, validate_job_item, validate_news_item
 from norway_company_agent.discovery import (
     candidate_site_origin,
     discover_company_websites_keyless,
@@ -108,7 +101,6 @@ from norway_company_agent.connectors.linkedin import (
     is_available as linkedin_available,
 )
 from norway_company_agent.connectors.wikidata import fetch_wikidata_entity
-from norway_company_agent.connectors.kunngjoringer import fetch_brreg_kunngjoringer
 from norway_company_agent.connectors.subunits import fetch_company_subunits
 from norway_company_agent.connectors.patentstyret import (
     fetch_patentstyret_data,
@@ -116,25 +108,17 @@ from norway_company_agent.connectors.patentstyret import (
 )
 from norway_company_agent.connectors.doffin import fetch_doffin_procurement
 from norway_company_agent.connectors.kartverket import geocode_address_kartverket, matches_registered_address
-from norway_company_agent.connectors.mattilsynet import fetch_mattilsynet_inspections
 from norway_company_agent.connectors.regulatory_licenses import fetch_regulatory_licenses
 from norway_company_agent.connectors.dibk import fetch_construction_approval
-from norway_company_agent.connectors.scoped_company_sources import fetch_company_press_release, fetch_norwegian_presence
+from norway_company_agent.connectors.scoped_company_sources import assess_norwegian_presence, fetch_company_press_release, fetch_norwegian_presence, fetch_scoped_newsroom
 from norway_company_agent.connectors.esg_certifications import fetch_esg_certifications
 from norway_company_agent.connectors.ats_discovery import verified_career_jobs
-from norway_company_agent.connectors.proff_directory import resolve_commercial_directory_presence
-from norway_company_agent.connectors.lovdata import fetch_insolvency_legal_notices
 from norway_company_agent.connectors.norid import verify_norid_domain_ownership, discover_norid_domain
-from norway_company_agent.connectors.losoreregisteret import fetch_losoreregisteret_liens
-from norway_company_agent.connectors.forskningsradet import fetch_forskningsradet_grants
 from norway_company_agent.connectors.innovasjon_norge import fetch_innovasjon_norge_grants
 from norway_company_agent.connectors.oslo_bors import fetch_oslo_bors_disclosures
-from norway_company_agent.connectors.ssb_benchmarks import fetch_ssb_industry_benchmark
 from norway_company_agent.connectors.gleif import fetch_gleif_identifier
-from norway_company_agent.connectors.miljodirektoratet import fetch_miljodirektoratet_permits
 from norway_company_agent.hiring import evaluate_company_hiring
-from norway_company_agent.connectors.nav_feed import nav_feed_jobs_for_company
-from norway_company_agent.synthesis import generate_company_synthesis
+from norway_company_agent.connectors.nav_feed import flush_nav_feed_details, nav_feed_jobs_for_company, reset_nav_feed
 
 
 def apply_live_registry_precedence(profile: dict[str, Any], registry_record: dict[str, Any]) -> None:
@@ -179,9 +163,12 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
     """Atomic JSONL write with tmp file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
+    with tmp.open("w", encoding="utf-8", newline="\n") as f:
         for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+            encoded = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+            for separator in ("\x85", "\u2028", "\u2029"):
+                encoded = encoded.replace(separator, f"\\u{ord(separator):04x}")
+            f.write(encoded + "\n")
     tmp.replace(path)
 
 
@@ -264,7 +251,8 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
     observations = []
     seen: set[str] = set()
 
-    for item in news_items:
+    for item in sorted(news_items, key=lambda article: {"no": 0, "nb": 0, "nn": 0, "en": 1}.get(
+            str(article.get("article_language") or "").lower().split("-", 1)[0], 2)):
         title = str(item.get("title") or "").strip()
         url = str(item.get("url") or site_url).strip()
         evidence_url = str(item.get("source_url") or item.get("listing_url") or url).strip()
@@ -275,10 +263,7 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
             str(item.get("excerpt") or "") if verification == "inline_newsroom"
             else str(item.get("article_text_excerpt") or "")
         )
-        name_in_article = name_in_text(
-            profile.get("name") or "", article_text,
-            allow_short_single_token=True,
-        )
+        name_in_article = first_party_news_about_company(profile.get("name") or "", title, article_text)
         valid, _ = validate_news_item(
             {**item, "url": url, "verification": verification,
              "name_in_article": name_in_article},
@@ -286,7 +271,7 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
         )
         if not valid:
             continue
-        key = url.split("#", 1)[0].rstrip("/")
+        key = item.get("story_key") or url.split("#", 1)[0].rstrip("/")
         if key in seen:
             continue
         seen.add(key)
@@ -318,6 +303,7 @@ def extract_website_news_observations(profile: dict[str, Any]) -> list[dict[str,
             "rights_status": "approved",
             "source_class": "company_site",
             "evidence_span": article_text[:500],
+            "literal_excerpt": article_text[:500],
             "text": title,
             "metrics": {"title": title, "url": url, "published_at": published_at},
             "strategy": "website_news_discovery",
@@ -400,6 +386,7 @@ def extract_website_job_observations(profile: dict[str, Any]) -> list[dict[str, 
             "source_class": "company_site",
             "job_title": title,
             "evidence_span": str(item.get("ad_text_excerpt") or title)[:500],
+            "literal_excerpt": str(item.get("ad_text_excerpt") or "")[:500] or None,
             "text": title,
             "metrics": {"job_title": title, "url": url, "published_at": published_at},
             "strategy": "company_site_job",
@@ -599,6 +586,7 @@ def enrich_single_company(
     budget: BudgetTracker,
     source_policy: str = OFFICIAL_SAFE,
     max_company_requests: int = 25,
+    nav_feed_cache: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Enrich a single company profile with all available data sources.
 
@@ -735,26 +723,23 @@ def enrich_single_company(
     )
 
     effective_company_cap = max_company_requests + (4 if emp_count >= 20 or form_code_upper == "ASA" else 0)
-    local_reqs = len(metrics) if isinstance(metrics, list) else 0
-
     def can_run_optional(cost: int = 1, reserve: int = 2) -> bool:
         if not budget.can_proceed(reserve=reserve):
             return False
-        if local_reqs + cost > effective_company_cap:
+        if budget.attributed_request_count() + cost > effective_company_cap:
             return False
         return True
 
     industry = str(profile.get("industry_code") or "")
     if industry.startswith(("41.", "42.", "43.")) and can_run_optional(cost=1, reserve=5):
         approval = fetch_construction_approval(org, budget=budget)
-        local_reqs += 1
         if approval:
             observations.append(approval)
             profile.setdefault("regulatory_licenses", []).append(approval["metrics"])
             profile["evidence"]["construction_approval"] = {
                 "field": "construction_approval", "status": "available", "source_url": approval["source_url"],
                 "source_class": approval["source_class"], "retrieved_at": approval["retrieved_at"],
-                "content_sha256": approval["content_sha256"], "evidence_span": approval["evidence_span"],
+                "content_sha256": approval["content_sha256"], "source_fields": approval["source_fields"],
                 "value": {"organisation_number": org, **approval["metrics"]},
             }
 
@@ -764,7 +749,6 @@ def enrich_single_company(
         region_url = leads.get("norwegian_contact_url")
         if isinstance(region_url, str) and can_run_optional(cost=2, reserve=5):
             presence = fetch_norwegian_presence(region_url, org=org, company=name, budget=budget)
-            local_reqs += 2
             if presence:
                 profile["evidence"]["norwegian_website_presence"] = presence
         release_urls = leads.get("press_release_urls")
@@ -772,7 +756,6 @@ def enrich_single_company(
             if not isinstance(url, str) or not can_run_optional(cost=2, reserve=5):
                 continue
             release = fetch_company_press_release(url, org=org, company=name, budget=budget)
-            local_reqs += 2
             if release:
                 release_observations.append(release)
 
@@ -787,18 +770,20 @@ def enrich_single_company(
         # Discovery pages can reproduce an exact org number without being the
         # company's website. Require on-site legal-operator proof before the
         # broader entity corroboration step, and keep a rejection terminal.
-        operator_gated = apply_website_identity_gate(profile, record, require_legal_operator=True)
-        operator_assessment = ((operator_gated["website"].get("value") or {}).get("identity_assessment") or {})
-        if not operator_assessment.get("publishable"):
-            gated = operator_gated
-        else:
-            gated = apply_entity_identity_gate(profile, operator_gated["website"], operator_assessment=operator_assessment)
+        gated = apply_entity_identity_gate(profile, record, require_legal_operator=True)
         value = gated["website"].get("value") or {}
+        if source_policy == OFFICIAL_SAFE and (profile["evidence"].get("norwegian_website_presence") or {}).get("status") != "available":
+            for page in value.get("pages") or []:
+                proof = assess_norwegian_presence(page, org=org, company=name)
+                if proof and proof.get("status") == "available":
+                    profile["evidence"]["norwegian_website_presence"] = proof
+                    break
         assessment = value.get("identity_assessment") or {}
         conflict = (value.get("entity_identity_assessment") or {}).get("operator_conflict")
         if conflict:
             conflicting_website = gated["website"]
         profile.setdefault("website_attempts", []).append({
+            "requested_url": record.get("requested_url"),
             "source_url": record.get("source_url"), "final_url": value.get("final_url"),
             "status": gated["website"].get("status"), "publishable": bool(assessment.get("publishable")),
             "reasons": assessment.get("reasons") or [record.get("note") or record.get("error") or "no usable page"],
@@ -815,7 +800,7 @@ def enrich_single_company(
     from urllib.parse import urlsplit
     site_records: dict[str, Any] = {}
     site_requests = 0
-    site_limit = max(0, effective_company_cap - local_reqs - 4)
+    site_limit = max(0, effective_company_cap - budget.attributed_request_count() - 4)
 
     def start_site_request(**kwargs: Any) -> bool:
         nonlocal site_requests
@@ -824,16 +809,16 @@ def enrich_single_company(
         site_requests += 1
         return True
 
-    site_budget = SimpleNamespace(try_start_request=start_site_request)
+    site_budget = SimpleNamespace(try_start_request=start_site_request, record_request=budget.record_request)
 
     def site_key(url: str) -> str:
         parsed = urlsplit(url if "://" in url else "https://" + url)
         return parsed.scheme.lower() + "://" + (parsed.hostname or "").lower() + parsed.path.rstrip("/") + ("?" + parsed.query if parsed.query else "")
 
-    def fetch_company_site(url: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def fetch_company_site(url: str, *, retry_transient: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
         if url.lower().startswith("http://"):
             secure_url = "https://" + url[7:]
-            secure_record, secure_metrics = fetch_company_site(secure_url)
+            secure_record, secure_metrics = fetch_company_site(secure_url, retry_transient=retry_transient)
             if secure_record.get("status") == "available":
                 site_records[site_key(url)] = copy.deepcopy(secure_record)
                 return secure_record, secure_metrics
@@ -843,6 +828,12 @@ def enrich_single_company(
         if key in site_records:
             return copy.deepcopy(site_records[key]), {"requests": 0, "bytes": 0}
         record, metrics = fetch_website(url, budget=site_budget)
+        note = str(record.get("note") or "")
+        if (retry_transient and record.get("status") == "source_error" and site_limit - site_requests >= 3
+                and (note == "robots_unavailable" or re.search(r"timed out|HTTP Error 50[0-4]", note, re.I))):
+            record, retry_metrics = fetch_website(url, budget=site_budget)
+            metrics = {key: metrics.get(key, 0) + retry_metrics.get(key, 0) for key in ("requests", "bytes")}
+        record["requested_url"] = url
         site_records[key] = copy.deepcopy(record)
         final_url = (record.get("value") or {}).get("final_url")
         if final_url:
@@ -871,11 +862,11 @@ def enrich_single_company(
         weak_cache_hint = bool(len(name_words) > 1 and cache_label in name_words
                                and not target_site and not extract_email_domain_candidate(profile))
 
-        def accept_site_candidate(url: str) -> bool:
+        def accept_site_candidate(url: str, *, retry_transient: bool = False) -> bool:
             nonlocal verified_website
             if site_requests >= site_limit:
                 return False
-            rec, metrics = fetch_company_site(url)
+            rec, metrics = fetch_company_site(url, retry_transient=retry_transient)
             website_metrics["requests"] += metrics.get("requests", 0)
             website_metrics["bytes"] += metrics.get("bytes", 0)
             record = gate_website(rec)["website"]
@@ -893,12 +884,13 @@ def enrich_single_company(
             nav_feed_jobs, nav_feed_homepages, nav_feed_diagnostics = nav_feed_jobs_for_company(
                 name, org, subunits=location_val.get("locations") or [], budget=budget,
                 allow_experimental_token=source_policy == EXPERIMENTAL,
+                cache_path=nav_feed_cache,
             )
         profile["nav_feed_diagnostics"] = nav_feed_diagnostics
 
         # Level 1: Official registry URL
         if target_site:
-            w_rec, w_met = fetch_company_site(target_site)
+            w_rec, w_met = fetch_company_site(target_site, retry_transient=True)
             website_metrics["requests"] += w_met.get("requests", 0)
             website_metrics["bytes"] += w_met.get("bytes", 0)
             gated = gate_website(w_rec)
@@ -908,6 +900,14 @@ def enrich_single_company(
                 if val.get("identity_assessment", {}).get("publishable"):
                     profile["website"] = val.get("final_url") or target_site
                     verified_website = True
+
+        if not verified_website and isinstance(leads, dict) and isinstance(leads.get("company_website_url"), str):
+            try:
+                supplied_candidate = normalize_homepage(leads["company_website_url"])
+            except ValueError:
+                supplied_candidate = None
+            if supplied_candidate and supplied_candidate.startswith("https://") and can_run_optional(cost=2, reserve=2):
+                accept_site_candidate(supplied_candidate, retry_transient=True)
 
         # A prior exact match is a discovery hint, not enduring proof. Re-fetch
         # it and run the current identity gate so refreshes preserve prior
@@ -989,14 +989,18 @@ def enrich_single_company(
         # operator gate before any website fact can be published.
         if (
             not verified_website
-            and not is_passive_entity
             and keyless_search_available()
-            and (emp_count >= 1 or bool(target_site) or bool(extract_email_domain_candidate(profile)))
-            and can_run_optional(cost=1, reserve=5)
+            and can_run_optional(cost=2, reserve=8 if is_passive_entity or not has_reg_web_or_email else 5)
         ):
-            for search_site in discover_company_websites_keyless(profile, budget=budget):
+            for search_site in discover_company_websites_keyless(profile, budget=budget, max_candidates=1 if is_passive_entity else 2):
                 if site_requests >= site_limit:
                     break
+                if (source_policy == OFFICIAL_SAFE and norwegian_presence_path(search_site)
+                        and (profile["evidence"].get("norwegian_website_presence") or {}).get("status") != "available"):
+                    proof = fetch_norwegian_presence(search_site, org=org, company=name, budget=site_budget)
+                    if proof and proof.get("status") == "available":
+                        profile["evidence"]["norwegian_website_presence"] = proof
+                        continue
                 search_origin = candidate_site_origin(search_site)
                 w_rec, w_met = fetch_company_site(search_origin)
                 website_metrics["requests"] += w_met.get("requests", 0)
@@ -1173,6 +1177,74 @@ def enrich_single_company(
                         profile["website"] = val.get("final_url") or search_site
                         verified_website = True
 
+        if source_policy == OFFICIAL_SAFE and not verified_website:
+            followup = {"status": "no_unused_registry_or_local_legal_lead"}
+            profile["website_followup"] = followup
+            remaining = min(5, effective_company_cap - budget.attributed_request_count() - 2)
+            if remaining < 1 or not budget.can_proceed(reserve=2):
+                followup["status"] = "budget_unavailable"
+            else:
+                # Spend from the same company and batch allowance. Each
+                # redirect or robots request also counts toward this cap.
+                site_limit = site_requests + remaining
+                crawls = [record.get("value") or {} for record in site_records.values()]
+                pages = [page for crawl in crawls for page in crawl.get("pages") or []]
+                checked_pages = {site_key(page["url"]) for page in pages if page.get("url")}
+                checked_pages.update(site_key(item["url"]) for crawl in crawls
+                                     for item in crawl.get("crawl_errors") or [] if item.get("url"))
+                presence = profile["evidence"].get("norwegian_website_presence") or {}
+                local_page = next((url for page in pages for url in page.get("norwegian_presence_links") or []
+                                   if site_key(url) not in checked_pages), None)
+                if local_page and presence.get("status") != "available":
+                    followup.update(route="norwegian_legal_page", source_url=local_page)
+                    proof = fetch_norwegian_presence(local_page, org=org, company=name, budget=site_budget)
+                    followup["status"] = (proof or {}).get("status", "unverified")
+                    if proof and proof.get("status") == "available":
+                        profile["evidence"]["norwegian_website_presence"] = proof
+                else:
+                    subunits = location_val.get("locations") or []
+                    registry_leads = [target_site, bulk_site, extract_email_domain_candidate(profile)]
+                    registry_leads.extend(subunit.get("website") for subunit in subunits)
+                    # The conventional www host and HTTP upgrade already
+                    # belong to the same lead. Preserve distinct legal paths.
+                    def lead_key(url: str) -> tuple[str, str]:
+                        parsed = urlsplit(url)
+                        return (parsed.hostname or "").removeprefix("www."), parsed.path.rstrip("/")
+
+                    seen_leads = {lead_key(url) for url in site_records}
+                    candidate = None
+                    for lead in registry_leads:
+                        try:
+                            url = normalize_homepage(lead)
+                        except ValueError:
+                            continue
+                        if url and lead_key(url) not in seen_leads:
+                            candidate = url
+                            break
+                    if candidate:
+                        followup.update(route="registry_or_subunit_website", source_url=candidate)
+                        followup["status"] = "available" if accept_site_candidate(candidate) else "unverified"
+                    elif not site_records:
+                        # A genuinely different trading name can suggest a
+                        # domain. Repeated company names with branch suffixes
+                        # do not warrant another request.
+                        subunit_name = next((subunit_name for subunit in subunits
+                                             if (subunit_name := str(subunit.get("name") or "").strip())
+                                             and name_words and not set(name_words).issubset(
+                                                 re.findall(r"[^\W_]+", subunit_name.casefold()))), None)
+                        if subunit_name:
+                            followup["route"] = "registered_trading_name"
+                            probe_profile = {"name": subunit_name, "organisation_number": org}
+
+                            def accept_subunit_candidate(url: str) -> bool:
+                                followup["source_url"] = url
+                                return accept_site_candidate(url)
+
+                            matched = probe_heuristic_domain(probe_profile, budget=site_budget,
+                                accept_candidate=accept_subunit_candidate, max_candidates=1, include_com=False)
+                            followup["status"] = "available" if matched else (
+                                "unverified" if followup.get("source_url") else "dns_unresolved")
+
         # If no website passed the gate, ensure evidence["website"] exists
         if not verified_website and conflicting_website:
             profile["evidence"]["website"] = conflicting_website
@@ -1184,16 +1256,28 @@ def enrich_single_company(
             bytes_received=website_metrics.get("bytes", 0),
             count=0,  # Charged atomically by the website transport, including redirects.
         )
-        local_reqs += website_metrics.get("requests", 0)
 
     if source_policy == OFFICIAL_SAFE and not verified_website:
         profile["website"] = None
-
-    # Track per-company run metrics
-    profile["run_metrics"] = {
-        "requests": (len(metrics) if isinstance(metrics, list) else 0) + website_metrics.get("requests", 0),
-        "bytes": (sum(m.bytes_received for m in metrics) if isinstance(metrics, list) else 0) + website_metrics.get("bytes", 0),
-    }
+        presence = profile["evidence"].get("norwegian_website_presence") or {}
+        scope = (presence.get("value") or {}).get("url")
+        if presence.get("status") == "available" and scope and can_run_optional(cost=3, reserve=5):
+            scoped_newsrooms = list(presence.get("newsroom_links") or [])
+            if isinstance(leads, dict) and isinstance(leads.get("norwegian_newsroom_url"), str):
+                scoped_newsrooms.insert(0, leads["norwegian_newsroom_url"])
+            newsroom = next((url for url in scoped_newsrooms if url.startswith(scope)), None)
+            if newsroom:
+                site_limit = site_requests + min(5, effective_company_cap - budget.attributed_request_count())
+                release_observations.extend(fetch_scoped_newsroom(newsroom, scope=scope, org=org, company=name, budget=site_budget))
+    elif source_policy == OFFICIAL_SAFE:
+        website = (profile["evidence"].get("website") or {}).get("value") or {}
+        release_urls = dict.fromkeys(url for page in website.get("pages") or [] for url in page.get("press_release_links") or [])
+        already_fetched = {item["source_url"] for item in release_observations}
+        for url in list(release_urls)[:2]:
+            if url not in already_fetched and can_run_optional(cost=2, reserve=5):
+                article = fetch_company_press_release(url, org=org, company=name, budget=budget)
+                if article:
+                    release_observations.append(article)
 
     # 4. Extract observations from enriched profile
     # (observations list is initialized at function start and preserves Norid observations)
@@ -1218,7 +1302,7 @@ def enrich_single_company(
             candidates.extend(page.get("job_postings") or [])
         locations = (profile["evidence"].get("locations", {}).get("value") or {}).get("locations") or []
         subunit_orgs = [str(unit["organisation_number"]) for unit in locations if unit.get("organisation_number")]
-        job_request_cap = max(0, min(effective_company_cap - local_reqs, budget.remaining_requests() - 1))
+        job_request_cap = max(0, min(effective_company_cap - budget.attributed_request_count(), budget.remaining_requests() - 1))
         job_diagnostics = {"request_allowance": min(6, job_request_cap)}
         website_value["job_diagnostics"] = job_diagnostics
         ats_verified_jobs = verified_career_jobs(
@@ -1230,8 +1314,12 @@ def enrich_single_company(
         website_value["verified_job_adverts"] = merge_verified_jobs(
             website_value.get("verified_job_adverts") or [], ats_verified_jobs,
         )
-        if candidates:
-            local_reqs += min(6, job_request_cap)
+        pages = website_value.setdefault("pages", [])
+        known_pages = {page.get("url") for page in pages}
+        for advert in ats_verified_jobs:
+            if advert.get("kind") == "company_site_ad" and advert["url"] not in known_pages:
+                pages.append({"url": advert["url"], "content_sha256": advert["content_sha256"],
+                              "main_text_excerpt": advert["ad_text_excerpt"]})
     web_jobs_obs = extract_website_job_observations(profile)
 
     # Official registry observations
@@ -1247,23 +1335,21 @@ def enrich_single_company(
     if source_policy == EXPERIMENTAL and can_run_optional(cost=1, reserve=1):
         gn_limit = 2 if web_news_obs else 5
         news_obs = fetch_google_news(org, name, limit=gn_limit, years=2, budget=budget, status_out=google_news_state)
-        local_reqs += 1
 
     # 5b. Norwegian Corporate Press Wires (NTB Kommunikasjon, Mynewsdesk, Cision)
     wire_obs: list[dict[str, Any]] = []
     press_wire_state = {"status": "not_applicable"}
     if source_policy == EXPERIMENTAL and verified_website and emp_count >= 10 and (len(web_news_obs) + len(news_obs) < 2) and can_run_optional(cost=2, reserve=10):
         wire_obs = fetch_press_wire_news(org, name, limit=2, budget=budget, status_out=press_wire_state)
-        local_reqs += len(wire_obs)
 
-    # 6. Google Places & Wikidata & Patentstyret observations (already fetched)
+    # Places results are transient leads. Only a separately verified company
+    # page can contribute a claim after following a Places website link.
     if source_policy == EXPERIMENTAL:
-        observations.extend(places_obs)
-    observations.extend(wiki_obs)
+        observations.extend(wiki_obs)
     observations.extend(patent_obs)
 
     # 6b. Wikidata P2333 Knowledge Graph (enrich operating commercial firms with CEO/founding/socials)
-    if not wiki_obs and not is_passive_entity and (emp_count >= 10 or form_code_upper == "ASA") and budget.can_proceed(reserve=35):
+    if source_policy == EXPERIMENTAL and not wiki_obs and not is_passive_entity and (emp_count >= 10 or form_code_upper == "ASA") and budget.can_proceed(reserve=35):
         wiki_obs = fetch_wikidata_entity(org, name, budget=budget)
         observations.extend(wiki_obs)
 
@@ -1290,7 +1376,6 @@ def enrich_single_company(
         if needed_social > 0 and can_run_optional(cost=needed_social, reserve=5):
             soc_obs = fetch_social_profiles(name, org, budget=budget, max_profiles=needed_social, exclude_platforms=existing_social_platforms)
             observations.extend(soc_obs)
-            local_reqs += len(soc_obs)
 
     # 7b. LinkedIn guest discovery is an experiment only.  It is never called
     # in the official-safe path: identity proof cannot cure an unapproved
@@ -1565,7 +1650,7 @@ def enrich_single_company(
             profile["norid_verification"] = norid_obs.get("metrics") or {}
 
     # 13h. GLEIF Global Legal Entity Identifier (exact 9-digit Norwegian org number lookup)
-    if not is_passive_entity and (emp_count >= 10 or form_code_upper in {"ASA", "BA", "FKF", "SF", "SPA", "FS"}) and budget.can_proceed(reserve=30):
+    if source_policy == EXPERIMENTAL and not is_passive_entity and (emp_count >= 10 or form_code_upper in {"ASA", "BA", "FKF", "SF", "SPA", "FS"}) and budget.can_proceed(reserve=30):
         gleif_obs = fetch_gleif_identifier(org, name, budget=budget)
         if gleif_obs:
             observations.append(gleif_obs)
@@ -1629,7 +1714,7 @@ def enrich_single_company(
                     })
 
     # 13j. Official Supervisory & Labour Inspection Licenses (Arbeidstilsynet & Finanstilsynet)
-    if not is_passive_entity and can_run_optional(cost=1, reserve=5):
+    if source_policy == EXPERIMENTAL and not is_passive_entity and can_run_optional(cost=1, reserve=5):
         try:
             n_val = (profile.get("evidence", {}).get("registry_live", {}).get("value") or {})
             n_raw = n_val.get("naeringskode1") or profile.get("industry_code") or ""
@@ -1642,7 +1727,7 @@ def enrich_single_company(
             pass
 
     # 13k. Miljøfyrtårn (Eco-Lighthouse) ESG Sustainability Certification
-    if not is_passive_entity and (emp_count >= 5 or verified_website) and can_run_optional(cost=1, reserve=5):
+    if source_policy == EXPERIMENTAL and not is_passive_entity and (emp_count >= 5 or verified_website) and can_run_optional(cost=1, reserve=5):
         try:
             esg_obs = fetch_esg_certifications(org, name, budget=budget)
             if esg_obs:
@@ -1652,7 +1737,7 @@ def enrich_single_company(
             pass
 
     # 13l. Doffin (Norwegian Public Procurement Contracts & Tender Awards - B2G performance signals)
-    if not is_passive_entity and can_run_optional(cost=1, reserve=4):
+    if source_policy == EXPERIMENTAL and not is_passive_entity and can_run_optional(cost=1, reserve=4):
         try:
             doffin_obs = fetch_doffin_procurement(org, name, budget=budget, max_records=3)
             if doffin_obs:
@@ -1660,10 +1745,9 @@ def enrich_single_company(
                 profile["public_procurement"] = [obs.get("metrics") or {} for obs in doffin_obs if obs.get("metrics")]
         except Exception:
             pass
-        local_reqs += 1
 
     # 13m. Oslo Børs / Euronext Oslo Disclosures (Stock Exchange Filings for Listed ASAs)
-    if form_code_upper == "ASA" and can_run_optional(cost=1, reserve=4):
+    if source_policy == EXPERIMENTAL and form_code_upper == "ASA" and can_run_optional(cost=1, reserve=4):
         try:
             bors_obs = fetch_oslo_bors_disclosures(org, name, budget=budget, max_records=3)
             if bors_obs:
@@ -1671,10 +1755,9 @@ def enrich_single_company(
                 profile["stock_exchange_disclosures"] = [obs.get("metrics") or {} for obs in bors_obs if obs.get("metrics")]
         except Exception:
             pass
-        local_reqs += 1
 
     # 13n. Innovasjon Norge Grants (Public Commercialization & Innovation Subsidies)
-    if not is_passive_entity and (emp_count >= 5 or verified_website) and can_run_optional(cost=1, reserve=4):
+    if source_policy == EXPERIMENTAL and not is_passive_entity and (emp_count >= 5 or verified_website) and can_run_optional(cost=1, reserve=4):
         try:
             in_obs = fetch_innovasjon_norge_grants(org, name, budget=budget, max_records=3)
             if in_obs:
@@ -1682,10 +1765,6 @@ def enrich_single_company(
                 profile["innovation_grants"] = [obs.get("metrics") or {} for obs in in_obs if obs.get("metrics")]
         except Exception:
             pass
-        local_reqs += 1
-
-    # 14. Decision-useful factual synthesis (12-point scoring rubric)
-    profile["synthesis"] = generate_company_synthesis(profile, observations, budget=budget)
 
     return profile, observations
 
@@ -1710,10 +1789,14 @@ def main() -> int:
     parser.add_argument("--workers", "--concurrency", dest="workers", type=int, default=16, help="Worker threads")
     parser.add_argument("--max-requests", type=int, default=None, help="Request budget (defaults to Builderr's 2,000 requests per 100 companies)")
     parser.add_argument("--max-cost", type=float, default=None, help="Max API spend in USD (defaults to Builderr's $10 per 100 companies)")
-    parser.add_argument("--max-time", type=float, default=86400.0, help="Max wall clock seconds")
+    parser.add_argument("--max-time", type=float, help="Max wall clock seconds (defaults to a batch-size-based allowance)")
     parser.add_argument("--resume", action="store_true", help="Resume from existing completed profiles")
+    parser.add_argument("--resume-mode", choices=("reuse", "revalidate", "refresh"), default="reuse",
+                        help="Reuse saved profiles, re-fetch using saved website hints, or collect fresh without seed hints")
+    parser.add_argument("--previous-profiles", type=Path, help="Earlier profiles.jsonl to compare with a fresh run. Use a separate output directory.")
     parser.add_argument("--fast-bulk", action="store_true", help="Enable high-throughput bulk enrichment for 5,000+ company stress runs")
     parser.add_argument("--seed-dirs", default="", help="Comma-separated prior output directories to reuse verified live profiles from")
+    parser.add_argument("--nav-feed-cache", default="out/nav-feed-index.json", help="Local checkpoint for a registered NAV feed")
     parser.add_argument(
         "--verified-site-cache",
         default="",
@@ -1730,18 +1813,11 @@ def main() -> int:
         default=OFFICIAL_SAFE,
         help="Publication route: official-safe by default; experimental is private measurement only.",
     )
-    parser.add_argument(
-        "--search-api-key",
-        default="",
-        help="Optional search API key (Brave or compatible). When omitted or empty, search is completely skipped and requests remain $0.00.",
-    )
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
+    reset_nav_feed()
     validate_policy_name(args.source_policy)
     if args.load_env:
         _load_env_file()
-    if getattr(args, "search_api_key", None):
-        os.environ["BRAVE_API_KEY"] = args.search_api_key
-        os.environ["SEARCH_API_KEY"] = args.search_api_key
 
     started_at = utc_now()
     wall_start = time.monotonic()
@@ -1765,14 +1841,20 @@ def main() -> int:
     # - $10.0 API spend per 100 companies ($0.10 per company, e.g. $1,000 for 10,000 companies)
     # Scale proportionally with batch size unless explicitly overridden by CLI flags.
     standard_request_allowance = int(len(orgs) * 20)
-    effective_max_requests = args.max_requests if (args.max_requests is not None and args.max_requests > 0) else standard_request_allowance
+    if args.max_requests is not None and args.max_requests < 0:
+        parser.error("--max-requests must be non-negative")
+    if args.max_time is not None and (not math.isfinite(args.max_time) or args.max_time <= 0):
+        parser.error("--max-time must be a finite positive number of seconds")
+    if args.max_cost is not None and (not math.isfinite(args.max_cost) or args.max_cost < 0):
+        parser.error("--max-cost must be a finite non-negative amount")
+    effective_max_requests = args.max_requests if args.max_requests is not None else standard_request_allowance
     protected_request_reserve = min(int(effective_max_requests * 0.05), max(50, int(args.workers * 15)))
     usable_requests = max(0, effective_max_requests - protected_request_reserve)
     company_budget_pace = max(12, int(usable_requests / max(1, len(orgs))))
     standard_time_allowance = max(2700.0, (len(orgs) / 100.0) * 2700.0)
-    effective_max_time = args.max_time if (args.max_time is not None and args.max_time != 86400.0) else standard_time_allowance
+    effective_max_time = args.max_time if args.max_time is not None else standard_time_allowance
     standard_cost_allowance = max(10.0, (len(orgs) / 100.0) * 10.0)
-    effective_max_cost = args.max_cost if (args.max_cost is not None and args.max_cost > 0) else standard_cost_allowance
+    effective_max_cost = args.max_cost if args.max_cost is not None else standard_cost_allowance
 
     # Initialize budget tracker
     budget = BudgetTracker(
@@ -1786,6 +1868,17 @@ def main() -> int:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     profiles_out = Path(args.profiles_output) if args.profiles_output else (out_dir / "profiles.jsonl")
+    previous_profiles = {}
+    if args.previous_profiles:
+        if args.resume_mode != "refresh" or args.previous_profiles.resolve().parent == profiles_out.resolve().parent or args.previous_profiles.resolve().parent == out_dir.resolve():
+            parser.error("--previous-profiles requires --resume-mode refresh and a separate output directory")
+        if not args.previous_profiles.is_file():
+            parser.error(f"Previous profiles file is missing: {args.previous_profiles}")
+        with args.previous_profiles.open(encoding="utf-8-sig") as previous_file:
+            for line in previous_file:
+                if line.strip():
+                    previous_profile = json.loads(line)
+                    previous_profiles[previous_profile["organisation_number"]] = previous_profile
     envelopes_out = Path(args.output) if args.output else (out_dir / "envelopes.jsonl")
     observations_out = out_dir / "all-observations.jsonl"
     labels_out = out_dir / "external-audit-labels.jsonl"
@@ -1798,7 +1891,7 @@ def main() -> int:
     print(f"[INFO] Protected request reserve: {protected_request_reserve} | Source policy: {args.source_policy}")
 
     # Load profiles from bulk registry
-    profiles, registry_meta = profiles_from_bulk(args.bulk, orgs)
+    profiles, registry_meta = profiles_from_bulk(args.bulk, orgs, fetcher=budget.fetch_json)
     print(f"[INFO] Loaded {len(profiles)} profiles from bulk registry ({registry_meta['registry_rows_scanned']} rows scanned)")
 
     # Annotations
@@ -1809,7 +1902,7 @@ def main() -> int:
                 profile[key] = annotations[profile["organisation_number"]][key]
 
     cache_path = Path(args.verified_site_cache) if args.verified_site_cache else Path("config/verified-sites-cache.jsonl")
-    if cache_path.exists():
+    if cache_path.exists() and (args.verified_site_cache or args.resume_mode != "refresh"):
         cache_rows = [json.loads(line) for line in cache_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         cache_by_org = {str(row.get("organisation_number")): row for row in cache_rows}
         attached = 0
@@ -1830,9 +1923,9 @@ def main() -> int:
     state: dict[str, dict] = {}
     resumed_observations: list[dict[str, Any]] = []
     seed_paths: list[Path] = []
-    if args.resume and out_dir.exists():
+    if args.resume_mode != "refresh" and args.resume and out_dir.exists():
         seed_paths.append(out_dir)
-    if args.seed_dirs:
+    if args.resume_mode != "refresh" and args.seed_dirs:
         for sd in args.seed_dirs.split(","):
             sd_p = Path(sd.strip())
             if sd_p.exists():
@@ -1862,7 +1955,28 @@ def main() -> int:
                         obs = json.loads(line)
                         if str(obs.get("organisation_number") or "") in newly_seeded:
                             resumed_observations.append(obs)
+    if args.resume_mode == "revalidate":
+        for profile in profiles:
+            previous = state.get(str(profile["organisation_number"])) or {}
+            website = ((previous.get("evidence") or {}).get("website") or {}).get("value") or {}
+            if website.get("final_url") and (website.get("identity_assessment") or {}).get("publishable"):
+                profile["verified_site_cache"] = {"url": website["final_url"]}
+        state.clear()
+        resumed_observations.clear()
+    reused_orgs = set(state)
     if state:
+        if args.source_policy == OFFICIAL_SAFE:
+            verified_site_orgs = set()
+            for org, profile in state.items():
+                website = (profile.get("evidence") or {}).get("website") or {}
+                gated = apply_entity_identity_gate(profile, website, require_legal_operator=True)
+                profile["website"] = published_website_url(gated["website"])
+                if profile["website"]:
+                    verified_site_orgs.add(org)
+            website_strategies = {"website_news_discovery", "website_social_discovery", "company_site_job", "youtube_linked_channel_api"}
+            resumed_observations = [row for row in resumed_observations
+                                    if row.get("strategy") not in website_strategies
+                                    or row.get("organisation_number") in verified_site_orgs]
         existing_ids = {ob.get("id") for ob in resumed_observations}
         for prof_obj in state.values():
             for ob in extract_website_job_observations(prof_obj):
@@ -1883,7 +1997,6 @@ def main() -> int:
                 hiring_record = (prof_obj.get("evidence") or {}).get("hiring")
                 if hiring_record:
                     hiring_record["value"] = hiring
-            prof_obj["synthesis"] = generate_company_synthesis(prof_obj, approved_observations, budget=budget)
         print(f"[INFO] Loaded {len(state)} completed profiles and {len(resumed_observations)} observations from seed/resume state")
 
     all_observations: list[dict[str, Any]] = list(resumed_observations)
@@ -1891,7 +2004,8 @@ def main() -> int:
     completed = len(state)
     def worker_fn(profile, fetch_modules, requested_modules, budget, source_policy, company_budget_pace):
         with budget.attributed_to(str(profile["organisation_number"])):
-            return enrich_single_company(profile, fetch_modules, requested_modules, budget, source_policy, company_budget_pace)
+            return enrich_single_company(profile, fetch_modules, requested_modules, budget, source_policy, company_budget_pace,
+                                         nav_feed_cache=Path(args.nav_feed_cache))
     progress_step = 500 if len(profiles) >= 2000 else 10
 
     # Enrich pending companies in parallel
@@ -1928,12 +2042,15 @@ def main() -> int:
                     state[org] = fallback_p
                 completed += 1
 
+    flush_nav_feed_details(Path(args.nav_feed_cache))
+
     # Merge completed state back into profiles order
     profiles = [state.get(org, p) for org, p in zip(orgs, profiles)]
     budget_report = budget.report()
     request_attribution = budget_report["request_attribution"]
     for profile in profiles:
         row = request_attribution["by_company"].get(str(profile.get("organisation_number")), {})
+        profile["collection_mode"] = "reused_snapshot" if str(profile.get("organisation_number")) in reused_orgs else "live"
         profile.setdefault("run_metrics", {}).update({
             "requests": int(row.get("requests") or 0),
             "bytes": int(row.get("bytes") or 0),
@@ -1975,7 +2092,7 @@ def main() -> int:
             "valid_through": obs.get("valid_through"),
             "application_due": obs.get("application_due"),
             "nav_feed": obs.get("nav_feed"),
-            "evidence_span": obs.get("evidence_span"),
+            **observation_provenance(obs),
             "identity_proof": obs.get("identity_proof"),
             "acquisition_mode": obs.get("acquisition_mode"),
             "rights_status_claimed": obs.get("rights_status"),
@@ -1991,11 +2108,20 @@ def main() -> int:
         })
 
     # Generate envelopes
+    if previous_profiles:
+        from norway_company_agent.refresh import diff_profile
+
+        for profile in profiles:
+            org = profile["organisation_number"]
+            if org in previous_profiles:
+                profile["change_history"] = diff_profile(previous_profiles[org], profile)
+
     envelopes = [
         terminal_envelope(
             profile, run_id=args.run_id, modules=requested_modules,
             started_at=started_at, completed_at=completed_at,
             first_party_activity_only=False,
+            require_legal_operator=args.source_policy == OFFICIAL_SAFE,
         )
         for profile in profiles
     ]
@@ -2022,7 +2148,11 @@ def main() -> int:
     # The same budget snapshot backs the envelopes and run report.
 
     # Evaluation Contract Measurement schema
-    claim_fields = ["legal_identity", "official_website", "registry_declared_website", "norwegian_website_presence", "annual_accounts", "roles", "operating_locations", "hiring_status", "accounting_obligation", "dated_news", "job_postings", "construction_approval"]
+    claim_fields = ["legal_identity", "official_website", "registry_declared_website", "norwegian_website_presence",
+                    "registry_website_redirect", "annual_accounts", "annual_accounts_status", "annual_accounts_comparison",
+                    "roles", "operating_locations", "registered_subunit_trading_names", "workforce_source_counts",
+                    "group_membership", "hiring_status", "hiring_signal", "first_party_recruitment_notice", "accounting_obligation", "dated_news",
+                    "job_postings", "construction_approval", "registry_events"]
     per_field = {}
     abstentions = {"total": 0, "by_state": {}, "by_field": {}}
     for env in envelopes:
@@ -2070,7 +2200,7 @@ def main() -> int:
         "published_audited": 0,
         "incomplete_audit_rows": len(label_rows),
         "connector_policy_passed": None,
-        "fresh_coverage": len(external_orgs) / max(len(orgs), 1),
+        "fresh_coverage": len(external_orgs - reused_orgs) / max(len(orgs), 1),
         "coverage": coverage,
         "platforms": sorted(external_platforms),
         "total_observations": len(all_observations),
@@ -2088,8 +2218,9 @@ def main() -> int:
         "wall_clock_seconds": round(wall_elapsed, 1),
         "expected_count": len(orgs),
         "emitted_envelopes": len(envelopes),
-        "profiles_fetched_this_run": len(profiles),
-        "resumed_profiles": len(state) if (args.resume or args.seed_dirs) else 0,
+        "profiles_fetched_this_run": len(profiles) - len(reused_orgs),
+        "resumed_profiles": len(reused_orgs),
+        "resume_mode": args.resume_mode,
         "modules": requested_modules,
         "source_policy": args.source_policy,
         "registry": registry_meta,
@@ -2107,14 +2238,13 @@ def main() -> int:
             "google_news_rss": args.source_policy == EXPERIMENTAL,
             "news_credibility_engine": True,
             "linkedin_guest_discovery": args.source_policy == EXPERIMENTAL,
-            "google_places_api": places_available(),
+            "google_places_candidate_discovery": places_available(),
             "youtube_data_api": args.source_policy == EXPERIMENTAL and youtube_available(),
             "youtube_linked_channel_api": youtube_available(),
             "brave_search_api": brave_available(),
             "tavily_keyless_candidate_search": keyless_search_available(),
             "social_discovery": args.source_policy == EXPERIMENTAL,
-            "wikidata_sparql_p2333": True,
-            "brreg_kunngjoringer": True,
+            "wikidata_website_candidate_discovery": True,
             "enhetsregisteret_subunits": True,
             "patentstyret_nipo": patentstyret_available(),
         },
@@ -2343,23 +2473,7 @@ def main() -> int:
                 "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in verified_cache_rows),
                 encoding="utf-8",
             )
-            cfg_cache = Path("config/verified-sites-cache.jsonl")
-            existing_cache: dict[str, dict] = {}
-            if cfg_cache.exists():
-                for line in cfg_cache.read_text(encoding="utf-8").splitlines():
-                    if line.strip():
-                        r = json.loads(line)
-                        if r.get("organisation_number"):
-                            existing_cache[str(r["organisation_number"])] = r
-            for r in verified_cache_rows:
-                existing_cache[r["organisation_number"]] = r
-            merged_list = sorted(existing_cache.values(), key=lambda r: r["organisation_number"])
-            cfg_cache.parent.mkdir(parents=True, exist_ok=True)
-            cfg_cache.write_text(
-                "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in merged_list),
-                encoding="utf-8",
-            )
-            print(f"[INFO] Preserved {len(merged_list)} verified sites in {cfg_cache}")
+            print(f"[INFO] Exported {len(verified_cache_rows)} verified-site revalidation hints to {out_dir}")
     except Exception as exc:
         print(f"[WARN] Failed to preserve verified-site cache: {exc}")
 

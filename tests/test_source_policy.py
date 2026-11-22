@@ -40,10 +40,17 @@ def test_official_safe_quarantines_undeclared_keyed_route():
     assert result.reason.startswith("registry_conditional:")
 
 
-def test_official_safe_accepts_google_places_route():
+def test_source_metadata_cannot_approve_undeclared_route(monkeypatch):
+    for source_class in ("official_api", "official", "company_site", "company_owned"):
+        assert not observation_decision(observation(strategy="unknown_connector", source_class=source_class)).publishable
+    monkeypatch.setattr("norway_company_agent.source_policy.source_registry", lambda: {})
+    assert not observation_decision(observation()).publishable
+
+
+def test_official_safe_keeps_google_places_as_discovery_only():
     result = observation_decision(observation(platform="google_places", strategy="google_places_api_new"))
-    assert result.publishable
-    assert result.reason == "source_rights_registry_official_safe"
+    assert not result.publishable
+    assert result.reason == "registry_discovery_only:google_places_api_new"
 
 
 def test_experimental_mode_keeps_candidates_for_measurement():

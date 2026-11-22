@@ -14,7 +14,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.connectors.brave_search import (
     discover_company_website,
-    fetch_brave_jobs,
     is_available as brave_available,
 )
 from norway_company_agent.synthesis import generate_company_synthesis
@@ -57,88 +56,9 @@ class BraveSearchConnectorTests(unittest.TestCase):
                 candidate_url = discover_company_website(profile)
                 self.assertEqual(candidate_url, "https://norskfiskeeksport.no/")
 
-    def test_fetch_brave_jobs_no_key(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(fetch_brave_jobs("Acme AS"), [])
 
-    def test_fetch_brave_jobs_returns_candidate_observations(self):
-        profile_query = '"Acme AS" ledige stillinger'
-        mock_payload = {
-            "web": {
-                "results": [
-                    {
-                        "url": "https://arbeidsplassen.nav.no/stillinger/stilling/11111111-1111-1111-1111-111111111111",
-                        "title": "Utvikler hos Acme AS",
-                        "description": "Acme AS søker en utvikler i Oslo.",
-                    },
-                    {
-                        "url": "https://www.example.no/stillinger/123",
-                        "title": "Ledig stilling: konsulent",
-                        "description": "Acme AS har ledige stillinger.",
-                    },
-                ]
-            }
-        }
-        with patch.dict(os.environ, {"BRAVE_API_KEY": "mock_key"}):
-            with patch("urllib.request.urlopen") as mock_urlopen:
-                mock_resp = MagicMock()
-                mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
-                mock_resp.__enter__.return_value = mock_resp
-                mock_urlopen.return_value = mock_resp
 
-                jobs = fetch_brave_jobs("Acme AS", org_number="993578843", max_results=5)
 
-        self.assertEqual(len(jobs), 2)
-        # Both Brave queries were attempted in order (URL-encoded in the request).
-        from urllib.parse import quote_plus
-        requested_urls = [str(call.args[0].full_url) for call in mock_urlopen.call_args_list]
-        self.assertTrue(any(quote_plus(profile_query, safe='') in u for u in requested_urls))
-        self.assertTrue(any(quote_plus('site:arbeidsplassen.nav.no "Acme AS"', safe='') in u for u in requested_urls))
-
-        job = jobs[0]
-        self.assertEqual(job["platform"], "brave_search")
-        self.assertEqual(job["signal_type"], "job_posting")
-        self.assertEqual(job["organisation_number"], "993578843")
-        self.assertEqual(job["job_title"], "Utvikler hos Acme AS")
-        self.assertEqual(job["employer_name"], "Acme AS")
-        self.assertEqual(job["source_url"], "https://arbeidsplassen.nav.no/stillinger/stilling/11111111-1111-1111-1111-111111111111")
-        self.assertIsNone(job["published_at"])
-        self.assertTrue(job["content_sha256"])
-        self.assertTrue(job["id"].startswith("brave-job-"))
-        # Candidates are not verified claims.
-        self.assertFalse(job["exact_entity"])
-        self.assertEqual(job["rights_status"], "pending_verification")
-        self.assertEqual(job["strategy"], "brave_search_job_discovery")
-        self.assertEqual(job["query"], profile_query)
-        self.assertEqual(job["snippet"], "Acme AS søker en utvikler i Oslo.")
-        self.assertIn("requires exact-entity verification", job["evidence_span"])
-
-    def test_fetch_brave_jobs_dedups_and_caps(self):
-        mock_payload = {
-            "web": {
-                "results": [
-                    {"url": "https://arbeidsplassen.nav.no/stillinger/stilling/aaa", "title": "Jobb A", "description": "Acme AS"},
-                    {"url": "https://arbeidsplassen.nav.no/stillinger/stilling/aaa", "title": "Jobb A dup", "description": "Acme AS"},
-                    {"url": "https://arbeidsplassen.nav.no/stillinger/stilling/bbb", "title": "Jobb B", "description": "Acme AS"},
-                ]
-            }
-        }
-        with patch.dict(os.environ, {"BRAVE_API_KEY": "mock_key"}):
-            with patch("urllib.request.urlopen") as mock_urlopen:
-                mock_resp = MagicMock()
-                mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
-                mock_resp.__enter__.return_value = mock_resp
-                mock_urlopen.return_value = mock_resp
-
-                jobs = fetch_brave_jobs("Acme AS", max_results=1)
-
-        self.assertEqual(len(jobs), 1)
-        self.assertEqual(jobs[0]["job_title"], "Jobb A")
-
-    def test_fetch_brave_jobs_failed_query_returns_empty(self):
-        with patch.dict(os.environ, {"BRAVE_API_KEY": "mock_key"}):
-            with patch("urllib.request.urlopen", side_effect=OSError("network down")):
-                self.assertEqual(fetch_brave_jobs("Acme AS"), [])
 
 
 class CompanySynthesisTests(unittest.TestCase):

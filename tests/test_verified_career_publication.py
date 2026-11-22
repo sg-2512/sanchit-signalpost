@@ -16,6 +16,50 @@ from norway_company_agent.source_policy import filter_publishable_observations
 from norway_company_agent.verified_items import validate_job_item, validate_news_item
 
 
+def test_successful_empty_robots_file_differs_from_refused_access(monkeypatch):
+    from norway_company_agent.connectors import ats_discovery
+
+    url = "https://careers.soprasteria.no/robots.txt"
+    budget = BudgetTracker(max_requests=10, request_reserve=0)
+    monkeypatch.setattr(ats_discovery, "assert_public_url", lambda _: None)
+    monkeypatch.setattr(ats_discovery, "_pace_ats_request", lambda: None)
+    monkeypatch.setattr(ats_discovery._JOB_OPENER, "open", lambda *args, **kwargs: BytesIO())
+    assert ats_discovery._read_job_source(url, budget, 3) == b"User-agent: *\nDisallow:\n"
+    denied = urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+    with patch.object(ats_discovery._JOB_OPENER, "open", side_effect=denied):
+        assert ats_discovery._read_job_source(url, budget, 3) == b""
+
+
+def test_linked_norwegian_careers_portal_uses_live_listing_and_real_deadline(monkeypatch):
+    from norway_company_agent.connectors import ats_discovery
+
+    site = "https://www.soprasteria.no/"
+    board = "https://careers.soprasteria.no/jobs"
+    advert = "https://careers.soprasteria.no/job/nyutdannet-sikkerhet-jid-9387"
+    wrong = "https://careers.soprasteria.no/job/other-employer-jid-1234"
+    today = datetime.now(timezone.utc).date()
+    deadline = (today + timedelta(days=4)).isoformat()
+
+    def details(employer):
+        data = {"@type": "JobPosting", "title": "Nyutdannet Sikkerhet", "datePosted": today.isoformat(),
+                "validThrough": "2126-11-06", "hiringOrganization": {"name": employer}}
+        return ('<script type="application/ld+json">' + json.dumps(data) + '</script><main>'
+                + 'Sopra Steria søker en sikkerhetskonsulent i Oslo. Søk her via vår rekrutteringsside. ' * 4
+                + f'Søknadsfrist: {deadline}</main>').encode()
+
+    pages = {"https://careers.soprasteria.no/robots.txt": b"User-agent: *\nDisallow:\n",
+             board: f'<a href="{wrong}">Wrong employer</a><a href="{advert}">Nyutdannet Sikkerhet</a>'.encode(),
+             wrong: details("Different Norway"), advert: details("Sopra Steria Norway")}
+    monkeypatch.setattr(ats_discovery, "_read_job_source", lambda url, *_: pages[url])
+    jobs = verified_career_jobs([{"url": board, "source_url": site + "kontakt"}], site_url=site,
+                                company_name="SOPRA STERIA AS", org="910909088", subunit_orgs=[],
+                                budget=BudgetTracker(max_requests=20), max_requests=6)
+    assert [job["url"] for job in jobs] == [advert]
+    assert jobs[0]["valid_through"] == deadline and jobs[0]["application_due"] == deadline
+    assert validate_job_item(jobs[0], org="910909088", company_name="SOPRA STERIA AS",
+                             site_url=site, site_publishable=True)[0]
+
+
 def test_news_gate_rejects_dated_policy_pages_and_retains_privacy_news():
     site = "https://example.no"
     policy = f"{site}/personvern-cookies/"

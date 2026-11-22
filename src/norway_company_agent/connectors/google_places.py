@@ -4,7 +4,7 @@ Fetches place data (rating, reviews, address) for Norwegian companies.
 Supports both Places API (New) and legacy Places API.
 Activates automatically when GOOGLE_PLACES_API_KEY environment variable is set.
 
-Cost: ~$0.017 per search query
+Budget estimates use the published undiscounted rates for the requested fields.
 For 100 companies: ~$1.70 per run (well within $10 budget).
 """
 
@@ -96,7 +96,7 @@ def fetch_place_data(
     raw = None
     data = None
     for attempt in range(3):
-        if budget and not budget.try_start_request():
+        if budget and not budget.try_start_request(cost_usd=0.035):
             return []
         with _PLACES_LOCK:
             now = time.monotonic()
@@ -146,7 +146,7 @@ def fetch_place_data(
 
     if data and isinstance(data, dict):
         if budget and raw:
-            budget.record_request(count=0, cost_usd=0.017, bytes_received=len(raw))
+            budget.record_request(count=0, bytes_received=len(raw))
 
         places = data.get("places", [])
         if places:
@@ -246,14 +246,14 @@ def fetch_place_data(
             f"&key={api_key}"
         )
         req = urllib.request.Request(legacy_find, headers={"User-Agent": "SignalpostAgent/1.0"})
-        if budget and not budget.try_start_request():
+        if budget and not budget.try_start_request(cost_usd=0.032):
             return []
         with urllib.request.urlopen(req, timeout=15) as resp:
             legacy_raw = resp.read()
             legacy_data = json.loads(legacy_raw)
 
         if budget:
-            budget.record_request(count=0, cost_usd=0.017, bytes_received=len(legacy_raw))
+            budget.record_request(count=0, bytes_received=len(legacy_raw))
 
         candidates = legacy_data.get("candidates", [])
         if not candidates:
@@ -270,14 +270,14 @@ def fetch_place_data(
             f"&key={api_key}"
         )
         req = urllib.request.Request(details_url, headers={"User-Agent": "SignalpostAgent/1.0"})
-        if budget and not budget.try_start_request():
+        if budget and not budget.try_start_request(cost_usd=0.025):
             return []
         with urllib.request.urlopen(req, timeout=15) as resp:
             details_raw = resp.read()
             details_data = json.loads(details_raw)
 
         if budget:
-            budget.record_request(count=0, cost_usd=0.017, bytes_received=len(details_raw))
+            budget.record_request(count=0, bytes_received=len(details_raw))
 
         result = details_data.get("result", {})
         if not result:

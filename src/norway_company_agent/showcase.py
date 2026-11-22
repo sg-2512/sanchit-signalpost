@@ -7,9 +7,13 @@ Product UX & Design reference at builderr.ai/signalpost.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from .identity import published_website_url
+from .official import fiscal_year_of, latest_account
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "showcase.html"
 
@@ -25,6 +29,19 @@ def observation_meta(item: dict) -> dict:
     }
 
 
+def source_result_state(record: dict, results: Any) -> str:
+    if results:
+        rows = results if isinstance(results, list) else [results]
+        return "verified_result" if any(row.get("hash") and row.get("source") for row in rows) else "result_found"
+    if (record.get("lookup_complete") is True and record.get("status") == "not_found"
+            and record.get("source_url") and record.get("retrieved_at")
+            and re.fullmatch(r"[a-fA-F0-9]{64}", str(record.get("content_sha256") or ""))):
+        return "checked_no_result"
+    if record.get("status") in {"blocked", "source_error", "failed", "not_found", "not_available", "ambiguous"}:
+        return "checked_inconclusive"
+    return "not_checked"
+
+
 def compact_company_profile(row: dict, external_observations: Optional[List[dict]] = None) -> dict:
     evidence = row.get("evidence", {})
     financial = evidence.get("financials", {})
@@ -33,6 +50,7 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
     locations = evidence.get("locations", {})
     website = evidence.get("website", {})
     website_value = dict(website.get("value") or {})
+    verified_url = published_website_url(website, row.get("website"))
     if website.get("status") == "available" and not website_value.get("title"):
         website_value["title"] = "Company site fetched"
 
@@ -505,6 +523,19 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
             "jobs": jobs_collected[:10],
         },
     }
+    source_results = {
+        name: {"state": source_result_state(record, results), "checkedAt": record.get("retrieved_at"),
+               "source": record.get("source_url")}
+        for name, record, results in (
+            ("patents", evidence.get("patents") or {}, patents_collected),
+            ("procurement", evidence.get("procurement") or {}, procurement_collected),
+            ("esg", evidence.get("esg") or {}, esg_collected),
+            ("lei", evidence.get("lei") or {}, lei_info),
+            ("exchange", evidence.get("stock_exchange") or {}, stock_disclosures),
+            ("licenses", evidence.get("regulatory_licenses") or {}, regulatory_licenses_collected),
+            ("food_safety", evidence.get("food_safety") or {}, food_safety_collected),
+        )
+    }
 
     def meta(record: dict) -> dict:
         return {
@@ -542,8 +573,7 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
     fin_available = financial.get("status") == "available" and bool(fin_records)
     role_items = (roles.get("value") or {}).get("roles", [])
     people_places_available = bool(role_items) or bool(raw_loc_items)
-    web_title = website_value.get("title")
-    web_available = website.get("status") == "available" and bool(web_title) and web_title != "Company site fetched"
+    web_available = bool(verified_url)
     footprint_available = bool(
         external.get("handles")
         or external.get("linkedin", {}).get("available")
@@ -601,11 +631,13 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
         "municipality": row.get("municipality", ""),
         "industryCode": row.get("industry_code", ""),
         "industry": row.get("industry_label", ""),
-        "website": None if identity_assessment and not identity_assessment.get("publishable") else row.get("website"),
+        "website": verified_url,
+        "websiteRelationships": row.get("website_relationships") or [],
         "adverse": bool(row.get("bankrupt") or row.get("liquidating")),
         "slice": row.get("sample_slice", "preserved_eligible"),
         "split": row.get("evaluation_split", "development"),
-        "latestAccounts": row.get("latest_submitted_accounts"),
+        "latestAccounts": fiscal_year_of(latest_account(fin_records)) if fin_available else None,
+        "registryLatestAccounts": row.get("latest_submitted_accounts"),
         "registrySource": evidence.get("registry", {}).get("source_url") or f"https://data.brreg.no/enhetsregisteret/api/enheter/{row.get('organisation_number')}",
         "registry": meta(evidence.get("registry", {})),
         "accounting": {**meta(accounting), "value": accounting.get("value") or {}},
@@ -617,8 +649,13 @@ def compact_company_profile(row: dict, external_observations: Optional[List[dict
         "liveStatus": live.get("status", "available" if row.get("name") else "not_run"),
         "changes": row.get("change_history") or [],
         "external": external,
+        "sourceResults": source_results,
+        "constructionApproval": {**meta(evidence["construction_approval"]), "value": evidence["construction_approval"].get("value") or {}}
+                                if evidence.get("construction_approval", {}).get("status") == "available" else None,
+        "workforceSources": row.get("workforce_source_values") or [],
         "synthesis": row.get("synthesis") or {},
         "hiring": row.get("hiring") or {},
+        "recruitmentNotice": row.get("recruitment_notice"),
         "coverage": {
             "score": coverage_score,
             "total": 5,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import json
 import re
 import socket
@@ -24,7 +23,8 @@ import tldextract
 import trafilatura
 
 from .evidence import evidence
-from .verified_items import is_hub_url, is_recruitment_page_url, is_website_policy_page, parse_iso_date
+from .public_http import assert_public_url, connect_public_socket, public_opener
+from .verified_items import cision_release_channel, is_hub_url, is_recruitment_page_url, is_website_policy_page, parse_iso_date
 
 USER_AGENT = "builderr-signalpost-poc/0.1 (+https://builderr.ai)"
 SOCIAL_HOSTS = {
@@ -46,23 +46,6 @@ PRIORITY_TERMS = (
 )
 
 
-def assert_public_url(url: str) -> None:
-    parsed = urllib.parse.urlparse(url)
-    host = (parsed.hostname or "").lower().rstrip(".")
-    if parsed.scheme not in {"http", "https"} or not host:
-        raise ValueError("Only public HTTP(S) URLs are allowed")
-    if host == "localhost" or host.endswith(".localhost") or host.endswith(".local"):
-        raise ValueError("Local hosts are blocked")
-    try:
-        addresses = {item[4][0] for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)}
-    except socket.gaierror as exc:
-        raise ValueError("Hostname did not resolve") from exc
-    for address in addresses:
-        ip = ipaddress.ip_address(address)
-        if not ip.is_global:
-            raise ValueError("Private, loopback, link-local, multicast, and reserved addresses are blocked")
-
-
 class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def __init__(self, *, check_robots: bool = False):
         self.check_robots = check_robots
@@ -71,7 +54,11 @@ class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         assert_public_url(newurl)
         if self.check_robots and not _robots_allowed(newurl, 4.0):
             raise urllib.error.HTTPError(newurl, 403, "robots.txt disallows redirect target", headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected and urllib.parse.urlsplit(req.full_url)[:2] != urllib.parse.urlsplit(newurl)[:2]:
+            for key in ("Authorization", "Proxy-authorization", "Cookie", "Host"):
+                redirected.remove_header(key)
+        return redirected
 
 
 _REQUEST_CONTEXT: ContextVar[Any] = ContextVar("website_request_budget", default=None)
@@ -90,8 +77,8 @@ class WebsiteBudgetHandler(urllib.request.BaseHandler):
     https_request = http_request
 
 
-SAFE_OPENER = urllib.request.build_opener(SafeRedirectHandler(check_robots=True), WebsiteBudgetHandler())
-ROBOTS_OPENER = urllib.request.build_opener(SafeRedirectHandler(), WebsiteBudgetHandler())
+SAFE_OPENER = public_opener(SafeRedirectHandler(check_robots=True), WebsiteBudgetHandler())
+ROBOTS_OPENER = public_opener(SafeRedirectHandler(), WebsiteBudgetHandler())
 
 
 def _safe_urlopen(request: urllib.request.Request, timeout: float):
@@ -215,6 +202,13 @@ def _social_links(base_url: str, soup: BeautifulSoup) -> list[dict[str, str]]:
             continue
         found[(normalized["platform"], normalized["url"])] = normalized
     return sorted(found.values(), key=lambda item: (item["platform"], item["url"]))
+
+
+def _press_release_links(soup: BeautifulSoup) -> list[str]:
+    return list(dict.fromkeys(
+        url for node in soup.select("a[href]")
+        if (url := str(node["href"])) and cision_release_channel(url)
+    ))[:4]
 
 
 def structured_social_links(value: Any) -> list[dict[str, str]]:
@@ -697,7 +691,7 @@ def extract_website_jobs(page_url: str, soup: BeautifulSoup, raw_html: str, page
         same_site_job = (
             is_career_page and _registered_domain(resolved_href) == _registered_domain(page_url)
             and resolved_href.rstrip("/") != page_url.rstrip("/")
-            and bool(re.fullmatch(r"/(?:jobs/[0-9]+(?:-[^/]+)?|ledig-stilling(?:-[0-9]+)?|stillinger/[^/]+|jobb/[^/]+)/?", resolved_path, re.I))
+            and bool(re.fullmatch(r"/(?:jobs/[0-9]+(?:-[^/]+)?|job/[^/]+-jid-[0-9]+|ledig-stilling(?:-[0-9]+)?|stillinger/[^/]+|jobb/[^/]+)/?", resolved_path, re.I))
         )
         linked_careers_host = (
             urllib.parse.urlsplit(resolved_href).scheme == "https"
@@ -895,9 +889,83 @@ def _discover_sitemap_urls(base_url: str, timeout: float = 3.0) -> tuple[list[st
     return news_urls, career_urls
 
 
+def norwegian_presence_path(url: str) -> str | None:
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
+        return None
+    path = parts.path.casefold().strip("/").split("/")
+    if len(path) < 2 or path[0] not in {"no", "nb-no", "en-no", "no-no", "nb"}:
+        return None
+    if not any(re.match(r"(?:contact|kontakt|legal|business-information|privacy|personvern|terms|imprint|company-information|about|om-oss|leverandorinformasjon|leverandørinformasjon)(?:[-.]|$)", part) for part in path[1:]):
+        return None
+    return f"{parts.scheme}://{parts.netloc}/{path[0]}/"
+
+
+def _norwegian_presence_links(base_url: str, soup: BeautifulSoup) -> list[str]:
+    host = urllib.parse.urlsplit(base_url).hostname
+    candidates = {}
+    for anchor in soup.select("a[href]"):
+        try:
+            link = urllib.parse.urlsplit(urllib.parse.urljoin(base_url, str(anchor["href"])))
+            candidate = link._replace(query="", fragment="").geturl()
+            if link.hostname != host or not norwegian_presence_path(candidate):
+                continue
+        except ValueError:
+            continue
+        priority = 0 if re.search(r"\b(?:legal|business-information|company-information|imprint)", link.path, re.I) else 1
+        candidates[candidate] = priority
+    return sorted(candidates, key=lambda url: (candidates[url], url))[:8]
+
+
+def _linked_newsrooms(base_url: str, soup: BeautifulSoup) -> list[str]:
+    domain = _registered_domain(base_url)
+    urls = {}
+    for anchor in soup.select("a[href]"):
+        try:
+            url = urllib.parse.urlsplit(urllib.parse.urljoin(base_url, str(anchor["href"])))
+        except ValueError:
+            continue
+        if (url.scheme == "https" and _registered_domain(url.geturl()) == domain
+                and re.search(r"/(?:newsroom|news-center|news|nyheter|aktuelt|media|presse|press)/?$", url.path, re.I)):
+            urls[url._replace(query="", fragment="").geturl()] = None
+    return list(urls)[:8]
+
+
+def _news_translation_metadata(soup: BeautifulSoup, url: str) -> dict[str, str]:
+    """Use an article's same-site language alternates as a stable story identifier."""
+    domain = _registered_domain(url)
+    variants = []
+    for element in soup.select('link[rel="alternate"][hreflang][href]'):
+        language = str(element["hreflang"]).casefold().split("-", 1)[0]
+        if language == "x":
+            continue
+        try:
+            link = urllib.parse.urlsplit(urllib.parse.urljoin(url, str(element["href"])))
+        except ValueError:
+            continue
+        target = link._replace(query="", fragment="").geturl()
+        if link.scheme == "https" and link.path.strip("/") and _registered_domain(target) == domain and not is_hub_url(target):
+            variants.append(({"no": 0, "nb": 0, "nn": 0, "en": 1}.get(language, 2), target))
+    language = str(soup.html.get("lang") or "") if soup.html else ""
+    if len(variants) > 1:
+        return {"story_key": min(variants)[1].rstrip("/"), "article_language": language}
+    return {}
+
+
+def _wordpress_posts_url(base_url: str, soup: BeautifulSoup) -> str:
+    link = soup.find("link", rel=lambda rel: rel and "https://api.w.org/" in str(rel))
+    if link and link.get("href"):
+        candidate = urllib.parse.urljoin(base_url, urllib.parse.urljoin(link["href"], "wp/v2/posts?per_page=5"))
+    elif "wp-content" in str(soup) or "wp-includes" in str(soup):
+        candidate = urllib.parse.urljoin(base_url, "/wp-json/wp/v2/posts?per_page=5")
+    else:
+        return ""
+    return candidate if candidate.startswith("https://") and _registered_domain(candidate) == _registered_domain(base_url) else ""
+
+
 def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_sitemap: bool = False) -> list[str]:
     base_reg_domain = _registered_domain(base_url)
-    career_terms = ("karriere", "jobb", "careers", "vacancies", "stillinger", "ledige-stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
+    career_terms = ("ledig-stilling", "ledige-stillinger", "karriere", "jobb", "careers", "vacancies", "stillinger", "work-with-us", "bli-med-pa-laget", "open-positions", "rekruttering", "jobbe-hos-oss")
     news_terms = ("aktuelt", "nyheter", "siste-nytt", "news", "pressemelding", "pressemeldinger", "innsikt-og-nyheter", "artikler", "blogg", "press", "presse", "media", "publikasjoner")
     about_terms = ("kontakt", "contact", "om-oss", "om_oss", "om oss", "omoss", "about", "personvern", "privacy", "legal", "vilkar", "vilkår", "terms", "ledelse", "management", "team", "people", "locations", "lokasjoner", "avdelinger", "butikker")
 
@@ -914,15 +982,8 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
                 if abs_feed.startswith(("http://", "https://")) and _registered_domain(abs_feed) == base_reg_domain:
                     news_cands[abs_feed] = -1
 
-    wp_api_link = soup.find("link", rel=lambda r: r and "https://api.w.org/" in str(r))
-    if wp_api_link and wp_api_link.get("href"):
-        wp_posts_url = urllib.parse.urljoin(wp_api_link["href"], "wp/v2/posts?per_page=5")
-        if _registered_domain(wp_posts_url) == base_reg_domain:
-            news_cands[wp_posts_url] = -2
-    elif "wp-content" in str(soup) or "wp-includes" in str(soup):
-        wp_direct = urllib.parse.urljoin(base_url, "/wp-json/wp/v2/posts?per_page=5")
-        if _registered_domain(wp_direct) == base_reg_domain:
-            news_cands[wp_direct] = -2
+    if wp_posts_url := _wordpress_posts_url(base_url, soup):
+        news_cands[wp_posts_url] = -2
 
     for anchor in soup.select("a[href]"):
         href = str(anchor.get("href") or "").strip()
@@ -944,7 +1005,7 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
             career_cands[clean] = min(score, career_cands.get(clean, score))
             continue
 
-        newsroom_hub = re.search(r"(?:^|/)(?:presse|press|pressemeldinger|nyheter|aktuelt|news|nytt|innblikk)/?$", path_lower)
+        newsroom_hub = re.search(r"(?:^|/)(?:presse|press|pressemeldinger|nyheter|aktuelt|news|newsroom|news-center|nytt|innblikk)/?$", path_lower)
         n_rank = next((i for i, t in enumerate(news_terms) if t in haystack), None)
         if newsroom_hub or n_rank is not None:
             # A company press/news index is more useful than a product page
@@ -1075,8 +1136,12 @@ def _fetch_secondary_page(url: str, *, homepage_domain: str, timeout: float, max
                 identity_excerpt = (identity_excerpt + "\n" + policy_body.get_text(" ", strip=True)[:2500])[:10000]
 
         page = {
+            **_news_translation_metadata(page_soup, final_url),
             "url": final_url,
             "title": page_soup.title.get_text(" ", strip=True)[:500] if page_soup.title else "",
+            "press_release_links": _press_release_links(page_soup),
+            "norwegian_presence_links": _norwegian_presence_links(final_url, page_soup),
+            "newsroom_links": _linked_newsrooms(final_url, page_soup),
             "heading": (heading.get_text(" ", strip=True)[:250]
                         if (heading := page_soup.select_one("main h1, article h1, h1")) else ""),
             "news_feed_links": [
@@ -1130,7 +1195,7 @@ def extract_tls_san(hostname: str | None, timeout: float = 3.0) -> list[str]:
         return []
     try:
         ctx = ssl.create_default_context()
-        with socket.create_connection((hostname, 443), timeout=timeout) as sock:
+        with connect_public_socket((hostname, 443), timeout=timeout) as sock:
             with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
                 cert = ssock.getpeercert()
                 san = cert.get("subjectAltName", ()) if cert else ()
@@ -1367,6 +1432,9 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         pages = [{
             "url": final_url,
             "title": title[:500],
+            "visible_text_excerpt": value["visible_text_excerpt"],
+            "press_release_links": _press_release_links(soup),
+            "norwegian_presence_links": _norwegian_presence_links(final_url, soup),
             "main_text_excerpt": text[:5000],
             "content_sha256": value["content_sha256"],
             "article_publication_date": _article_publication_date(soup, final_url, homepage_ld_news),
@@ -1478,7 +1546,10 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
                    and not is_recruitment_page_url(str(item["url"]))
                    and (item.get("verification") == "inline_newsroom" or not is_hub_url(str(item["url"])))
                    for item in all_news_items):
-            for feed in (link for page in pages for link in page.get("news_feed_links", [])):
+            wp_posts_url = _wordpress_posts_url(final_url, soup)
+            feeds = [wp_posts_url] if wp_posts_url else []
+            feeds.extend(link for page in pages for link in page.get("news_feed_links", []))
+            for feed in dict.fromkeys(feeds):
                 if not feed.startswith("https://") or _registered_domain(feed) != homepage_domain or feed.rstrip("/") in seen_pages:
                     continue
                 feed_page, _, count, size, latency, error = _fetch_secondary_page(
@@ -1517,7 +1588,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
             checked_article_urls.add(article_key)
             article = article_pages.get(article_key)
             if article is None:
-                if checked_articles >= 2:
+                if checked_articles >= 3:
                     continue
                 checked_articles += 1
                 article, _, count, size, latency, error = _fetch_secondary_page(
@@ -1534,18 +1605,23 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
                 elif error:
                     crawl_errors.append({"url": article_url, "error": error})
             article_title = str(article.get("title") or "") if article else ""
+            article_heading = str(article.get("heading") or "") if article else ""
             listing_title = str(item.get("title") or "")
             if (article and article.get("article_publication_date")
                     and not is_website_policy_page(article["url"], article_title)
                     and not is_recruitment_page_url(article["url"])
                     and len(str(article.get("main_text_excerpt") or "")) >= 80
-                    and listing_title and listing_title.casefold() in article_title.casefold()):
+                    and listing_title and any(listing_title.casefold() in title.casefold() for title in
+                                              (article_title, article_heading))):
                 item["verification"] = "article_fetched"
                 item["article_text_excerpt"] = article["main_text_excerpt"]
                 item["url"] = article["url"]
                 item["source_url"] = article["url"]
                 item["content_sha256"] = article["content_sha256"]
                 item["published_at"] = article["article_publication_date"]
+                if article.get("story_key"):
+                    item["story_key"] = article["story_key"]
+                    item["article_language"] = article.get("article_language")
         value["pages"] = pages
         value["social_links"] = list({(item["platform"], item["url"]): item for item in social}.values())
 

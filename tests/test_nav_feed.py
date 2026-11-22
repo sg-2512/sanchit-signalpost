@@ -68,3 +68,56 @@ def test_feed_urls_cannot_leave_nav_host() -> None:
     assert nav_feed._nav_url("/api/v1/feedentry/abc", "/api/v1/feedentry/")
     assert nav_feed._nav_url("https://other.example/api/v1/feedentry/abc", "/api/v1/feedentry/") is None
     assert nav_feed._nav_url("/internal", "/api/v1/feedentry/") is None
+
+
+def test_registered_feed_resumes_checkpoint_and_removes_inactive_ad(monkeypatch, tmp_path) -> None:
+    cache = tmp_path / "nav.json"
+    cursor = "/api/v1/feed/terminal"
+    uuid = "11111111-1111-1111-1111-111111111111"
+    detail_url = f"/api/v1/feedentry/{uuid}"
+    requests = []
+
+    def page(url, budget, *, token, since):
+        requests.append((url, since))
+        if len(requests) == 1:
+            return json.dumps({"next_url": cursor, "items": []}).encode(), {}
+        if len(requests) == 2:
+            entry = {"uuid": uuid, "status": "ACTIVE", "businessName": "Example AS"}
+        else:
+            entry = {"uuid": uuid, "status": "INACTIVE"}
+        return json.dumps({"next_url": None, "items": [{"url": detail_url, "_feed_entry": entry}]}).encode(), {}
+
+    monkeypatch.setattr(nav_feed, "_get", page)
+    before, _, _ = nav_feed._build_index(_Budget(), "a.b.c", cache)
+    assert before["example"][0]["uuid"] == uuid
+    after, _, _ = nav_feed._build_index(_Budget(), "a.b.c", cache)
+    assert after == {}
+    assert requests[0][1]
+    assert requests[-1] == (nav_feed.BASE + cursor, "")
+    assert "a.b.c" not in cache.read_text()
+
+
+def test_registered_nav_keeps_exact_employer_lookup_and_expiry(monkeypatch, tmp_path) -> None:
+    cache = tmp_path / "nav.json"
+    org = "964118191"
+    uuid = "11111111-1111-1111-1111-111111111111"
+    detail_url = nav_feed.BASE + "/api/v1/feedentry/" + uuid
+    original = {"uuid": uuid, "url": detail_url, "name": "Old employer display name", "revision": "1"}
+    nav_feed.reset_nav_feed()
+    monkeypatch.setenv("SIGNALPOST_NAV_FEED_TOKEN", "a.b.c")
+    nav_feed._save_index(cache, nav_feed.FEED_URL, {uuid: original})
+    monkeypatch.setattr(nav_feed, "_index", {"old employer display name": [original]})
+    monkeypatch.setattr(nav_feed, "_token", "a.b.c")
+    monkeypatch.setattr(nav_feed, "_state", "complete")
+    detail = {"uuid": uuid, "status": "ACTIVE", "ad_content": {
+        "title": "Service Engineer", "employer": {"orgnr": org}, "expires": "2099-01-01"}}
+    monkeypatch.setattr(nav_feed, "_get", lambda *_args, **_kw: (json.dumps(detail).encode(), {}))
+    jobs, _, _ = nav_feed.nav_feed_jobs_for_company("Old employer display name", org, budget=_Budget(), cache_path=cache)
+    assert len(jobs) == 1
+    nav_feed.flush_nav_feed_details(cache)
+    _, rows = nav_feed._load_index(cache)
+    assert rows[uuid]["employer_org"] == org and rows[uuid]["expires"] == "2099-01-01"
+    monkeypatch.setattr(nav_feed, "_get", lambda *_args, **_kw: (b'{"items":[],"next_url":null}', {}))
+    refreshed, _, _ = nav_feed._build_index(_Budget(), "a.b.c", cache)
+    assert refreshed[f"org:{org}"][0]["uuid"] == uuid
+    nav_feed.reset_nav_feed()

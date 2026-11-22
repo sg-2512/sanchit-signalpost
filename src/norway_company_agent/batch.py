@@ -5,12 +5,13 @@ import json
 import re
 import urllib.parse
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .evidence import evidence, utc_now
-from .http import fetch_json
-from .official import accounting_obligation_assessment, latest_account, fiscal_year_of
-from .verified_items import name_in_text, registered_domain, validate_job_item, validate_news_item
+from .http import FetchResult, fetch_json
+from .official import accounting_obligation_assessment, compare_annual_accounts, latest_account, fiscal_year_of, normalize_retained_accounts
+from .identity import published_website_url
+from .verified_items import first_party_news_about_company, name_in_text, registered_domain, validate_job_item, validate_news_item
 from .sampling import iter_bulk
 
 
@@ -73,7 +74,12 @@ def read_organisation_numbers(path: str | Path) -> list[str]:
     return [record["organisation_number"] for record in read_organisation_inputs(path)]
 
 
-def profiles_from_bulk(path: str | Path | None, organisation_numbers: Iterable[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def profiles_from_bulk(
+    path: str | Path | None,
+    organisation_numbers: Iterable[str],
+    *,
+    fetcher: Callable[..., FetchResult] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     from concurrent.futures import ThreadPoolExecutor
 
     requested = list(organisation_numbers)
@@ -116,8 +122,8 @@ def profiles_from_bulk(path: str | Path | None, organisation_numbers: Iterable[s
     missing = [org for org in requested if org not in found]
     if missing:
         def _fetch_missing(org: str) -> tuple[str, dict[str, Any]]:
-            res = fetch_json(f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}", timeout=5.0, attempts=2)
-            if res.status == 200 and isinstance(res.body, dict):
+            res = (fetcher or fetch_json)(f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}", timeout=5.0, attempts=2)
+            if res.status == 200 and isinstance(res.body, dict) and str(res.body.get("organisasjonsnummer")) == org:
                 body = res.body
                 reg_ev_obj = evidence(
                     "registry",
@@ -150,6 +156,8 @@ def profiles_from_bulk(path: str | Path | None, organisation_numbers: Iterable[s
                         "accounting_obligation": accounting_obligation_assessment({**body, "evidence": {"registry": reg_ev_obj}}),
                     },
                 }
+            status = "not_found" if res.status in {404, 410} else "blocked" if res.status in {401, 403, 429} else "source_error"
+            note = res.error or ("Registry response did not verify the requested organisation number" if res.status == 200 else f"HTTP {res.status}")
             return org, {
                 "organisation_number": org,
                 "name": f"Organisation {org}",
@@ -169,20 +177,19 @@ def profiles_from_bulk(path: str | Path | None, organisation_numbers: Iterable[s
                 "evidence": {
                     "registry": evidence(
                         "registry",
-                        "not_found",
-                        "official_registry_bulk",
-                        "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv",
-                        note="Organisation number absent from bulk registry snapshot and live registry",
-                        retrieved_at=retrieved_at,
-                        content_sha256=snapshot_sha256,
-                        source_row_key=org,
+                        status,
+                        "official_registry_live",
+                        res.url,
+                        note=note,
+                        retrieved_at=res.retrieved_at or retrieved_at,
+                        http_status=res.status or None,
                     ),
                     "accounting_obligation": evidence(
                         "accounting_obligation",
-                        "not_applicable",
+                        "not_applicable" if status == "not_found" else status,
                         "official_rule_interpretation",
                         "https://www.brreg.no/",
-                        note="Not found in registry bulk snapshot",
+                        note="Registry identity was unavailable",
                         retrieved_at=retrieved_at,
                     ),
                 },
@@ -279,8 +286,9 @@ def build_contract_claims_and_evidence(
     completed_at: str,
     *,
     first_party_activity_only: bool = False,
+    require_legal_operator: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    from .identity import apply_entity_identity_gate, apply_website_identity_gate
+    from .identity import apply_entity_identity_gate
 
     org = str(profile.get("organisation_number") or "")
     ev = profile.get("evidence") or {}
@@ -288,11 +296,15 @@ def build_contract_claims_and_evidence(
     # Re-apply multi-factor entity identity gate when real crawl content is present so cached profiles stay current
     w_rec = ev.get("website") or {}
     w_val = w_rec.get("value") or {}
-    if (w_rec.get("status") == "available" and isinstance(w_val, dict)
-            and ((w_val.get("identity_assessment") or {}).get("publishable")
-                 or (w_val.get("entity_identity_assessment") or {}).get("operator_conflict"))
-            and (w_val.get("title") or w_val.get("main_text_excerpt") or w_val.get("final_url"))):
-        gated = apply_entity_identity_gate(profile, w_rec, list(ev.values()))
+    if w_rec.get("status") == "available" and require_legal_operator:
+        gated = apply_entity_identity_gate(profile, w_rec, require_legal_operator=True)
+        w_rec = gated["website"]
+        w_val = w_rec.get("value") or {}
+    elif (w_rec.get("status") == "available" and isinstance(w_val, dict)
+          and ((w_val.get("identity_assessment") or {}).get("publishable")
+               or (w_val.get("entity_identity_assessment") or {}).get("operator_conflict"))
+          and (w_val.get("title") or w_val.get("main_text_excerpt") or w_val.get("final_url"))):
+        gated = apply_entity_identity_gate(profile, w_rec)
         w_rec = gated["website"]
         w_val = w_rec.get("value") or {}
 
@@ -322,22 +334,30 @@ def build_contract_claims_and_evidence(
         if not re.fullmatch(r"[0-9a-fA-F]{64}", raw_sha):
             # An absent or malformed digest cannot prove the source content.
             continue
-        source_span = str(rec.get("evidence_span") or rec.get("claim_span") or "")
-        if mod == "website" and isinstance(rec.get("value"), dict):
-            source_span = str(rec["value"].get("identity_text_excerpt") or source_span)
-        if not source_span and mod in {"registry", "registry_live"} and isinstance(rec.get("value"), dict):
-            registry_value = rec["value"]
-            source_span = f"organisasjonsnummer: {org}; navn: {registry_value.get('name') or registry_value.get('navn') or ''}"
-        if not source_span:
-            source_span = f"{mod} source record; key: {rec.get('source_row_key') or org}"
-        evidence_items.append({
+        item = {
             "id": ev_id,
             "source_url": src_url,
             "source_class": str(rec.get("source_class") or rec.get("source_type") or "official"),
             "retrieved_at": rec.get("retrieved_at") or completed_at,
             "content_sha256": raw_sha,
-            "claim_span": source_span[:500],
-        })
+        }
+        if rec.get("source_fields"):
+            item["source_fields"] = rec["source_fields"]
+        if mod == "registered_address" and rec.get("content_sha256") == reg_live_rec.get("content_sha256"):
+            raw_address = (reg_live_rec.get("value") or {}).get("forretningsadresse")
+            if raw_address:
+                item["source_fields"] = [{"source_pointer": "/forretningsadresse", "source_value": raw_address}]
+        if rec.get("source_row_key"):
+            item["source_record_key"] = rec["source_row_key"]
+        if rec.get("literal_excerpt"):
+            item["literal_excerpt"] = rec["literal_excerpt"]
+        if mod == "website" and isinstance(rec.get("value"), dict):
+            value = rec["value"]
+            identity = " ".join(str(value.get("identity_text_excerpt") or "").split())
+            visible = " ".join(str(value.get("visible_text_excerpt") or "").split())
+            if identity and identity in visible:
+                item["literal_excerpt"] = identity[:500]
+        evidence_items.append(item)
 
     # 2. Legal Identity Claim (prefers live sovereign registry response body with exact SHA-256)
     if reg_live_rec.get("status") == "available" and reg_live_rec.get("content_sha256"):
@@ -373,6 +393,11 @@ def build_contract_claims_and_evidence(
 
     if reg_live_rec.get("status") == "available" and reg_live_rec.get("content_sha256"):
         live_value = reg_live_rec.get("value") or {}
+        industry = live_value.get("naeringskode1") or live_value.get("industry") or {}
+        if isinstance(industry, dict) and industry.get("beskrivelse"):
+            claims.append({"field": "registered_industry", "value": {"code": industry.get("kode"),
+                           "description": industry["beskrivelse"]}, "availability": "available",
+                           "confidence": 1.0, "evidence_ids": [f"ev-registry_live-{org}"]})
         raw_purpose = live_value.get("aktivitet") or live_value.get("vedtektsfestetFormaal")
         purpose = " ".join(str(part).strip() for part in raw_purpose if part) if isinstance(raw_purpose, list) else str(raw_purpose or "").strip()
         if purpose:
@@ -391,6 +416,16 @@ def build_contract_claims_and_evidence(
             claims.append({"field": "legal_name_history", "value": history,
                            "availability": "available", "confidence": 1.0,
                            "evidence_ids": [f"ev-registry_live-{org}"]})
+        registry_events = [{"type": event, "date": date_value} for key, event in (
+            ("stiftelsesdato", "company_formed"),
+            ("registreringsdatoEnhetsregisteret", "entity_register_registration"),
+            ("registreringsdatoForetaksregisteret", "business_register_registration"),
+        ) if isinstance((date_value := live_value.get(key)), str)
+            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_value) and date_value <= completed_at[:10]]
+        if registry_events and reg_live_rec.get("source_type") == "official_registry_live":
+            claims.append({"field": "registry_events", "value": registry_events,
+                           "availability": "available", "confidence": 1.0,
+                           "evidence_ids": [f"ev-registry_live-{org}"]})
 
     # The registry's declared address is a registry fact, independent of crawl verification.
     registry_module = "registry_live" if reg_live_rec.get("status") == "available" else "registry"
@@ -402,8 +437,12 @@ def build_contract_claims_and_evidence(
     registry_evidence = next((item for item in evidence_items if item["id"] == registry_id), None)
     if registry_org == org and declared and registry_rec.get("status") == "available" and registry_evidence:
         declared_id = f"ev-registry-declared-website-{org}"
-        evidence_items.append({**registry_evidence, "id": declared_id,
-                               "claim_span": f"organisasjonsnummer: {org}; hjemmeside: {declared}"[:500]})
+        if registry_module == "registry_live" and registry_value.get("hjemmeside"):
+            evidence_items.append({**registry_evidence, "id": declared_id, "source_fields": [{
+                "source_pointer": "/hjemmeside", "source_value": registry_value["hjemmeside"],
+            }]})
+        else:
+            evidence_items.append({**registry_evidence, "id": declared_id, "source_record_key": org})
         claims.append({"field": "registry_declared_website", "value": declared,
                        "availability": "available", "confidence": 1.0, "evidence_ids": [declared_id]})
 
@@ -414,6 +453,15 @@ def build_contract_claims_and_evidence(
                        "availability": _to_availability_state(status), "confidence": 1.0 if status == "available" else 0.0,
                        "evidence_ids": [f"ev-norwegian_website_presence-{org}"]})
 
+    group = ev.get("group") or {}
+    relationships = group.get("value") or {}
+    group_id = f"ev-group-{org}"
+    if (group.get("status") == "available" and relationships.get("organisation_number") == org
+            and (relationships.get("parent") or relationships.get("subsidiaries"))
+            and any(item["id"] == group_id and item.get("source_fields") for item in evidence_items)):
+        claims.append({"field": "group_membership", "value": relationships, "availability": "available",
+                       "confidence": 1.0, "evidence_ids": [group_id]})
+
     # 3. Official Website Claim
     w_status = w_rec.get("status")
     raw_web_url = str(w_val.get("final_url") or w_rec.get("source_url") or profile.get("website") or "").strip()
@@ -422,21 +470,49 @@ def build_contract_claims_and_evidence(
     website_url = raw_web_url or None
     is_publishable = bool((w_val.get("identity_assessment") or {}).get("publishable", False))
     site_ev_id = f"ev-website-{org}"
-    has_valid_site_ev = bool(w_status == "available" and is_publishable and website_url and w_rec.get("content_sha256"))
+    verified_url = published_website_url(w_rec, website_url)
+    has_valid_site_ev = bool(verified_url)
+    if declared and registry_evidence and w_rec.get("requested_url") and w_status == "available":
+        initial = str(w_rec["requested_url"])
+        final = str(w_val.get("final_url") or "")
+        try:
+            initial_domain = registered_domain(initial if "://" in initial else "https://" + initial)
+            declared_domain = registered_domain(declared if "://" in declared else "https://" + declared)
+            final_domain = registered_domain(final)
+        except ValueError:
+            initial_domain = declared_domain = final_domain = ""
+        if initial_domain and initial_domain == declared_domain and final_domain and final_domain != declared_domain:
+            claims.append({"field": "registry_website_redirect", "value": {"declared_url": declared, "destination_url": final,
+                           "relationship": "legacy_redirect"}, "availability": "available",
+                           "confidence": 1.0, "evidence_ids": [registry_id, site_ev_id]})
     if has_valid_site_ev:
+        website_url = verified_url
+        site_evidence_ids = [site_ev_id]
+        operator_proof = w_val.get("operator_proof") or {}
+        if (operator_proof.get("literal_excerpt") and operator_proof.get("source_url")
+                and re.fullmatch(r"[a-f0-9]{64}", str(operator_proof.get("content_sha256") or ""))):
+            operator_id = f"ev-website-legal-operator-{org}"
+            evidence_items.append({**operator_proof, "id": operator_id, "source_class": "company_site",
+                                   "retrieved_at": w_rec.get("retrieved_at") or completed_at})
+            site_evidence_ids.append(operator_id)
+        description = " ".join(str(w_val.get("description") or "").split())
+        if 30 <= len(description) <= 500:
+            claims.append({"field": "website_description", "value": description, "availability": "available",
+                           "confidence": 0.95, "evidence_ids": site_evidence_ids})
         claims.append({
             "field": "official_website",
             "value": website_url,
+            "relationship": w_val.get("relationship_label") or "verified_company_site",
             "availability": "available",
             "confidence": 0.99,
-            "evidence_ids": [site_ev_id],
+            "evidence_ids": site_evidence_ids,
         })
         claims.append({
             "field": "website",
             "value": website_url,
             "availability": "available",
             "confidence": 0.99,
-            "evidence_ids": [site_ev_id],
+            "evidence_ids": site_evidence_ids,
         })
     elif w_status == "blocked":
         claims.append({
@@ -462,7 +538,7 @@ def build_contract_claims_and_evidence(
             evidence_items.append({"id": conflict_id, "source_url": conflict["source_url"],
                                    "source_class": "company_site", "content_sha256": conflict_sha,
                                    "retrieved_at": w_rec.get("retrieved_at") or completed_at,
-                                   "claim_span": conflict["claim_span"]})
+                                   "literal_excerpt": conflict["claim_span"]})
             website_evidence_ids.append(conflict_id)
         claims.append({
             "field": "official_website",
@@ -493,6 +569,41 @@ def build_contract_claims_and_evidence(
             "confidence": 0.0,
             "evidence_ids": [site_ev_id],
         })
+
+    workforce = []
+    workforce_ids = []
+    registered_count = registry_value.get("antallAnsatte")
+    if registered_count is None:
+        registered_count = registry_value.get("employees")
+    if registry_org == org and registry_evidence and isinstance(registered_count, int) and registered_count >= 0:
+        workforce.append({"source": "BRREG", "employees": registered_count, "source_url": registry_evidence["source_url"],
+                          "retrieved_at": registry_evidence["retrieved_at"],
+                          "effective_at": registry_value.get("registreringsdatoAntallAnsatteEnhetsregisteret")})
+        workforce_ids.append(registry_id)
+    if has_valid_site_ev:
+        workforce_pattern = re.compile(r"\b(?:vi er(?: nå)?|vi har(?: nå)?|we (?:are|have)(?: now)?)\s+(\d{1,6})\s+(?:ansatte|employees)\b", re.I)
+        site_host = (urllib.parse.urlsplit(website_url).hostname or "").removeprefix("www.")
+        for page in w_val.get("pages") or []:
+            url = page.get("url")
+            digest = str(page.get("content_sha256") or "")
+            if (not url or (urllib.parse.urlsplit(url).hostname or "").removeprefix("www.") != site_host
+                    or not re.fullmatch(r"[a-fA-F0-9]{64}", digest)):
+                continue
+            match = workforce_pattern.search(str(page.get("main_text_excerpt") or page.get("visible_text_excerpt") or ""))
+            if match:
+                observed_at = page.get("retrieved_at") or w_rec.get("retrieved_at") or completed_at
+                evidence_id = f"ev-website-workforce-{org}"
+                evidence_items.append({"id": evidence_id, "source_url": url, "content_sha256": digest,
+                                       "source_class": "company_site", "retrieved_at": observed_at,
+                                       "literal_excerpt": match[0]})
+                workforce.append({"source": "Company website", "employees": int(match[1]), "source_url": url,
+                                  "retrieved_at": observed_at, "effective_at": None})
+                workforce_ids.append(evidence_id)
+                break
+    profile["workforce_source_values"] = workforce
+    if workforce:
+        claims.append({"field": "workforce_source_counts", "value": workforce, "availability": "available",
+                       "confidence": 0.95, "evidence_ids": workforce_ids})
 
     # 3b. Company-Owned Social Profiles Claim
     site_quarantined = bool(w_status == "available" and not is_publishable)
@@ -588,16 +699,34 @@ def build_contract_claims_and_evidence(
     f_rec = ev.get("financials") or {}
     f_status = f_rec.get("status")
     f_val = f_rec.get("value") or {}
-    records = f_val.get("records") or []
+    records = normalize_retained_accounts(f_rec) if f_status == "available" else []
+    profile["latest_account_year"] = fiscal_year_of(latest_account(records))
     if f_status == "available" and records and f_rec.get("content_sha256"):
+        for record in records:
+            record.pop("wage_per_employee", None)
+        (f_val.get("financial_trends") or {}).pop("wage_per_employee", None)
         latest_rec = latest_account(records)
+        if latest_rec.get("balance_sheet_issues"):
+            trends = f_val.get("financial_trends") or {}
+            for metric in ("equity_ratio", "liquidity_ratio", "current_ratio", "debt_to_equity", "solvency_status"):
+                if latest_rec.get(metric) is None:
+                    trends.pop(metric, None)
+        statutory_values = {key: value for key, value in latest_rec.items() if key not in {"solvency_status", "derived_assessment"}}
+        assessment = latest_rec.get("derived_assessment")
         claims.append({
             "field": "annual_accounts",
-            "value": {**latest_rec, "fiscal_year": fiscal_year_of(latest_rec)},
+            "value": {**statutory_values, "fiscal_year": fiscal_year_of(latest_rec)},
             "availability": "available",
             "confidence": 1.0,
             "evidence_ids": [f"ev-financials-{org}"],
         })
+        if comparison := compare_annual_accounts(records):
+            claims.append({"field": "annual_accounts_comparison", "value": comparison, "availability": "available",
+                           "confidence": 1.0, "evidence_ids": [f"ev-financials-{org}"]})
+        if assessment:
+            claims.append({"field": "financial_assessment", "value": assessment, "availability": "available",
+                           "derivation": {"input_evidence_ids": [f"ev-financials-{org}"], "kind": "derived"},
+                           "confidence": 1.0, "evidence_ids": [f"ev-financials-{org}"]})
     else:
         filing = (reg_live_rec.get("value") or {}).get("latest_submitted_accounts")
         if f_status in {"not_found", "absent"}:
@@ -605,6 +734,12 @@ def build_contract_claims_and_evidence(
                 account_note = f"BRREG lists accounts through {filing}. The accounts endpoint returned no record."
             elif reg_live_rec.get("status") == "available":
                 account_note = "The accounts endpoint returned no record. BRREG did not list a filing year."
+                founded = str((reg_live_rec.get("value") or {}).get("stiftelsesdato") or "")
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", founded) and founded[:4] == completed_at[:4]:
+                    account_note = "BRREG records incorporation this year. The company did not exist in the prior calendar year."
+                    claims.append({"field": "annual_accounts_status", "value": "not_yet_expected",
+                                   "availability": "available", "confidence": 1.0,
+                                   "evidence_ids": [f"ev-registry_live-{org}"]})
             else:
                 account_note = "The accounts endpoint returned no record. The live filing status is unknown."
         else:
@@ -660,6 +795,15 @@ def build_contract_claims_and_evidence(
             "confidence": 1.0,
             "evidence_ids": [f"ev-locations-{org}"],
         })
+        legal_name = " ".join(str(profile.get("name") or "").casefold().split())
+        trading_names = [{"name": name, "subunit_organisation_number": unit["organisation_number"],
+                          "relationship": "registered_subunit"}
+                         for unit in locs_list if unit.get("organisation_number")
+                         and (name := str(unit.get("name") or "").strip())
+                         and " ".join(name.casefold().split()) != legal_name]
+        if trading_names and l_rec.get("source_fields"):
+            claims.append({"field": "registered_subunit_trading_names", "value": trading_names,
+                           "availability": "available", "confidence": 1.0, "evidence_ids": [f"ev-locations-{org}"]})
     else:
         claims.append({
             "field": "operating_locations",
@@ -685,6 +829,28 @@ def build_contract_claims_and_evidence(
     career_pages = extract_website_hiring_signals(w_val if is_publishable else None).get("career_evidence") or []
     career_page = next((page for page in career_pages if re.fullmatch(r"[0-9a-fA-F]{64}", str(page.get("content_sha256") or ""))), None)
     careers_url = career_page["source_url"] if career_page else None
+    profile["recruitment_notice"] = None
+    if has_valid_site_ev:
+        site_host = (urllib.parse.urlsplit(website_url).hostname or "").removeprefix("www.")
+        for page in w_val.get("pages") or []:
+            url, digest = str(page.get("url") or ""), str(page.get("content_sha256") or "")
+            title = str(page.get("heading") or "").strip()
+            body = str(page.get("main_text_excerpt") or "")
+            if (not url or (urllib.parse.urlsplit(url).hostname or "").removeprefix("www.") != site_host
+                    or not re.fullmatch(r"[a-fA-F0-9]{64}", digest)
+                    or not re.fullmatch(r"(?:vi søker|we are hiring)\s+.{6,100}", title, re.I)
+                    or not re.search(r"søknad med cv|send (?:inn )?(?:søknad|cv)|apply (?:here|now)|submit (?:your|an) application", body, re.I)
+                    or re.search(r"søknadsfristen er utløpt|stillingen er besatt|no longer accepting|position has closed", body, re.I)):
+                continue
+            notice_id = f"ev-recruitment-notice-{org}"
+            observed_at = page.get("retrieved_at") or w_rec.get("retrieved_at") or completed_at
+            evidence_items.append({"id": notice_id, "source_url": url, "content_sha256": digest,
+                                   "source_class": "company_site", "retrieved_at": observed_at, "literal_excerpt": title})
+            notice = {"title": title, "url": url, "retrieved_at": observed_at, "opening_status": "unverified"}
+            profile["recruitment_notice"] = notice
+            claims.append({"field": "first_party_recruitment_notice", "value": notice,
+                           "availability": "available", "confidence": 0.95, "evidence_ids": [site_ev_id, notice_id]})
+            break
     if hiring.get("status") == "recruitment_page_present" and not career_page:
         hiring = {**hiring, "status": "unknown", "appears_to_be_hiring": False,
                   "assessment": "No recruitment page was established from the captured text."}
@@ -730,19 +896,11 @@ def build_contract_claims_and_evidence(
                                    "retrieved_at": w_rec.get("retrieved_at") or completed_at,
                                    "content_sha256": career_page["content_sha256"], "claim_span": career_page["claim_span"]})
             claims.append({
-                "field": "hiring_signal",
+                "field": "careers_page",
                 "value": careers_url,
                 "availability": "available",
                 "confidence": 0.95,
                 "evidence_ids": [site_ev_id, career_ev_id],
-            })
-        else:
-            claims.append({
-                "field": "hiring_signal",
-                "value": None,
-                "availability": "not_available",
-                "confidence": 0.0,
-                "evidence_ids": hiring_ev_ids,
             })
         if not any(item["id"] == hiring_ev_id for item in evidence_items):
             evidence_items.append({
@@ -756,13 +914,6 @@ def build_contract_claims_and_evidence(
     else:
         claims.append({
             "field": "hiring_status",
-            "value": None,
-            "availability": "not_available",
-            "confidence": 0.0,
-            "evidence_ids": [],
-        })
-        claims.append({
-            "field": "hiring_signal",
             "value": None,
             "availability": "not_available",
             "confidence": 0.0,
@@ -818,11 +969,13 @@ def build_contract_claims_and_evidence(
         raw_news_candidates.extend(n_val.get("items") or [])
 
     crawled_page_shas: dict[str, str] = {}
+    crawled_news_pages: dict[str, dict[str, Any]] = {}
     if has_valid_site_ev:
         crawled_page_shas[str(w_rec.get("source_url") or website_url).rstrip("/")] = str(w_rec.get("content_sha256"))
         for p in w_val.get("pages", []) or []:
             if p.get("url") and p.get("content_sha256"):
                 crawled_page_shas[str(p["url"]).rstrip("/")] = str(p["content_sha256"])
+                crawled_news_pages[str(p["url"]).rstrip("/")] = p
     valid_page_sha_set = set(crawled_page_shas.values())
 
     generic_news_titles = {
@@ -835,6 +988,7 @@ def build_contract_claims_and_evidence(
     editorial_news_items: list[dict[str, Any]] = []
     official_notice_items: list[dict[str, Any]] = []
     seen_news_keys: set[str] = set()
+    captured_site_domain = registered_domain(str(w_val.get("final_url") or w_rec.get("source_url") or ""))
     for cand in raw_news_candidates:
         if not isinstance(cand, dict):
             continue
@@ -868,8 +1022,16 @@ def build_contract_claims_and_evidence(
         is_company_release = bool(cand.get("strategy") == "cision_company_press_release"
                                   and cision_release_channel(c_url)
                                   and c_url == cand.get("source_url")
-                                  and cand.get("claim_span"))
-        if first_party_activity_only and not (is_site_news or is_official or is_company_release):
+                                  and (cand.get("literal_excerpt") or cand.get("claim_span")))
+        scope_url = str((presence.get("value") or {}).get("url") or "")
+        is_scoped_news = bool(presence.get("status") == "available" and scope_url and c_url.startswith(scope_url)
+                              and cand.get("strategy") == "scoped_first_party_news"
+                              and c_url == cand.get("source_url") and cand.get("claim_span"))
+        first_party_or_official = is_site_news or is_official or is_company_release or is_scoped_news
+        permitted_independent_news = (cand.get("strategy") == "independent_news_discovery"
+                                      and cand_reg_dom != captured_site_domain)
+        if ((first_party_activity_only and not first_party_or_official)
+                or (require_legal_operator and not (first_party_or_official or permitted_independent_news))):
             continue
         if is_site_news:
             cand_src_url = str(cand.get("source_url") or (w_rec.get("source_url") if has_valid_site_ev else c_url))
@@ -878,6 +1040,12 @@ def build_contract_claims_and_evidence(
                 cand_sha = source_sha
             elif cand.get("verification") in {"article_fetched", "inline_newsroom"}:
                 # Publication needs the fetched article/newsroom response.
+                continue
+            source_page = crawled_news_pages.get(cand_src_url.rstrip("/")) or {}
+            attribution_text = (cand.get("excerpt") if cand.get("verification") == "inline_newsroom" else
+                                (cand.get("article_text_excerpt") or source_page.get("main_text_excerpt")))
+            if not first_party_news_about_company(profile.get("name") or "", c_title,
+                                                   str(attribution_text or cand.get("claim_span") or "")):
                 continue
         else:
             cand_src_url = str(cand.get("source_url") or c_url)
@@ -907,7 +1075,18 @@ def build_contract_claims_and_evidence(
             "_is_generic_prefix": lower_t.startswith(("nyheter ", "aktuelt ", "news ", "presse ")),
         }
         if is_company_release:
-            item.update(strategy=cand["strategy"], claim_span=cand["claim_span"], retrieved_at=cand.get("retrieved_at"))
+            item.update(strategy=cand["strategy"], literal_excerpt=cand.get("literal_excerpt") or cand.get("claim_span"),
+                        retrieved_at=cand.get("retrieved_at"), content_class="press_release_distribution")
+        elif is_scoped_news:
+            item.update(literal_excerpt=cand["claim_span"], retrieved_at=cand.get("retrieved_at"),
+                        content_class="first_party_announcement", relationship_scope="norwegian_company_presence")
+        elif is_site_news:
+            item.update(content_class="first_party_announcement", literal_excerpt=(
+                str(cand.get("literal_excerpt") or cand.get("article_text_excerpt") or
+                    (cand.get("excerpt") if cand.get("verification") == "inline_newsroom" else ""))[:500] or None
+            ))
+        else:
+            item["content_class"] = "independent_editorial_news"
         if is_official:
             official_notice_items.append(item)
         else:
@@ -922,11 +1101,17 @@ def build_contract_claims_and_evidence(
         reverse=True,
     )
     clean_news_items = []
+    seen_story_keys = set()
     c_name = profile.get("name") or ""
     for item in editorial_news_items:
         clean_it = {k: v for k, v in item.items() if not k.startswith("_")}
         ok, _reason = validate_news_item(clean_it, company_name=c_name, site_url=website_url or "")
         if ok:
+            page = crawled_news_pages.get(str(clean_it["source_url"]).rstrip("/")) or {}
+            story_key = page.get("story_key") or clean_it["url"].rstrip("/")
+            if story_key in seen_story_keys:
+                continue
+            seen_story_keys.add(story_key)
             clean_news_items.append(clean_it)
     # Only real dated journalism/news articles about the company are published as news;
     # official notices, trademark filings, inspections, and registry filings are NOT news.
@@ -961,12 +1146,11 @@ def build_contract_claims_and_evidence(
         n_pub = primary_news.get("published_at")
         n_title = str(primary_news.get("title") or "Nyhet")
         for index, item in enumerate(clean_news_items):
-            if item.get("strategy") != "cision_company_press_release":
-                continue
-            release_id = f"ev-press-release-{org}-{index + 1}"
+            release_id = f"ev-news-article-{org}-{index + 1}"
             evidence_items.append({"id": release_id, "source_url": item["source_url"],
-                                   "content_sha256": item["content_sha256"], "source_class": "company_press_release",
-                                   "retrieved_at": item.get("retrieved_at") or completed_at, "claim_span": item["claim_span"]})
+                                   "content_sha256": item["content_sha256"], "source_class": item["content_class"],
+                                   "retrieved_at": item.get("retrieved_at") or completed_at,
+                                   "literal_excerpt": item.get("literal_excerpt")})
             news_ev_ids.append(release_id)
         news_claim_val = {
             "title": n_title,
@@ -1132,16 +1316,23 @@ def build_contract_claims_and_evidence(
         j_val.update(items=clean_job_items, count=len(clean_job_items))
         if not clean_job_items:
             j_rec["status"] = "not_available"
-    if hiring and hiring.get("active_job_postings_count", 0) != len(clean_job_items):
+    if hiring or clean_job_items:
         hiring.update(active_job_postings_count=len(clean_job_items), appears_to_be_hiring=bool(clean_job_items))
-        if not clean_job_items and hiring.get("status") == "actively_recruiting":
+        if clean_job_items:
+            hiring.update(status="actively_recruiting", confidence="high")
+        elif hiring.get("status") in {"actively_recruiting", "website_recruitment_open"}:
             hiring.update(status="recruitment_page_present" if careers_url else "unknown", confidence="limited")
+        profile["hiring"] = hiring
         for claim in claims:
-            if claim["field"] == "hiring_status" and claim.get("value"):
-                claim["value"].update(
-                    active_job_postings_count=len(clean_job_items), appears_to_be_hiring=bool(clean_job_items),
-                    status=hiring.get("status"),
-                )
+            if claim["field"] != "hiring_status":
+                continue
+            if clean_job_items:
+                claim.update(availability="available", confidence=0.95, evidence_ids=[f"ev-jobs-{org}"])
+            if claim["availability"] == "available":
+                claim["value"] = {
+                    "active_job_postings_count": len(clean_job_items), "appears_to_be_hiring": bool(clean_job_items),
+                    "status": hiring.get("status"), "careers_url": careers_url, "url": careers_url,
+                }
 
     jobs_ev_id = f"ev-jobs-{org}"
     if clean_job_items:
@@ -1197,7 +1388,7 @@ def build_contract_claims_and_evidence(
                         "source_class": "company_site" if item.get("kind") == "company_site_ad" else "job_board",
                         "retrieved_at": j_rec.get("retrieved_at") or completed_at,
                         "content_sha256": item["content_sha256"],
-                        "claim_span": f"Active job vacancy: {item['title']}",
+                        "literal_excerpt": item.get("ad_text_excerpt"),
                     })
                     job_evidence_ids.append(advert_id)
                 if career_sha and career_url and not any(
@@ -1246,8 +1437,29 @@ def build_contract_claims_and_evidence(
             "evidence_ids": [jobs_ev_id] if "jobs" in ev else [],
         })
 
+    claims.append({
+        "field": "hiring_signal",
+        "value": clean_job_items[0]["url"] if clean_job_items else None,
+        "availability": "available" if clean_job_items else "not_available",
+        "confidence": 0.95 if clean_job_items else 0.0,
+        "evidence_ids": [jobs_ev_id] if clean_job_items else [],
+    })
+
     # Final Evidence Provenance & Cryptographic Grounding Verification
     ev_map = {item["id"]: item for item in evidence_items}
+    for item in evidence_items:
+        legacy_description = item.pop("claim_span", None)
+        excerpt = item.get("literal_excerpt")
+        if excerpt:
+            item["evidence_kind"] = "literal_excerpt"
+            item["literal_excerpt"] = " ".join(str(excerpt).split())[:500]
+            item["claim_span"] = item["literal_excerpt"]
+        elif item.get("source_fields"):
+            item["evidence_kind"] = "structured_pointer"
+        else:
+            item["evidence_kind"] = "source_record"
+            if legacy_description:
+                item["description"] = legacy_description
     for claim in claims:
         claim["evidence_ids"] = [eid for eid in claim.get("evidence_ids", []) if eid in ev_map]
         if claim.get("availability") == "available" and not claim["evidence_ids"]:
@@ -1264,6 +1476,7 @@ def terminal_envelope(
     started_at: str,
     completed_at: str,
     first_party_activity_only: bool = False,
+    require_legal_operator: bool = False,
 ) -> dict[str, Any]:
     org = str(profile.get("organisation_number") or "")
     module_states = {}
@@ -1325,45 +1538,35 @@ def terminal_envelope(
             profile["hiring"] = hiring_block
         except Exception:
             pass
-    if not profile.get("synthesis"):
-        try:
-            from .synthesis import generate_company_synthesis
-            profile["synthesis"] = generate_company_synthesis(profile)
-        except Exception:
-            pass
-
     claims, evidence_list = build_contract_claims_and_evidence(
         profile, completed_at, first_party_activity_only=first_party_activity_only,
+        require_legal_operator=require_legal_operator,
     )
+    website_fields = {"official_website": "exact_operator", "registry_declared_website": "registry_declared",
+                      "norwegian_website_presence": "norwegian_company_presence", "registry_website_redirect": "legacy_redirect"}
+    profile["website_relationships"] = [
+        {"scope": website_fields[claim["field"]], "value": claim["value"], "evidence_ids": claim["evidence_ids"]}
+        for claim in claims if claim["field"] in website_fields and claim["availability"] == "available"
+    ]
+    if first_party_activity_only or require_legal_operator:
+        profile["website"] = next((item["value"] for item in profile["website_relationships"] if item["scope"] == "exact_operator"), None)
     run_metrics = profile.get("run_metrics") or {}
+    evidence_by_id = {item["id"]: item for item in evidence_list}
+    for claim in claims:
+        supporting_records = [evidence_by_id[eid] for eid in claim["evidence_ids"]]
+        captured_at = [record["retrieved_at"] for record in supporting_records if record.get("retrieved_at")]
+        live = bool(profile.get("collection_mode") == "live" and captured_at
+                    and all(started_at[:10] <= stamp[:10] <= completed_at[:10] for stamp in captured_at)
+                    and all("bulk" not in record["source_class"] for record in supporting_records))
+        claim["last_verified_at"] = min(captured_at, default=None)
+        claim["revalidated_this_run"] = live
+        claim["freshness_class"] = "live" if live else ("snapshot" if captured_at else "unknown")
 
-    synth = profile.get("synthesis")
-    if isinstance(synth, dict):
-        ev_map = {item["id"]: item for item in evidence_list if item.get("id")}
-        valid_eids = [eid for eid in (synth.get("evidence_ids") or []) if eid in ev_map]
-        if not valid_eids and evidence_list:
-            valid_eids = [item["id"] for item in evidence_list[:4] if item.get("id")]
-        synth["evidence_ids"] = valid_eids
-        grounded_sources = []
-        grounded_urls = []
-        for eid in valid_eids:
-            ev_obj = ev_map.get(eid) or {}
-            s_url = str(ev_obj.get("source_url") or "")
-            if s_url and s_url not in grounded_urls:
-                grounded_urls.append(s_url)
-            grounded_sources.append({
-                "id": eid,
-                "source_url": s_url,
-                "source_class": ev_obj.get("source_class") or "official",
-                "retrieved_at": ev_obj.get("retrieved_at") or completed_at,
-                "content_sha256": ev_obj.get("content_sha256") or "",
-            })
-        if grounded_sources:
-            synth["sources"] = grounded_sources
-            synth["citations"] = grounded_sources
-        if grounded_urls:
-            synth["source_urls"] = grounded_urls
-        profile["summary"] = synth.get("summary") or ""
+    from .synthesis import synthesize_published_claims
+
+    synth = synthesize_published_claims(claims, evidence_list)
+    profile["synthesis"] = synth
+    profile["summary"] = synth["summary"]
 
     return {
         "run_id": run_id,
@@ -1416,14 +1619,52 @@ def validate_envelopes(envelopes: list[dict[str, Any]], expected_count: int) -> 
         for state in item.get("modules", {}).values()
         if state.get("state") not in TERMINAL_STATES
     ]
+    semantic_issues = []
+    for item in envelopes:
+        if "profile" not in item or "claims" not in item:
+            continue
+        profile = item["profile"]
+        available = {claim["field"]: claim for claim in item["claims"] if claim.get("availability") == "available"}
+        evidence_ids = {record["id"] for record in item.get("evidence") or []}
+        issues = []
+        if any(not claim.get("evidence_ids") or not set(claim["evidence_ids"]) <= evidence_ids for claim in available.values()):
+            issues.append("published_claim_without_evidence")
+        financials = (profile.get("evidence") or {}).get("financials") or {}
+        records = (financials.get("value") or {}).get("records") or []
+        if financials.get("status") == "available" and records:
+            latest = latest_account(records)
+            year = fiscal_year_of(latest)
+            accounts = (available.get("annual_accounts") or {}).get("value") or {}
+            if profile.get("latest_account_year") != year or (accounts and accounts.get("fiscal_year") != year):
+                issues.append("stale_fiscal_year")
+            if accounts and accounts.get("cash_and_bank_deposits") != latest.get("cash_and_bank_deposits"):
+                issues.append("cash_differs_from_normalized_filing")
+            for record in records:
+                ratio, assets, debt = (record.get(field) for field in ("current_ratio", "current_assets", "short_term_debt"))
+                if ratio is not None and (assets is None or assets < 0 or not debt or debt < 0 or abs(ratio - assets / debt) > 0.000051):
+                    issues.append("invalid_current_ratio")
+                    break
+        record = (profile.get("evidence") or {}).get("website") or {}
+        website = (available.get("official_website") or {}).get("value")
+        if (website and website != published_website_url(record, profile.get("website"))) or (
+                "website_relationships" in profile and
+                any(link["scope"] == "exact_operator" for link in profile["website_relationships"]) != bool(website)):
+            issues.append("contradictory_website_publication")
+        if "job_postings" in available:
+            hiring = (available.get("hiring_status") or {}).get("value") or {}
+            if "hiring_signal" not in available or hiring.get("status") != "actively_recruiting":
+                issues.append("verified_job_without_hiring_signal")
+        semantic_issues.extend({"organisation_number": item["organisation_number"], "issue": issue} for issue in issues)
     checks = {
         "exact_expected_count": len(envelopes) == expected_count,
         "unique_organisation_numbers": len(orgs) == len(set(orgs)),
         "all_entity_states_terminal": all(item.get("state") in TERMINAL_STATES for item in envelopes),
         "all_module_states_terminal": not invalid_states,
         "zero_silent_drops": len(envelopes) == expected_count and len(orgs) == len(set(orgs)),
+        "semantic_consistency": not semantic_issues,
     }
-    return {"passed": all(checks.values()), "checks": checks, "invalid_states": invalid_states}
+    return {"passed": all(checks.values()), "checks": checks, "invalid_states": invalid_states,
+            "semantic_issues": semantic_issues}
 
 
 def profile_complete_for_modules(profile: dict[str, Any], modules: Iterable[str]) -> bool:

@@ -68,6 +68,11 @@ class BudgetTracker:
         with self._lock:
             return max(0, self.max_requests - self.requests)
 
+    def attributed_request_count(self) -> int:
+        owner = getattr(self._request_owner, "value", None) or "shared"
+        with self._lock:
+            return int(self._request_attribution.get(owner, {}).get("requests", 0))
+
     def remaining_cost(self) -> float:
         with self._lock:
             return max(0.0, self.max_cost_usd - self.cost_usd)
@@ -81,8 +86,6 @@ class BudgetTracker:
                 effective_reserve = max(effective_reserve, min(self.request_reserve, max(0, self.max_requests - 1)))
             if self.requests + self._reserved_requests + effective_reserve >= self.max_requests:
                 return False
-            if not official and self.cost_usd >= self.max_cost_usd:
-                return False
         if self.elapsed_seconds() >= self.max_time_seconds:
             return False
         return True
@@ -90,12 +93,12 @@ class BudgetTracker:
     def _reserve_request_slots(self, count: int, *, reserve: int = 0, official: bool = False) -> bool:
         """Atomically reserve capacity for a bounded HTTP operation before it starts."""
         with self._lock:
+            if self.elapsed_seconds() >= self.max_time_seconds:
+                return False
             effective_reserve = reserve
             if not official and self.max_requests >= 50:
                 effective_reserve = max(effective_reserve, min(self.request_reserve, max(0, self.max_requests - 1)))
             if self.requests + self._reserved_requests + count + effective_reserve > self.max_requests:
-                return False
-            if not official and self.cost_usd >= self.max_cost_usd:
                 return False
             self._reserved_requests += count
             return True
@@ -120,11 +123,17 @@ class BudgetTracker:
             if latency:
                 self.latencies_ms.append(latency)
 
-    def try_start_request(self, *, reserve: int = 0) -> bool:
+    def try_start_request(self, *, reserve: int = 0, cost_usd: float = 0.0) -> bool:
         """Charge a single bounded request before sending it, across all workers."""
-        if self.elapsed_seconds() >= self.max_time_seconds or not self._reserve_request_slots(1, reserve=reserve):
+        if not self._reserve_request_slots(1, reserve=reserve):
             return False
-        self._release_and_record(1, actual=1, cost_usd=0.0, bytes_received=0, elapsed_ms=0)
+        with self._lock:
+            self._reserved_requests -= 1
+            if cost_usd and round(self.cost_usd + cost_usd, 9) > self.max_cost_usd:
+                return False
+            self.requests += 1
+            self.cost_usd += cost_usd
+            self._attribute_locked(1, cost_usd, 0)
         return True
 
     def fetch_json(self, url: str, *, timeout: float = 20.0, attempts: int = 3, cost_per_request: float = 0.0, reserve: int = 0) -> FetchResult:
@@ -133,7 +142,10 @@ class BudgetTracker:
         Records each attempt as a request against the budget. Official Brreg calls
         are never blocked by external connector reserves.
         """
-        is_official_brreg = "brreg.no" in str(url or "").lower()
+        from urllib.parse import urlsplit
+
+        host = urlsplit(url).hostname or ""
+        is_official_brreg = host == "brreg.no" or host.endswith(".brreg.no")
         effective_reserve = 0 if is_official_brreg else reserve
         reserved = max(1, attempts)
         if not self._reserve_request_slots(reserved, reserve=effective_reserve, official=is_official_brreg):

@@ -65,6 +65,7 @@ class ShowcaseTests(unittest.TestCase):
                 "website": {
                     "status": "available",
                     "source_url": "https://www.dips.no/",
+                    "content_sha256": "a" * 64,
                     "value": {
                         "title": "DIPS - Vi skaper helseteknologi",
                         "description": "DIPS utvikler helseteknologi for norske sykehus.",

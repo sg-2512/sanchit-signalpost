@@ -1,0 +1,44 @@
+{
+  "run_id": "coverage-recheck-100-20261122",
+  "started_at_utc": "2026-11-21T21:51:14.036204Z",
+  "completed_at_utc": "2026-11-21T22:10:35.882121Z",
+  "input": "submission/smoke-input.jsonl",
+  "input_sha256_lf": "6617275afbaee3dfe610aeb0bb993acf921eb52da5280d1df97d5e028a3fb852",
+  "input_companies": 100,
+  "terminal_envelopes": 100,
+  "companies_fetched_live": 100,
+  "source_policy": "official_safe",
+  "registry_snapshot_sha256": "90d394deca1e12a3808e4f87fee4ab01a31c23c849f4b44271cad7208d751e12",
+  "strategy_manifest_sha256": "23c534efb5b666a312f0affcfc8d1868e45278ed0814bea509f5650e38aeccdc",
+  "requests": 1687,
+  "request_budget": 2000,
+  "elapsed_seconds": 1161.8,
+  "time_budget_seconds": 2700,
+  "declared_api_cost_usd": 0.0,
+  "api_budget_usd": 0,
+  "resource_budget_passed": true,
+  "available_claims": 1426,
+  "available_claims_with_linked_evidence": 1426,
+  "company_coverage": {
+    "official_website": 18,
+    "dated_news": 0,
+    "job_postings": 0,
+    "annual_accounts": 83,
+    "registered_address": 100,
+    "operating_locations": 98
+  },
+  "validation": {
+    "passed": true,
+    "checks": {
+      "exact_expected_count": true,
+      "unique_organisation_numbers": true,
+      "all_entity_states_terminal": true,
+      "all_module_states_terminal": true,
+      "zero_silent_drops": true,
+      "semantic_consistency": true
+    },
+    "invalid_states": [],
+    "semantic_issues": []
+  },
+  "scope": "Local smoke test for execution and output completeness. Builderr scores the agent on its supplied evaluation batch."
+}

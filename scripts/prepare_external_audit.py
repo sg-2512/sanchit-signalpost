@@ -12,12 +12,14 @@ import sys
 
 sys.path.insert(0, str(ROOT / "src"))
 
+from norway_company_agent.evidence import observation_provenance  # noqa: E402
 from norway_company_agent.external_footprint import publishable_observation  # noqa: E402
 from norway_company_agent.source_policy import OFFICIAL_SAFE, audit_snapshot_time, observation_decision  # noqa: E402
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open(encoding="utf-8") as source:
+        return [json.loads(line) for line in source if line.strip()]
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -79,7 +81,7 @@ def main() -> None:
             "valid_through": obs.get("valid_through"),
             "application_due": obs.get("application_due"),
             "nav_feed": obs.get("nav_feed"),
-            "evidence_span": obs.get("evidence_span"),
+            **observation_provenance(obs),
             "identity_proof": obs.get("identity_proof"),
             "acquisition_mode": obs.get("acquisition_mode"),
             "rights_status_claimed": obs.get("rights_status"),

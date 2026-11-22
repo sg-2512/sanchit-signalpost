@@ -66,6 +66,34 @@ def sanitize_url(url: Any) -> str:
         return url_str
 
 
+def capture_source_fields(body: Any, pointers: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Record JSON pointers and the values actually present in a fetched response."""
+    fields = []
+    for pointer in pointers:
+        value = body
+        try:
+            for part in pointer.lstrip("/").split("/"):
+                key = part.replace("~1", "/").replace("~0", "~")
+                value = value[int(key)] if isinstance(value, list) else value[key]
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+        if value is not None:
+            fields.append({"source_pointer": pointer, "source_value": value})
+    return fields
+
+
+def observation_provenance(observation: dict[str, Any]) -> dict[str, Any]:
+    """Expose excerpts, structured API fields and generated descriptions distinctly."""
+    fields = observation.get("source_fields")
+    excerpt = observation.get("literal_excerpt")
+    return {
+        "evidence_kind": "literal_excerpt" if excerpt else ("structured_pointer" if fields else "source_record"),
+        "evidence_span": excerpt,
+        "source_fields": fields,
+        "evidence_description": observation.get("evidence_span") if not excerpt else None,
+    }
+
+
 def evidence(
     field: str,
     status: EvidenceStatus,

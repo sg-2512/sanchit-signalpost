@@ -31,14 +31,12 @@ from norway_company_agent.connectors import (
     geocode_address_kartverket,
     fetch_brreg_kunngjoringer,
     fetch_losoreregisteret_liens,
-    fetch_insolvency_legal_notices,
     fetch_mattilsynet_inspections,
     fetch_miljodirektoratet_permits,
     fetch_nav_jobs,
     verify_norid_domain_ownership,
     fetch_oslo_bors_disclosures,
     fetch_patentstyret_data,
-    resolve_commercial_directory_presence,
     fetch_regulatory_licenses,
     fetch_ssb_industry_benchmark,
     fetch_company_subunits,
@@ -160,7 +158,6 @@ def main() -> int:
     results.append(run_connector_test("8. Doffin Procurement", fetch_doffin_procurement, test_org["org"], test_org["name"], budget=budget))
 
     # 9. Lovdata Insolvency & Court Gazettes
-    results.append(run_connector_test("9. Lovdata Legal & Insolvency", fetch_insolvency_legal_notices, test_org["org"], test_org["name"], budget=budget))
 
     # 10. Kartverket Geocoding & Cadastre
     results.append(run_connector_test("10. Kartverket Geocoding", geocode_address_kartverket, test_org["address"], budget=budget))
@@ -205,7 +202,6 @@ def main() -> int:
     results.append(run_connector_test("23. Wikidata Corroboration", fetch_wikidata_entity, test_org["org"], test_org["name"], budget=budget))
 
     # 24. Commercial Directory Presence (Proff / 1881 / Gule Sider)
-    results.append(run_connector_test("24. Commercial Directories", resolve_commercial_directory_presence, test_org["org"], test_org["name"], budget=budget))
 
     # Format summary table
     print(f"{'Connector Name':<32} | {'Status':<10} | {'Latency':<9} | {'Items':<6} | {'Provenance':<10}")
