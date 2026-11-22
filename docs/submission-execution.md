@@ -9,17 +9,17 @@ does not use unofficial LinkedIn, Meta, Proff, or undeclared sources.
 
 ## Optional server-side credentials
 
-Set the optional credentials as environment variables in the evaluator process before running the command. Keep the credential values in the evaluator's secret store.
+Set the optional credentials as environment variables in the evaluator process before running the command. The agent enables each configured connector automatically for eligible companies. Keep the credential values in the evaluator's secret store.
 
 | Variable | Evaluator setup | Use in `official_safe` |
 | --- | --- | --- |
-| `GOOGLE_PLACES_API_KEY` | Enable Places API (New) in a billing-enabled Google Cloud project. Set `--max-cost` to the evaluator's available API budget to allow paid requests. | Suggest candidate websites for independent verification. [Google setup](https://developers.google.com/maps/documentation/places/web-service/get-api-key) |
+| `GOOGLE_PLACES_API_KEY` | Enable Places API (New) in a billing-enabled Google Cloud project. | Suggest candidate websites for independent verification. [Google setup](https://developers.google.com/maps/documentation/places/web-service/get-api-key) |
 | `YOUTUBE_API_KEY` | Enable YouTube Data API v3 in a Google Cloud project with request quota. | Look up public subscriber, view, and video counts for channels linked by a verified company website. [YouTube setup](https://developers.google.com/youtube/data/getting-started) |
 | `PATENTSTYRET_API_KEY` or `NIPO_API_KEY` | Supply a Patentstyret Open Data subscription key. | Query patent, trademark, and design cases by company number. [NIPO open data](https://www.patentstyret.no/en/open-data) |
 
 The public company-site crawler checks robots rules and rejects private or reserved addresses. The connection checks the resolved address before opening a socket, including after redirects. Public Tavily keyless search is rate-limited and supplies website leads. Google Places is optional and transient. See the [source registry](../config/source-rights.json) for publication boundaries and platform documentation.
 
-Paid discovery reserves the request and its estimated cost before making the call. Estimates use $0.035 per Places Text Search (New) request and up to $0.057 when a separate Legacy Text Search and Place Details request are needed. [Google Maps Platform pricing](https://developers.google.com/maps/billing-and-pricing/pricing)
+The shared API spending ceiling is $10 per 100 input companies. The agent reserves a paid request's estimated cost before the call. `--max-cost` can lower the ceiling, including to zero. The estimates are $0.035 for Places Text Search (New) and up to $0.057 when separate Legacy Text Search and Place Details requests are needed. [Google Maps Platform pricing](https://developers.google.com/maps/billing-and-pricing/pricing)
 
 | Source | Rights and use |
 | --- | --- |

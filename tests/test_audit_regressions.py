@@ -3,6 +3,7 @@
 from unittest.mock import patch
 from datetime import datetime, timezone
 
+import pytest
 from bs4 import BeautifulSoup
 
 from run_agent import apply_live_registry_precedence, extract_social_observations, extract_workforce_observation, merge_verified_jobs
@@ -943,3 +944,24 @@ def test_official_finalization_rechecks_cached_website_operator_proof():
                                completed_at=stamp, require_legal_operator=True)
     assert result["profile"]["website"] is None
     assert not any(row["field"] in {"official_website", "dated_news"} and row["availability"] == "available" for row in result["claims"])
+
+
+@pytest.mark.parametrize(
+    ("company_count", "provided_limit", "expected_limit"),
+    [(3, None, 0.30), (100, None, 10.0), (1000, None, 100.0), (100, 50, 10.0), (100, 4, 4.0), (100, 0, 0.0)],
+)
+def test_run_agent_api_budget_scales_and_respects_lower_limits(monkeypatch, company_count, provided_limit, expected_limit):
+    import sys
+    import run_agent
+
+    companies = [{"organisation_number": str(100_000_000 + index)} for index in range(company_count)]
+    monkeypatch.setattr(run_agent, "read_organisation_inputs", lambda _: companies)
+    args = ["run_agent.py", "--input", "input.jsonl"]
+    if provided_limit is not None:
+        args.extend(["--max-cost", str(provided_limit)])
+    monkeypatch.setattr(sys, "argv", args)
+
+    with patch.object(run_agent, "BudgetTracker", side_effect=SystemExit(0)) as tracker:
+        with pytest.raises(SystemExit, match="0"):
+            run_agent.main()
+    assert tracker.call_args.kwargs["max_cost_usd"] == expected_limit

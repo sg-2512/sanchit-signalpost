@@ -120,7 +120,7 @@ Read `docs/competition-control-loop.md`, `docs/external-connectors.md` and the p
 
 ## Optional API Keys & Configuration
 
-The official agent works without API keys. Use `--max-cost 0` to enforce zero spend on paid website discovery. Supply optional credentials as process environment variables. See `.env.example` for their names.
+Supply optional credentials as process environment variables to enable the corresponding connectors for eligible companies. The agent caps API spending at $10 per 100 input companies. Use `--max-cost` for a lower limit, including `--max-cost 0` to disable paid website discovery. See `.env.example` for the variable names.
 
 | Environment Variable | Connector | Description | Default / Fallback |
 | :--- | :--- | :--- | :--- |

@@ -1769,7 +1769,10 @@ def main() -> int:
     parser.add_argument("--max-orgs", "--limit", dest="max_orgs", type=int, default=None, help="Optional limit on number of companies")
     parser.add_argument("--workers", "--concurrency", dest="workers", type=int, default=16, help="Worker threads")
     parser.add_argument("--max-requests", type=int, default=None, help="Request budget (defaults to Builderr's 2,000 requests per 100 companies)")
-    parser.add_argument("--max-cost", type=float, default=None, help="Max API spend in USD (defaults to Builderr's $10 per 100 companies)")
+    parser.add_argument(
+        "--max-cost", type=float,
+        help="Optional lower API spending limit in USD. The run is capped at $10 per 100 companies.",
+    )
     parser.add_argument("--max-time", type=float, help="Max wall clock seconds (defaults to a batch-size-based allowance)")
     parser.add_argument("--resume", action="store_true", help="Resume from existing completed profiles")
     parser.add_argument("--resume-mode", choices=("reuse", "revalidate", "refresh"), default="reuse",
@@ -1820,7 +1823,7 @@ def main() -> int:
     # Builderr standard quotas:
     # - 2,000 requests per 100 companies (20 requests per company)
     # - $10.0 API spend per 100 companies ($0.10 per company, e.g. $1,000 for 10,000 companies)
-    # Scale proportionally with batch size unless explicitly overridden by CLI flags.
+    # Scale with the batch size. The API spending ceiling can only be lowered.
     standard_request_allowance = int(len(orgs) * 20)
     if args.max_requests is not None and args.max_requests < 0:
         parser.error("--max-requests must be non-negative")
@@ -1834,8 +1837,10 @@ def main() -> int:
     company_budget_pace = max(12, int(usable_requests / max(1, len(orgs))))
     standard_time_allowance = max(2700.0, (len(orgs) / 100.0) * 2700.0)
     effective_max_time = args.max_time if args.max_time is not None else standard_time_allowance
-    standard_cost_allowance = max(10.0, (len(orgs) / 100.0) * 10.0)
-    effective_max_cost = args.max_cost if args.max_cost is not None else standard_cost_allowance
+    standard_cost_allowance = len(orgs) * 10 / 100
+    effective_max_cost = (
+        min(args.max_cost, standard_cost_allowance) if args.max_cost is not None else standard_cost_allowance
+    )
 
     # Initialize budget tracker
     budget = BudgetTracker(

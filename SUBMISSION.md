@@ -20,12 +20,12 @@ The official score uses 50 points for recall and coverage, 30 for precision and 
 
 The [100-company smoke report](https://github.com/sg-2512/sanchit-signalpost/blob/890827b41c6754502cd47b8e977879daff66def5/submission/smoke-report.json) covers the commit published on 22 November 2026 IST. That run returned 100 valid envelopes, with evidence links for all 1,426 available claims. It used 1,687 requests in 1,161.8 seconds and incurred $0 in API cost. The [smoke-test input](submission/smoke-input.jsonl) contains the organisation numbers used for this run.
 
-The [current revision validation](submission/revision-validation.json) records a 100-company replay of captured responses and a separate live three-company run using evaluator-mode inputs and all three optional APIs.
+The [revision validation](submission/revision-validation.json) records a 100-company replay with the current default budget. It also links the earlier live test of all three optional APIs to the commit tested.
 
-The evaluator supplies `INPUT_JSONL`, `FROZEN_BRREG_CSV`, `REQUEST_LIMIT`, `WALL_SECONDS` and `API_BUDGET_USD`. Substitute their assigned values in this single command. The input may contain any batch size.
+The evaluator supplies `INPUT_JSONL`, `FROZEN_BRREG_CSV`, `REQUEST_LIMIT`, and `WALL_SECONDS`. Substitute the assigned values in this command. Google Places, YouTube, and Patentstyret are available to eligible companies when the evaluator sets the API keys in its environment. The shared API spending ceiling is $10 per 100 companies, scaled to the input size. The evaluator can use `--max-cost` to apply a lower limit.
 
 ```bash
-uv run --locked python run_agent.py --input INPUT_JSONL --bulk FROZEN_BRREG_CSV --output-dir out/official-run --source-policy official_safe --resume-mode refresh --max-requests REQUEST_LIMIT --max-time WALL_SECONDS --max-cost API_BUDGET_USD
+uv run --locked python run_agent.py --input INPUT_JSONL --bulk FROZEN_BRREG_CSV --output-dir out/official-run --source-policy official_safe --resume-mode refresh --max-requests REQUEST_LIMIT --max-time WALL_SECONDS
 ```
 
 For a refresh comparison, append `--previous-profiles PATH_TO_PRIOR_PROFILES_JSONL` and use a fresh output directory. The earlier artifacts provide the source snapshots for reviewing the changes in the new envelopes. The command above bypasses the bundled verified-site hint cache. If using an explicit `--verified-site-cache`, declare its provenance and supply it with the run. The agent revalidates every cached URL.

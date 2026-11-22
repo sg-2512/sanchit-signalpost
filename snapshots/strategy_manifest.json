@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-11-22T07:14:24.192883+00:00",
-  "git_commit": "890827b41c6754502cd47b8e977879daff66def5",
+  "created_at": "2026-11-22T07:38:05.092824+00:00",
+  "git_commit": "22ce75c679c6f6a00291c966e18c195eb81deedb",
   "git_dirty": true,
   "environment": {
     "python_version": "3.14.2",
@@ -105,7 +105,7 @@
   "connector_files": {
     "config/source-rights.json": "527b4b31acfc34e05703ade3a58afd20585b42bfa91f89733b2852a225e50e89",
     "pyproject.toml": "11e781fb8891d89b1dbc9757c790a17c6bb5b24e45ed63c233acab70695e2af2",
-    "run_agent.py": "836ac5ae6f44e24e2e871df60afa0a937e2cb6c3ffbb04143ef7a8307630b79c",
+    "run_agent.py": "398f8159bc900f20e40d7ad8eff612bed7f74576823dd55f7659f0b9bf0c84b1",
     "scripts/evaluate_external_footprint.py": "cf6a358b16bc468a061ed63b36006d428ebc3531f92a3c3f7bddebb6283f271a",
     "scripts/prepare_external_audit.py": "8ccac9c58baa88fb499ca28af308daa8753597482a391ff9031f787affbfa513",
     "src/norway_company_agent/__init__.py": "8561d0ab5d5158a7bb347e6e2d583beb7dd31dbaed6ea3ebb7507b5036331ab1",
@@ -172,5 +172,5 @@
     "src/norway_company_agent/workspace.py": "f7d75cd1d869ab216f984f3d2732a64aba8dd4889b1cf267eba2907998b95322",
     "uv.lock": "c5203856afc02513eaf5ef4b3826829691bc66a74371dfa075004efac025af29"
   },
-  "overall_manifest_hash": "01a31eb32a94aa6baaa5032348597892914120a6ebf53b7da77e16fd656e59a3"
+  "overall_manifest_hash": "4330c1351d598f4ab9240a18fce8f16405fb62c1a6fbc1accf8038ab004fc3ac"
 }
