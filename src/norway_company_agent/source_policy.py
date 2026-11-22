@@ -25,7 +25,7 @@ RESTRICTED_PLATFORMS = frozenset({
     "linkedin", "proff", "1881", "facebook", "glassdoor", "indeed",
 })
 CONDITIONAL_STRATEGY_PREFIXES = (
-    "google_", "youtube_", "brave_", "press_wire_", "miljofyrtarn_",
+    "google_", "youtube_", "press_wire_", "miljofyrtarn_",
     "doffin_", "patentstyret_", "mattilsynet_", "miljodirektoratet_",
     "forskningsradet_", "innovasjon_norge_", "oslo_bors_", "ssb_", "gleif_",
     "kartverket_", "regulatory_",

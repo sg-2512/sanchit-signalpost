@@ -1,0 +1,37 @@
+{
+  "strategy_manifest_sha256": "01a31eb32a94aa6baaa5032348597892914120a6ebf53b7da77e16fd656e59a3",
+  "source_policy": "official_safe",
+  "first_live_smoke_commit": "890827b41c6754502cd47b8e977879daff66def5",
+  "replay_of_live_response_captures": {
+    "run_id": "no-brave-replay-100-20261122",
+    "input_companies": 100,
+    "companies_fetched_live": 0,
+    "valid_envelopes": 100,
+    "available_claims_with_linked_evidence": 1425,
+    "requests": 0,
+    "estimated_api_cost_usd": 0.0,
+    "elapsed_seconds": 25.5
+  },
+  "live_api_check": {
+    "run_id": "live-three-connectors-20261122",
+    "input_companies": 3,
+    "companies_fetched_live": 3,
+    "valid_envelopes": 3,
+    "available_claims_with_linked_evidence": 54,
+    "requests": 92,
+    "estimated_api_cost_usd": 0.07,
+    "elapsed_seconds": 376.6,
+    "successful_connector_requests": {
+      "www.googleapis.com": 1,
+      "api.patentstyret.no": 3,
+      "places.googleapis.com": 2
+    },
+    "youtube_linked_channel_records": 1,
+    "patentstyret_case_records": 7
+  },
+  "separate_places_confirmation": {
+    "requests": 1,
+    "estimated_api_cost_usd": 0.035,
+    "candidate_matched_verified_website": true
+  }
+}

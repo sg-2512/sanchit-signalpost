@@ -18,7 +18,9 @@ The official score uses 50 points for recall and coverage, 30 for precision and 
 
 ## Reproducible commands
 
-The [100-company smoke report](submission/smoke-report.json) records the live run on 22 November 2026 IST. It returned 100 valid envelopes, with evidence links for all 1,426 available claims. The run used 1,687 requests in 1,161.8 seconds and incurred $0 in API cost. The [smoke-test input](submission/smoke-input.jsonl) contains the organisation numbers used for this run.
+The [100-company smoke report](https://github.com/sg-2512/sanchit-signalpost/blob/890827b41c6754502cd47b8e977879daff66def5/submission/smoke-report.json) covers the commit published on 22 November 2026 IST. That run returned 100 valid envelopes, with evidence links for all 1,426 available claims. It used 1,687 requests in 1,161.8 seconds and incurred $0 in API cost. The [smoke-test input](submission/smoke-input.jsonl) contains the organisation numbers used for this run.
+
+The [current revision validation](submission/revision-validation.json) records a 100-company replay of captured responses and a separate live three-company run using evaluator-mode inputs and all three optional APIs.
 
 The evaluator supplies `INPUT_JSONL`, `FROZEN_BRREG_CSV`, `REQUEST_LIMIT`, `WALL_SECONDS` and `API_BUDGET_USD`. Substitute their assigned values in this single command. The input may contain any batch size.
 
@@ -61,7 +63,7 @@ uv run --locked python scripts/validate_submission_ready.py \
 
 The smoke report proves only local output-contract completeness and traceability. Builderr independently determines score and qualification.
 
-The official command uses deterministic synthesis. The expected API spend without paid discovery is $0. Any optional credentials come from the evaluator's environment. Licensed Brave and Google Places can propose candidate websites within the supplied budget. Google Places response content stays transient, and only independently fetched, verified company pages can support a website claim. NAV vacancies need registered access. See the [source declaration](config/source-rights.json) and [execution notes](docs/submission-execution.md) for the licences, access requirements, and cache policy.
+The official command uses deterministic synthesis. The expected API spend without paid discovery is $0. Any optional credentials come from the evaluator's environment. Google Places can propose candidate websites within the supplied budget. Its responses stay transient, and only independently fetched, verified company pages can support a website claim. NAV vacancies need registered access. See the [source declaration](config/source-rights.json) and [execution notes](docs/submission-execution.md) for the licences, access requirements, and cache policy.
 
 ## Independent local audit
 

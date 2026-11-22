@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
-  "created_at": "2026-11-21T21:48:59.114706+00:00",
-  "git_commit": "c772496c95bc0279ac591d0e6145c6d2f5ed56fe",
+  "created_at": "2026-11-22T07:14:24.192883+00:00",
+  "git_commit": "890827b41c6754502cd47b8e977879daff66def5",
   "git_dirty": true,
   "environment": {
     "python_version": "3.14.2",
@@ -13,7 +13,7 @@
     "max_cost_usd_per_1000": 10.0,
     "max_runtime_seconds_per_1000": 2700.0
   },
-  "routes_count": 11,
+  "routes_count": 10,
   "routes": {
     "registry_site": {
       "version": "1.0.0",
@@ -53,14 +53,6 @@
       "description": "Structured schema extraction via extruct",
       "estimated_requests": 0,
       "estimated_cost_usd": 0.0,
-      "enabled": true
-    },
-    "search_candidates": {
-      "version": "1.0.0",
-      "category": "discovery",
-      "description": "Licensed Brave Search candidate discovery",
-      "estimated_requests": 1,
-      "estimated_cost_usd": 0.005,
       "enabled": true
     },
     "nav_jobs": {
@@ -106,22 +98,21 @@
   },
   "framework_files": {
     "strategies/base.py": "fd9fb692608a48ad58e5e53d76ff11d5d9dcd99d49dafa7103da317051ff0a05",
-    "strategies/registry.py": "bbbfeb883409e5d163f67c0f71a5df5dfaae01ac736426d9f132268522cc3798",
+    "strategies/registry.py": "9a4793183a76edfa78740587cdf9aa39280ec6780e32c55e06ad4241f80a29a5",
     "strategies/attempts.py": "dc59139675f63011fd8016f62bc55e7f19e0861d445ce68ae8ea7eef96a55f8a",
-    "strategies/freeze.py": "cd5f5287e06e3538a3cb54d07c69551789543301d716f2e661481e8c6cca587d"
+    "strategies/freeze.py": "a5116919a5188be7ea56cc7969ad7cd8acc79a8db6c0ae422dfe78694cfdcd35"
   },
   "connector_files": {
-    "config/source-rights.json": "2c9b53555bf0ae4bb0f4abc5f6d25f28b7abe4571154d5936d0ed9d45717e76b",
+    "config/source-rights.json": "527b4b31acfc34e05703ade3a58afd20585b42bfa91f89733b2852a225e50e89",
     "pyproject.toml": "11e781fb8891d89b1dbc9757c790a17c6bb5b24e45ed63c233acab70695e2af2",
-    "run_agent.py": "9e20ed40371f8684b0b543856a75b7ac07d51cbfb2bd2576dd913341564b333f",
+    "run_agent.py": "836ac5ae6f44e24e2e871df60afa0a937e2cb6c3ffbb04143ef7a8307630b79c",
     "scripts/evaluate_external_footprint.py": "cf6a358b16bc468a061ed63b36006d428ebc3531f92a3c3f7bddebb6283f271a",
     "scripts/prepare_external_audit.py": "8ccac9c58baa88fb499ca28af308daa8753597482a391ff9031f787affbfa513",
     "src/norway_company_agent/__init__.py": "8561d0ab5d5158a7bb347e6e2d583beb7dd31dbaed6ea3ebb7507b5036331ab1",
     "src/norway_company_agent/batch.py": "b5b4e07fcc2598a508cbbf24a636056c7c3f348f4f763872ea178a87624f1878",
     "src/norway_company_agent/budget.py": "399de2d3b7756fecc262e0bf2a1188824cb43ba330b5107f5aa4234d6b582482",
-    "src/norway_company_agent/connectors/__init__.py": "f17610f452455ce7a679cda2be77534e41c6e158ba9d371a3454055515ddccf3",
+    "src/norway_company_agent/connectors/__init__.py": "1bedf8949a770ed71b6477c134275d8b5a705a5c039357ab9bccfe9036096b48",
     "src/norway_company_agent/connectors/ats_discovery.py": "cd08482c1752960c01b4b99b5a5cadc0d5e399861c5be15f933d802d5a97da94",
-    "src/norway_company_agent/connectors/brave_search.py": "efe61dd91ef4d06e5124da6c9b46c2c77487b9ee0367fb807deaf519e1a03170",
     "src/norway_company_agent/connectors/dibk.py": "5e97a7511bddbd88f175bdb338691970e4a229efa647ebd4e9728f606aafdffc",
     "src/norway_company_agent/connectors/doffin.py": "9efb5e7a687e65680ad61d19f2b44b22382b1c46493399cab8aa56060a83fd76",
     "src/norway_company_agent/connectors/esg_certifications.py": "13d15b491663c7c0ac72da66d0ba9e05390103ae082d7c332099b38fd05873e7",
@@ -152,7 +143,7 @@
     "src/norway_company_agent/connectors/wikidata.py": "6cd7de3462f7552e78805a236c87cc8393fcbc6042a57b9509cc3d7c04e4a526",
     "src/norway_company_agent/connectors/youtube.py": "4f0528d8dc3eeeffdd2138718c7e52f89f79409e2235a81179383eb89e0b577c",
     "src/norway_company_agent/crawl_events.py": "3f2673459189724b4e110c2e082b863068c73f1365874881fbab901de0058c09",
-    "src/norway_company_agent/discovery.py": "525d66fdf1f5cc578c3db5cb3a5035f9664909ff8d9503e8e5fb9ce4e3b85112",
+    "src/norway_company_agent/discovery.py": "75de7fce35ced0c4ef38fe3a6b30746e1b992eb59293c340def09faaeb192c45",
     "src/norway_company_agent/evidence.py": "8b0ebae33cda98969c58816fa46b0ba83135b804bd1e61e51e31be8c203458fe",
     "src/norway_company_agent/external_control.py": "3839fc7f459641794d29d250173fc66b4d70edd57b982b3b0b3fb4db74874c5b",
     "src/norway_company_agent/external_footprint.py": "637dfee4b1e8a7190ce3e199e42b8fe8236e8ade0e7294b9a398e9b431ce1dce",
@@ -173,7 +164,7 @@
     "src/norway_company_agent/showcase.py": "520ba8a14bdcfbdacd2f5abd7d83b2ef9767957088265ed8c188f392201fa27a",
     "src/norway_company_agent/snapshots.py": "ed9349b4406c9fe654d19901c0062f5befb58725bcb001fcd802e88a08d57774",
     "src/norway_company_agent/social_security.py": "e738aaedd3e51075e88c2188f7a9fb075aec6527a5522ec5adfdbee9154886a8",
-    "src/norway_company_agent/source_policy.py": "3ee45c165de688de89fd641cd87b6d35ece872600196c503f16abf1776c7efc2",
+    "src/norway_company_agent/source_policy.py": "25cd0f5c2f2ffe973a064e20831ee05b52a12a970e5a89baa193e73463f8f6ab",
     "src/norway_company_agent/synthesis.py": "76662e11d63ad69509acebcc0791b38cedafc11008bb1176b42e2a74f54e9292",
     "src/norway_company_agent/templates/showcase.html": "c0016033dfa6924e00975f5dd7cc2513bc0ca5f67cea04749ccd44ae45804195",
     "src/norway_company_agent/verified_items.py": "c5b0dc034fee4d9e002aad577452b12a47411f4230a0ae24e624e7c137b4fa2c",
@@ -181,5 +172,5 @@
     "src/norway_company_agent/workspace.py": "f7d75cd1d869ab216f984f3d2732a64aba8dd4889b1cf267eba2907998b95322",
     "uv.lock": "c5203856afc02513eaf5ef4b3826829691bc66a74371dfa075004efac025af29"
   },
-  "overall_manifest_hash": "23c534efb5b666a312f0affcfc8d1868e45278ed0814bea509f5650e38aeccdc"
+  "overall_manifest_hash": "01a31eb32a94aa6baaa5032348597892914120a6ebf53b7da77e16fd656e59a3"
 }

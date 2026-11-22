@@ -398,8 +398,8 @@ class EmpiricalBudgetEnforcementStressTests(unittest.TestCase):
         )
 
         with patch("norway_company_agent.budget._raw_fetch_json", return_value=fake_brreg_result) as mock_fetch:
-            # 1. Non-Brreg request (e.g. Brave Search or NAV or external site)
-            external_url = "https://api.search.brave.com/res/v1/web/search?q=test"
+            # 1. Non-Brreg request (e.g. NAV or a company website)
+            external_url = "https://example.com/"
             ext_res = tracker.fetch_json(external_url)
 
             # Must be BLOCKED immediately with error='budget_exhausted' and NOT invoke raw fetch

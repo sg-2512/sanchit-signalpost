@@ -92,10 +92,6 @@ from norway_company_agent.connectors.youtube import (
     fetch_linked_youtube_data,
     is_available as youtube_available,
 )
-from norway_company_agent.connectors.brave_search import (
-    discover_company_website,
-    is_available as brave_available,
-)
 from norway_company_agent.connectors.linkedin import (
     discover_linkedin_company,
     is_available as linkedin_available,
@@ -1162,21 +1158,6 @@ def enrich_single_company(
                 if verified_website:
                     break
 
-        # Existing keyed connector: active only when its configured key is present.
-        if not verified_website and brave_available() and budget.can_proceed():
-            search_site = discover_company_website(profile, budget=budget)
-            if search_site:
-                w_rec, w_met = fetch_company_site(search_site)
-                website_metrics["requests"] += w_met.get("requests", 0)
-                website_metrics["bytes"] += w_met.get("bytes", 0)
-                gated = gate_website(w_rec)
-                if gated["website"].get("status") == "available":
-                    val = gated["website"].get("value") or {}
-                    if val.get("identity_assessment", {}).get("publishable"):
-                        profile["evidence"]["website"] = gated["website"]
-                        profile["website"] = val.get("final_url") or search_site
-                        verified_website = True
-
         if source_policy == OFFICIAL_SAFE and not verified_website:
             followup = {"status": "no_unused_registry_or_local_legal_lead"}
             profile["website_followup"] = followup
@@ -2241,7 +2222,6 @@ def main() -> int:
             "google_places_candidate_discovery": places_available(),
             "youtube_data_api": args.source_policy == EXPERIMENTAL and youtube_available(),
             "youtube_linked_channel_api": youtube_available(),
-            "brave_search_api": brave_available(),
             "tavily_keyless_candidate_search": keyless_search_available(),
             "social_discovery": args.source_policy == EXPERIMENTAL,
             "wikidata_website_candidate_discovery": True,
@@ -2250,7 +2230,6 @@ def main() -> int:
         },
         "connector_diagnostics": {
             "google_places": places_status(),
-            "brave_search": {"configured": brave_available()},
             "tavily_keyless_search": {
                 "configured": keyless_search_available(),
                 "publication": "candidate discovery only; destination must pass exact-company verification",

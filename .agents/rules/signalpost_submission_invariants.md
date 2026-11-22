@@ -6,7 +6,6 @@ This rule governs all code changes, benchmarks, documentation, and external subm
 - **PROHIBITION**: Never report API cost as **$0.00** or label commercial connectors as "free tier" in external submission documents, emails, evaluation scorecards, or README files.
 - **REQUIREMENT**: Always report the full commercial third-party pay-as-you-go pricing breakdown with realistic margins ($3.10 estimated commercial cost per 100 companies):
   - Google Places API: ~$0.032 per company lookup
-  - Brave Search API: ~$0.005 per query
   - YouTube Data API: ~$0.01 per search unit
   - OpenAI Synthesis Fallback: ~$0.002 per prompt
 
@@ -16,7 +15,7 @@ This rule governs all code changes, benchmarks, documentation, and external subm
 - **Verification**: `python scripts/verify_all.py` must verify 100% evidence grounding before any batch freeze.
 
 ## 3. Concurrency Pacing & Rate Limiting
-- **Thread Locks**: When multithreading with concurrent workers, commercial API endpoints (Google Places, Brave Search) must use threading locks and spacing (minimum 150ms interval) to prevent transient HTTP 429 burst errors.
+- **Thread Locks**: When multithreading with concurrent workers, Google Places must use threading locks and spacing (minimum 150ms interval) to prevent transient HTTP 429 burst errors.
 - **Backoff**: Any connector receiving HTTP 429 must immediately apply exponential backoff.
 
 ## 4. Request Ceiling Buffer Margin

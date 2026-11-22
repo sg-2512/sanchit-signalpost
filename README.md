@@ -127,7 +127,6 @@ The official agent works without API keys. Use `--max-cost 0` to enforce zero sp
 | `GOOGLE_PLACES_API_KEY` | Google Places API | Transient website candidates using evaluator-authorized access | Off ($0.00) / Registry and company-site discovery |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 | Official video channel metrics & engagement | Off ($0.00) / Website-linked channels |
 | `PATENTSTYRET_API_KEY`| Patentstyret API | Norwegian patents & registered trademarks | Off ($0.00) / Bulk NIPO records |
-| `BRAVE_API_KEY` | Brave Search API | Fallback search discovery for missing websites | Off ($0.00) / Norid RDAP & heuristic engine |
 | `SIGNALPOST_NAV_FEED_TOKEN` | NAV Job Vacancy Feed | Registered access for active job verification | Off / Verified company career pages |
 
 ## Submission contract

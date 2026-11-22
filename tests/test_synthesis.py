@@ -1,64 +1,15 @@
-"""Tests for Brave Search connector and Factual Synthesis generator."""
+"""Tests for the factual synthesis generator."""
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from norway_company_agent.connectors.brave_search import (
-    discover_company_website,
-    is_available as brave_available,
-)
 from norway_company_agent.synthesis import generate_company_synthesis
-
-
-class BraveSearchConnectorTests(unittest.TestCase):
-    def test_brave_availability_check(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(brave_available())
-        with patch.dict(os.environ, {"BRAVE_API_KEY": "test_key"}):
-            self.assertTrue(brave_available())
-        with patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "test_key_2"}):
-            self.assertTrue(brave_available())
-
-    def test_discover_company_website_no_key(self):
-        with patch.dict(os.environ, {}, clear=True):
-            profile = {"organisation_number": "993578843", "name": "TEST AS"}
-            self.assertIsNone(discover_company_website(profile))
-
-    def test_discover_company_website_success(self):
-        profile = {"organisation_number": "923609016", "name": "Norsk Fiskeeksport AS", "municipality": "NOTODDEN"}
-        mock_payload = {
-            "web": {
-                "results": [
-                    {
-                        "url": "https://norskfiskeeksport.no/",
-                        "title": "Norsk Fiskeeksport AS",
-                        "description": "Seafood exporter in Notodden 923609016",
-                    }
-                ]
-            }
-        }
-        with patch.dict(os.environ, {"BRAVE_API_KEY": "mock_key"}):
-            with patch("urllib.request.urlopen") as mock_urlopen:
-                mock_resp = MagicMock()
-                mock_resp.read.return_value = json.dumps(mock_payload).encode("utf-8")
-                mock_resp.__enter__.return_value = mock_resp
-                mock_urlopen.return_value = mock_resp
-
-                candidate_url = discover_company_website(profile)
-                self.assertEqual(candidate_url, "https://norskfiskeeksport.no/")
-
-
-
-
 
 
 class CompanySynthesisTests(unittest.TestCase):

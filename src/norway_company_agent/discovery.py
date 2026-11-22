@@ -57,23 +57,6 @@ def build_company_search_query(profile: dict[str, Any]) -> str:
     return f'"{name}" {org}{location}'
 
 
-def parse_brave_web_results(payload: dict[str, Any], *, query: str) -> list[dict[str, Any]]:
-    results = (payload.get("web") or {}).get("results") or []
-    parsed = []
-    for rank, result in enumerate(results, start=1):
-        if not isinstance(result, dict) or not result.get("url"):
-            continue
-        parsed.append({
-            "url": result.get("url"),
-            "title": result.get("title") or "",
-            "snippet": result.get("description") or "",
-            "rank": rank,
-            "provider": "brave_search_api",
-            "query": query,
-        })
-    return parsed
-
-
 def _tokens(value: Any) -> list[str]:
     text = str(value or "").translate(str.maketrans({"ø": "o", "å": "a", "æ": "ae", "Ø": "O", "Å": "A", "Æ": "AE"}))
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().casefold()
@@ -143,18 +126,6 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
         "query": result.get("query"),
         "reasons": reasons or ["insufficient exact-entity evidence"],
         "method": "deterministic_search_candidate_identity_v1",
-    }
-
-
-def choose_search_candidate(profile: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
-    assessed = [score_search_candidate(profile, result) for result in results]
-    assessed.sort(key=lambda item: (-item.get("score", 0.0), item.get("rank") or 10_000, item.get("url") or ""))
-    accepted = [item for item in assessed if item.get("publishable_candidate")]
-    return {
-        "selected": accepted[0] if accepted else None,
-        "candidates": assessed,
-        "abstained": not accepted,
-        "policy": "A search result is only a crawl candidate. Publication still requires fetched-page exact-entity verification.",
     }
 
 

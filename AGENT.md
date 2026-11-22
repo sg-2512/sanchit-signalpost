@@ -36,7 +36,7 @@ All data collection follows an explicit 5-tier credibility ladder:
    - *Status:* Used for buzz, media sentiment, and external visibility.
 
 5. **Tier 5: Search & Discovery Engines (Candidate Generation Only)**
-   - Brave Search API / DuckDuckGo HTML
+   - Tavily keyless search
    - *Status:* **Candidate generation only.** Search ranking is NEVER used as evidence for a published fact. The underlying destination URL must be independently crawled and verified.
 
 ## 3. Layered Extraction Pipeline

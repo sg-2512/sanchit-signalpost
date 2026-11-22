@@ -510,70 +510,6 @@ class JsonLdOpenGraphRoute(StrategyRoute):
         )
 
 
-class SearchCandidatesRoute(StrategyRoute):
-    """Route 6: Licensed Brave Search candidate discovery for companies without homepage."""
-    name = "search_candidates"
-    version = "1.0.0"
-    description = "Licensed Brave Search candidate discovery"
-    category = RouteCategory.DISCOVERY
-    estimated_requests = 1
-    estimated_cost_usd = 0.005
-
-    def can_execute(self, org: dict[str, Any], context: ExecutionContext) -> tuple[bool, Optional[str]]:
-        # Check if homepage already exists
-        has_hp = bool(context.shared_artifacts.get("homepage_url") or org.get("website"))
-        if has_hp and not context.options.get("force_search"):
-            return False, "homepage_already_known"
-
-        has_api_key = bool(os.getenv("BRAVE_API_KEY") or os.getenv("BRAVE_SEARCH_API_KEY") or context.options.get("mock_brave"))
-        if not has_api_key:
-            return False, "brave_search_api_key_missing"
-        return True, None
-
-    def run(self, org: dict[str, Any], context: ExecutionContext) -> StrategyAttemptResult:
-        orgnr = str(org.get("organisation_number") or "")
-        company_name = org.get("name", "")
-        municipality = org.get("municipality", "")
-        query = f'"{company_name}" {orgnr} {municipality}'
-
-        # Mock or live call
-        mock_domain = context.options.get("mock_brave_domain") or f"{_tokenize(company_name)[0] if _tokenize(company_name) else 'company'}.no"
-        candidate_url = f"https://www.{mock_domain}"
-        context.shared_artifacts["brave_candidate_url"] = candidate_url
-
-        snapshot_hash = _sha256_text(query)
-        evidence_span = f"Brave Search discovered candidate website for {company_name} ({orgnr}): {candidate_url}"
-
-        accepted_claims = [{
-            "claim_id": f"claim_search_{orgnr}_01",
-            "field": "discovered_search_candidate_url",
-            "value": candidate_url,
-            "confidence": 0.85,
-            "evidence_span": evidence_span,
-            "evidence_ids": [f"ev-search-{orgnr}"],
-            "source_url": "https://api.search.brave.com/res/v1/web/search",
-            "source_class": "licensed_search_api",
-            "grounding_status": "grounded",
-        }]
-
-        return StrategyAttemptResult(
-            attempt_id="",
-            organisation_number=orgnr,
-            route_name=self.name,
-            version=self.version,
-            status=AttemptStatus.SUCCESS.value,
-            requested_url="https://api.search.brave.com/res/v1/web/search",
-            snapshot_hash=snapshot_hash,
-            candidate_domains=[mock_domain],
-            accepted_claims=accepted_claims,
-            rejected_claims=[],
-            exact_identity_evidence={"is_exact": True, "method": "brave_scored_candidate"},
-            quarantined=False,
-            requests_count=1,
-            cost_usd=0.005,
-        )
-
-
 class NavJobsRoute(StrategyRoute):
     """Route 7: Official NAV open jobs API vacancy extraction."""
     name = "nav_jobs"
@@ -1007,7 +943,6 @@ CANONICAL_PRIORITY = [
     "sitemap_static",
     "targeted_paths",
     "jsonld_opengraph",
-    "search_candidates",
     "nav_jobs",
     "google_places",
     "leader_bridge",
@@ -1105,14 +1040,13 @@ class StrategyRegistry:
 
 
 def build_default_registry() -> StrategyRegistry:
-    """Build and populate the default registry with all 11 routes."""
+    """Build and populate the default strategy registry."""
     registry = StrategyRegistry()
     registry.register(RegistrySiteRoute())
     registry.register(SitemapStaticRoute())
     registry.register(StaticHomepageRoute())
     registry.register(TargetedPathsRoute())
     registry.register(JsonLdOpenGraphRoute())
-    registry.register(SearchCandidatesRoute())
     registry.register(NavJobsRoute())
     registry.register(GooglePlacesRoute())
     registry.register(LeaderBridgeRoute())

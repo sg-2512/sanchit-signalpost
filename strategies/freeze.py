@@ -78,7 +78,7 @@ class FreezeManifest:
     git_dirty: bool = False
     environment: dict[str, Any] = field(default_factory=dict)
     global_budget_envelope: dict[str, Any] = field(default_factory=dict)
-    routes_count: int = 11
+    routes_count: int = 10
     routes: dict[str, dict[str, Any]] = field(default_factory=dict)
     framework_files: dict[str, str] = field(default_factory=dict)
     connector_files: dict[str, str] = field(default_factory=dict)

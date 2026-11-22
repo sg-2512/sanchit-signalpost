@@ -153,7 +153,7 @@ def test_group_website_followup_caps_requests_and_publishes_local_presence(monke
     contact = group + "support/contact"
     profile = {"organisation_number": org, "name": "Example Motor Norway AS", "website": group, "evidence": {}}
     monkeypatch.setattr(run_agent, "fetch_official_modules", lambda *args, **kwargs: ({}, []))
-    for name in ("places_available", "keyless_search_available", "brave_available"):
+    for name in ("places_available", "keyless_search_available"):
         monkeypatch.setattr(run_agent, name, lambda: False)
     monkeypatch.setattr(run_agent, "probe_heuristic_domain", lambda *args, **kwargs: None)
     monkeypatch.setattr(run_agent, "fetch_website", lambda url, **_: ({

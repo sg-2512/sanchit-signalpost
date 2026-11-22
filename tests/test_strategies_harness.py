@@ -41,7 +41,6 @@ from strategies.registry import (
     NavJobsRoute,
     PdfFallbackRoute,
     RegistrySiteRoute,
-    SearchCandidatesRoute,
     SitemapStaticRoute,
     StaticHomepageRoute,
     StrategyRegistry,
@@ -105,7 +104,7 @@ class StrategyRoutesAndRegistryTests(unittest.TestCase):
     def test_registry_contains_all_11_routes(self) -> None:
         registry = build_default_registry()
         routes = registry.list_routes()
-        self.assertEqual(len(routes), 11)
+        self.assertEqual(len(routes), 10)
         names = registry.list_route_names()
         expected_names = [
             "registry_site",
@@ -113,7 +112,6 @@ class StrategyRoutesAndRegistryTests(unittest.TestCase):
             "sitemap_static",
             "targeted_paths",
             "jsonld_opengraph",
-            "search_candidates",
             "nav_jobs",
             "google_places",
             "leader_bridge",
@@ -126,7 +124,7 @@ class StrategyRoutesAndRegistryTests(unittest.TestCase):
         registry = build_default_registry()
         freeze_info = registry.freeze()
         self.assertIn("registry_sha256", freeze_info)
-        self.assertEqual(freeze_info["total_routes"], 11)
+        self.assertEqual(freeze_info["total_routes"], 10)
         self.assertEqual(freeze_info["status"], "frozen")
 
         # Attempting to register another route raises RuntimeError
@@ -216,28 +214,6 @@ class StrategyRoutesAndRegistryTests(unittest.TestCase):
         res = route.execute(self.sample_org, self.context)
         self.assertEqual(res.status, AttemptStatus.SUCCESS.value)
         self.assertEqual(res.requests_count, 0)  # 0 requests: reuses cached HTML
-        self.assertEqual(len(res.accepted_claims), 1)
-
-    def test_route_6_search_candidates_execution(self) -> None:
-        route = SearchCandidatesRoute()
-        org_no_web = dict(self.sample_org)
-        org_no_web["website"] = ""
-
-        # Context without API key -> abstains cleanly
-        ctx_no_key = ExecutionContext(run_id="run-1", budget=MagicMock(can_proceed=lambda: True))
-        can_run, reason = route.can_execute(org_no_web, ctx_no_key)
-        self.assertFalse(can_run)
-        self.assertEqual(reason, "brave_search_api_key_missing")
-
-        # Context with mock brave key -> executes
-        ctx_mock = ExecutionContext(
-            run_id="run-1",
-            budget=MagicMock(can_proceed=lambda: True),
-            options={"mock_brave": True, "mock_brave_domain": "aelektronikk.no"},
-        )
-        res = route.execute(org_no_web, ctx_mock)
-        self.assertEqual(res.status, AttemptStatus.SUCCESS.value)
-        self.assertEqual(res.cost_usd, 0.005)
         self.assertEqual(len(res.accepted_claims), 1)
 
     def test_route_7_nav_jobs_execution(self) -> None:
@@ -519,7 +495,7 @@ class FreezePolicyTests(unittest.TestCase):
             manifest = freeze_strategies(manifest_path=manifest_path)
 
             self.assertTrue(manifest_path.exists())
-            self.assertEqual(manifest.routes_count, 11)
+            self.assertEqual(manifest.routes_count, 10)
             self.assertEqual(len(manifest.overall_manifest_hash), 64)
 
             # Verification passes immediately after freeze

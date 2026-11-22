@@ -299,7 +299,7 @@ class StrategyRegistryBoundaryStressTests(unittest.TestCase):
         self.assertIsInstance(result.accepted_claims, list)
 
     def test_empty_org_payload_all_routes_return_abstained_or_fallback(self) -> None:
-        """Empty org dict {} should not cause uncaught exceptions on any of the 11 routes."""
+        """Empty org dict {} should not cause uncaught exceptions on registered routes."""
         ctx = ExecutionContext(run_id="run_empty_org")
         for route_name in self.registry.list_route_names():
             try:

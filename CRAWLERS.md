@@ -32,7 +32,6 @@ The system uses a multi-stage deterministic crawling pipeline managed by [`src/n
 | **YouTube Data API v3** | `connectors/youtube.py` | Optional keyed provider | Provider quota | Channel metrics when configured |
 | **LinkedIn Guest Typeahead** | `connectors/linkedin.py` | Open Discovery API | 5 req/sec | Corporate LinkedIn profile verification |
 | **Google News RSS** | `connectors/google_news.py` | Permitted RSS | 5 req/sec | Media mentions and news sentiment |
-| **Brave Search API** | `connectors/brave_search.py` | Optional keyed provider | Provider quota | Website candidate discovery when configured |
 
 ## 3. Resource Budgets & Governance
 

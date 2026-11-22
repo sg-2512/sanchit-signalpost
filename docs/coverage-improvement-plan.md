@@ -46,7 +46,7 @@ Note: the 17% website value comes from the run's detailed measurement; older con
 ### P1 — Improve exact company website discovery without adding keys
 
 1. Use the organization number as the anchor. First take the official registry website and official subunit/group data; normalize canonical domains and redirects.
-2. Do not add another search provider or require a new key. Keep the existing Brave adapter available when already configured; improve the default keyless pipeline with official registry website fields, official subunit/group records, links from a verified company-controlled website, public sitemap/robots declarations, and public cross-links embedded on that site.
+2. Improve the default keyless pipeline with official registry website fields, official subunit/group records, links from a verified company-controlled website, public sitemap/robots declarations, and public cross-links embedded on that site.
 3. For missing domains, use only unauthenticated public pages already within the permitted-source rules, such as a company-linked registry/public directory page where its use is allowed. Do not scrape search engine result pages or treat browser search snippets as retained evidence. If no permitted candidate source exists, preserve the honest missing/ambiguous state.
 4. Fetch candidate sites independently and require exact organization number, unique legal-name plus address/phone corroboration, or a verified registry/site cross-link before publication. Keep parent, franchise, marketplace, social, and directory domains out of the official-website field.
 5. Preserve redirects and hash the fetched page that supports the claim. If the displayed URL is an article or company page, its evidence hash must come from that page's response, not the homepage/news index.
@@ -132,8 +132,7 @@ If the required official-data path consumes more than the 900 planning pool, red
 - [Builderr Signalpost challenge: current requirements, scoring, input/output, submissions, and revision rules](https://builderr.ai/challenges/signalpost)
 - [Brønnøysundregistrene open-data API documentation](https://data.brreg.no/enhetsregisteret/api/dokumentasjon/en/index.html)
 - [NAV job-ad API terms](https://arbeidsplassen.nav.no/vilkar-api)
-- Brave Search API sources were reviewed to assess the existing connector; this plan adds no keyed provider or new credential requirement.
 
 ## Limits of this review
 
-The Builderr Markdown brief, playbook, learning harness, permitted-source list, and evaluation contract links are currently served with `text/markdown`; both available web readers reject that content type. This plan therefore relies on the current HTML challenge page, locally checked project contracts, the latest saved run reports, and primary Brønnøysundregistrene, NAV, and Brave documentation. Re-open the five linked Builderr files in a browser or download their artifacts and reconcile any exact-format or numeric-budget details before a final submission.
+The Builderr Markdown brief, playbook, learning harness, permitted-source list, and evaluation contract links are currently served with `text/markdown`; both available web readers reject that content type. This plan therefore relies on the current HTML challenge page, locally checked project contracts, the latest saved run reports, and primary Brønnøysundregistrene and NAV documentation. Re-open the five linked Builderr files in a browser or download their artifacts and reconcile any exact-format or numeric-budget details before a final submission.

@@ -39,7 +39,7 @@ only for local measurement and must never be presented as an official result.
 | NAV Arbeidsplassen | Publish | Employer organisation number equal to the company or an official subunit; item-level job URL, posting date and hash. |
 | Verified company website, sitemap, newsroom, careers pages | Publish | Robots-permitted access and reverse identity proof: organisation number, or legal name plus address/phone/official cross-link. Use an article/job leaf URL, not a listing page. |
 | Norid and Wikidata | Conditional | Exact organisation-number/domain binding, source licence attribution, and retained returned record. |
-| Google Places, YouTube, Brave, official specialist datasets | Conditional | Declare API plan, permitted storage/display, attribution, reproducible evaluator credential, rate/cost cap, and an exact-entity test. Search results remain candidates only. |
+| Google Places, YouTube, official specialist datasets | Conditional | Declare API plan, permitted storage/display, attribution, reproducible evaluator credential, rate/cost cap, and an exact-entity test. Search results remain candidates only. |
 | Google News RSS and press wires | Discovery only until promoted | Fetch the final publisher or company page; preserve canonical URL, article date, hash and company span. Do not publish the RSS redirect or search result. |
 | LinkedIn, Meta, Glassdoor, Indeed, Proff and other directory HTML | Quarantined | Written approval, official/licensed API, or another clearly permitted access method. Then add rights declaration, extraction test, exact-entity test and promotion report. |
 
