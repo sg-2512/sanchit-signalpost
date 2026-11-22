@@ -1038,13 +1038,18 @@ def _priority_links(base_url: str, soup: BeautifulSoup, limit: int = 5, check_si
     if contact and contact not in sorted_others[:2]:
         sorted_others.remove(contact)
         sorted_others.insert(1, contact)
+    company_overview = next((u for u in sorted_others if re.search(
+        r"/(?:about(?:-us)?|om-oss|konsern|group)(?:/)?$", urllib.parse.urlsplit(u).path, re.I)), None)
+    identity_pages = sorted_others[:2]
+    if company_overview and company_overview not in identity_pages:
+        identity_pages.append(company_overview)
 
     selected: list[str] = []
     for bucket in (
-        sorted_others[:2],
+        identity_pages,
         sorted_careers[:1],
         sorted_news[:1],
-        sorted_others[2:],
+        sorted_others,
         sorted_careers[1:],
         sorted_news[1:],
     ):
@@ -1453,7 +1458,7 @@ def _fetch_website(url: str | None, *, timeout: float = 15.0, max_bytes: int = 4
         page_latencies = [elapsed]
         homepage_domain = value["registered_domain"]
         # A homepage careers link can be a portal rather than an individual job.
-        subpage_limit = 4
+        subpage_limit = 5
         pending_pages = _priority_links(final_url, soup, limit=subpage_limit, check_sitemap=True)
         if "cdn.shopify.com" in html or "Shopify.theme" in html:
             legal_notice = urllib.parse.urljoin(final_url, "/policies/legal-notice")

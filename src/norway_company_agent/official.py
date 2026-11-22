@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from datetime import date
@@ -492,6 +493,43 @@ def normalize_locations(body: Any) -> dict[str, Any]:
         "employees": item.get("antallAnsatte"),
         **({"website": item["hjemmeside"]} if isinstance(item.get("hjemmeside"), str) and item["hjemmeside"].strip() else {}),
     } for item in rows]}
+
+
+_FORCED_DISSOLUTION_DATES = {
+    "tvangsopplostPgaManglendeRevisorDato": "missing auditor",
+    "tvangsopplostPgaManglendeDagligLederDato": "missing general manager",
+    "tvangsopplostPgaManglendeRegnskapDato": "missing accounts",
+    "tvangsopplostPgaMangelfulltStyreDato": "non-compliant board",
+    "tvangsavvikletPgaManglendeSlettingDato": "failure to deregister",
+}
+
+
+def registry_company_status(entity: dict[str, Any], as_of: str) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    """Interpret current BRREG status flags and their accompanying dates."""
+    def reported_date(field: str) -> str | None:
+        value = entity.get(field)
+        return value if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) and value <= as_of[:10] else None
+
+    if deleted_at := reported_date("slettedato"):
+        return {"state": "deleted", "effective_date": deleted_at}, ("slettedato",)
+    forced_flag = "underTvangsavviklingEllerTvangsopplosning"
+    if entity.get(forced_flag) is True:
+        events = [(date, key, reason) for key, reason in _FORCED_DISSOLUTION_DATES.items()
+                  if (date := reported_date(key))]
+        if events:
+            date, key, reason = max(events)
+            return {"state": "forced_dissolution", "effective_date": date, "reason": reason}, (forced_flag, key)
+        return {"state": "forced_dissolution_or_liquidation"}, (forced_flag,)
+    for flag, date_field, state in (("konkurs", "konkursdato", "bankruptcy_opened"),
+                                    ("underAvvikling", "underAvviklingDato", "in_liquidation")):
+        if entity.get(flag) is True:
+            date = reported_date(date_field)
+            return ({"state": state, **({"effective_date": date} if date else {})},
+                    (flag, date_field) if date else (flag,))
+    flags = ("konkurs", "underAvvikling", forced_flag)
+    if all(entity.get(flag) is False for flag in flags):
+        return {"state": "registered"}, flags
+    return None, ()
 
 
 def normalize_entity(body: Any) -> dict[str, Any]:

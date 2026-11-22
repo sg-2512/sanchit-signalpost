@@ -873,17 +873,6 @@ def enrich_single_company(
                 verified_website = True
             return verified_website
 
-        # NAV's vacancy feed is indexed once for the whole batch. An employer
-        # homepage from a currently ACTIVE ad with an exact org-number match is
-        # a discovery hint only; the website still passes the normal gate.
-        if budget.max_requests >= 200 and budget.can_proceed(reserve=2):
-            nav_feed_jobs, nav_feed_homepages, nav_feed_diagnostics = nav_feed_jobs_for_company(
-                name, org, subunits=location_val.get("locations") or [], budget=budget,
-                allow_experimental_token=source_policy == EXPERIMENTAL,
-                cache_path=nav_feed_cache,
-            )
-        profile["nav_feed_diagnostics"] = nav_feed_diagnostics
-
         # Level 1: Official registry URL
         if target_site:
             w_rec, w_met = fetch_company_site(target_site, retry_transient=True)
@@ -896,6 +885,17 @@ def enrich_single_company(
                 if val.get("identity_assessment", {}).get("publishable"):
                     profile["website"] = val.get("final_url") or target_site
                     verified_website = True
+
+        # NAV's vacancy feed is indexed once for the whole batch. An employer
+        # homepage from a currently ACTIVE ad with an exact org-number match is
+        # a discovery hint only; the website still passes the normal gate.
+        if budget.max_requests >= 200 and budget.can_proceed(reserve=2):
+            nav_feed_jobs, nav_feed_homepages, nav_feed_diagnostics = nav_feed_jobs_for_company(
+                name, org, subunits=location_val.get("locations") or [], budget=budget,
+                allow_experimental_token=source_policy == EXPERIMENTAL,
+                cache_path=nav_feed_cache,
+            )
+        profile["nav_feed_diagnostics"] = nav_feed_diagnostics
 
         if not verified_website and isinstance(leads, dict) and isinstance(leads.get("company_website_url"), str):
             try:
@@ -2134,7 +2134,8 @@ def main() -> int:
     # The same budget snapshot backs the envelopes and run report.
 
     # Evaluation Contract Measurement schema
-    claim_fields = ["legal_identity", "official_website", "registry_declared_website", "norwegian_website_presence",
+    claim_fields = ["legal_identity", "company_status", "official_website", "registry_declared_website", "norwegian_website_presence",
+                    "group_website_company_page",
                     "registry_website_redirect", "annual_accounts", "annual_accounts_status", "annual_accounts_comparison",
                     "roles", "operating_locations", "registered_subunit_trading_names", "workforce_source_counts",
                     "group_membership", "hiring_status", "hiring_signal", "first_party_recruitment_notice", "accounting_obligation", "dated_news",
@@ -2157,6 +2158,47 @@ def main() -> int:
             "recall": None,
         }
 
+    website_funnel = dict.fromkeys(("registry_declared", "attempted", "fetched", "exact_operator_published",
+                                  "scoped_group_page_published", "conflicting_operator", "blocked",
+                                  "failed", "unverified", "unattempted"), 0)
+    for envelope, profile in zip(envelopes, profiles):
+        available = {c["field"]: c["value"] for c in envelope["claims"] if c["availability"] == "available"}
+        declared = available.get("registry_declared_website")
+        if not declared:
+            continue
+        website_funnel["registry_declared"] += 1
+        try:
+            target = (normalize_homepage(declared) or "").rstrip("/")
+        except ValueError:
+            website_funnel["unattempted"] += 1
+            continue
+        attempts = []
+        for attempt in profile.get("website_attempts") or []:
+            try:
+                if target and (normalize_homepage(attempt.get("requested_url")) or "").rstrip("/") == target:
+                    attempts.append(attempt)
+            except ValueError:
+                continue
+        if not attempts:
+            website_funnel["unattempted"] += 1
+            continue
+        website_funnel["attempted"] += 1
+        states = {attempt.get("status") for attempt in attempts}
+        website_funnel["fetched"] += int("available" in states)
+        if available.get("official_website") and any(attempt.get("publishable") for attempt in attempts):
+            result = "exact_operator_published"
+        elif available.get("group_website_company_page"):
+            result = "scoped_group_page_published"
+        elif any(attempt.get("operator_conflict") for attempt in attempts):
+            result = "conflicting_operator"
+        elif "available" in states:
+            result = "unverified"
+        elif "blocked" in states:
+            result = "blocked"
+        else:
+            result = "failed"
+        website_funnel[result] += 1
+
     measurements = {
         "exact_company_precision": None,
         "wrong_company_publications": None,
@@ -2169,6 +2211,7 @@ def main() -> int:
         "p50_ms": budget_report["p50_ms"],
         "p95_ms": budget_report["p95_ms"],
         "per_field_precision_recall_coverage": per_field,
+        "registry_website_verification": website_funnel,
         "abstention": abstentions,
     }
 

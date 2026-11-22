@@ -39,6 +39,19 @@ def synthesize_published_claims(claims: list[dict[str, Any]], evidence: list[dic
             facts.append({"id": field, "fact_id": f"{field}-{len(facts) + 1}", "sentence": sentence,
                           "section": section, "evidence_ids": ids, "cited": True})
 
+    status = value("company_status") or {}
+    status_text = {
+        "forced_dissolution": "reports that the company was placed in forced dissolution or liquidation",
+        "forced_dissolution_or_liquidation": "lists the company under forced dissolution or liquidation",
+        "bankruptcy_opened": "reports that bankruptcy proceedings were opened",
+        "in_liquidation": "lists the company as under liquidation",
+        "deleted": "reports that the company was removed from the register",
+    }.get(status.get("state"))
+    if status_text:
+        reason = f" due to {status['reason']}" if status.get("reason") else ""
+        effective = f" on {status['effective_date']}" if status.get("effective_date") else ""
+        add("company_status", f"BRREG {status_text}{reason}{effective}.")
+
     identity = value("legal_identity")
     if identity:
         add("legal_identity", f"{identity['name']} is registered under organisation number {identity['organisation_number']} ({identity.get('legal_form') or 'legal form unavailable'}).")
@@ -100,6 +113,8 @@ def synthesize_published_claims(claims: list[dict[str, Any]], evidence: list[dic
     if approval:
         expiry = f" through {approval['valid_through']}" if approval.get("valid_through") else ""
         add("construction_approval", f"DiBK lists a construction approval{expiry}.", "latest_facts")
+        if approval.get("approved_training_company") is True:
+            add("construction_approval", "DiBK lists the company as an approved training enterprise.", "latest_facts")
         for area in approval.get("approval_areas") or []:
             scope = ", ".join(str(area[key]) for key in ("function", "subject_area") if area.get(key))
             if scope:
@@ -111,6 +126,8 @@ def synthesize_published_claims(claims: list[dict[str, Any]], evidence: list[dic
     jobs = value("job_postings")
     if jobs:
         add("job_postings", f"The snapshot records {jobs['count']} verified vacancy posting(s).", "latest_facts")
+    elif notice := value("first_party_recruitment_notice"):
+        add("first_party_recruitment_notice", f"The company posted a recruitment notice titled “{notice['title']}”. Its current vacancy status is unconfirmed.", "latest_facts")
 
     unknowns = [
         label for field, label in (
@@ -561,7 +578,7 @@ def generate_company_synthesis(
         "model": model_used,
         "grounded": True,
         "hiring_status": hiring.get("status") or "unreported",
-        "appears_to_be_hiring": hiring.get("appears_to_be_hiring", False),
+        "appears_to_be_hiring": hiring.get("appears_to_be_hiring"),
         "financial_health": solv_status or "unreported",
         "equity_ratio": eq_ratio,
         "revenue_growth": growth_label,

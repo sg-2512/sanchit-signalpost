@@ -9,7 +9,7 @@ from typing import Any, Callable, Iterable
 
 from .evidence import evidence, utc_now
 from .http import FetchResult, fetch_json
-from .official import accounting_obligation_assessment, compare_annual_accounts, latest_account, fiscal_year_of, normalize_retained_accounts
+from .official import accounting_obligation_assessment, compare_annual_accounts, latest_account, fiscal_year_of, normalize_retained_accounts, registry_company_status
 from .identity import published_website_url
 from .verified_items import first_party_news_about_company, name_in_text, registered_domain, validate_job_item, validate_news_item
 from .sampling import iter_bulk
@@ -393,6 +393,16 @@ def build_contract_claims_and_evidence(
 
     if reg_live_rec.get("status") == "available" and reg_live_rec.get("content_sha256"):
         live_value = reg_live_rec.get("value") or {}
+        if str(live_value.get("organisasjonsnummer") or live_value.get("organisation_number")) == org:
+            status, status_fields = registry_company_status(live_value, completed_at)
+            registry_evidence = next((item for item in evidence_items if item["id"] == f"ev-registry_live-{org}"), None)
+            if status and registry_evidence:
+                status_id = f"ev-company-status-{org}"
+                evidence_items.append({**registry_evidence, "id": status_id, "source_fields": [
+                    {"source_pointer": f"/{field}", "source_value": live_value[field]} for field in status_fields
+                ]})
+                claims.append({"field": "company_status", "value": status, "availability": "available",
+                               "confidence": 1.0, "evidence_ids": [status_id]})
         industry = live_value.get("naeringskode1") or live_value.get("industry") or {}
         if isinstance(industry, dict) and industry.get("beskrivelse"):
             claims.append({"field": "registered_industry", "value": {"code": industry.get("kode"),
@@ -445,6 +455,24 @@ def build_contract_claims_and_evidence(
             evidence_items.append({**registry_evidence, "id": declared_id, "source_record_key": org})
         claims.append({"field": "registry_declared_website", "value": declared,
                        "availability": "available", "confidence": 1.0, "evidence_ids": [declared_id]})
+        if require_legal_operator and not published_website_url(w_rec):
+            from .connectors.scoped_company_sources import assess_group_site_presence
+
+            for page in w_val.get("pages") or []:
+                presence = assess_group_site_presence(page, declared_url=declared, org=org,
+                                                      company=str(registry_value.get("navn") or registry_value.get("name") or ""))
+                if not presence:
+                    continue
+                group_site_id = f"ev-group-company-page-{org}"
+                evidence_items.append({"id": group_site_id,
+                    "retrieved_at": presence.get("retrieved_at") or w_rec.get("retrieved_at") or completed_at,
+                    **{key: presence[key] for key in (
+                    "source_url", "content_sha256", "source_class", "literal_excerpt",
+                )}})
+                claims.append({"field": "group_website_company_page", "value": presence["value"],
+                               "availability": "available", "confidence": 1.0,
+                               "evidence_ids": [declared_id, group_site_id]})
+                break
 
     presence = ev.get("norwegian_website_presence") or {}
     if presence:
@@ -828,7 +856,9 @@ def build_contract_claims_and_evidence(
     hiring = profile.get("hiring") or (ev.get("hiring") or {}).get("value") or {}
     career_pages = extract_website_hiring_signals(w_val if is_publishable else None).get("career_evidence") or []
     career_page = next((page for page in career_pages if re.fullmatch(r"[0-9a-fA-F]{64}", str(page.get("content_sha256") or ""))), None)
-    careers_url = career_page["source_url"] if career_page else None
+    careers_url = career_page["source_url"] if career_page and has_valid_site_ev else None
+    career_ev_id = f"ev-careers-page-{org}"
+    notice_id = f"ev-recruitment-notice-{org}"
     profile["recruitment_notice"] = None
     if has_valid_site_ev:
         site_host = (urllib.parse.urlsplit(website_url).hostname or "").removeprefix("www.")
@@ -842,7 +872,6 @@ def build_contract_claims_and_evidence(
                     or not re.search(r"søknad med cv|send (?:inn )?(?:søknad|cv)|apply (?:here|now)|submit (?:your|an) application", body, re.I)
                     or re.search(r"søknadsfristen er utløpt|stillingen er besatt|no longer accepting|position has closed", body, re.I)):
                 continue
-            notice_id = f"ev-recruitment-notice-{org}"
             observed_at = page.get("retrieved_at") or w_rec.get("retrieved_at") or completed_at
             evidence_items.append({"id": notice_id, "source_url": url, "content_sha256": digest,
                                    "source_class": "company_site", "retrieved_at": observed_at, "literal_excerpt": title})
@@ -851,74 +880,12 @@ def build_contract_claims_and_evidence(
             claims.append({"field": "first_party_recruitment_notice", "value": notice,
                            "availability": "available", "confidence": 0.95, "evidence_ids": [site_ev_id, notice_id]})
             break
-    if hiring.get("status") == "recruitment_page_present" and not career_page:
-        hiring = {**hiring, "status": "unknown", "appears_to_be_hiring": False,
-                  "assessment": "No recruitment page was established from the captured text."}
-
-    # Resolve real retained response body for hiring evidence
-    j_rec = ev.get("jobs") or {}
-    hiring_backing_sha = (
-        (w_rec.get("content_sha256") if has_valid_site_ev else None)
-        or (j_rec.get("content_sha256") if j_rec.get("status") == "available" else None)
-        or (reg_live_rec.get("content_sha256") if reg_live_rec.get("status") == "available" else None)
-        or (reg_bulk_rec.get("content_sha256") if reg_bulk_rec.get("status") == "available" else None)
-    )
-    hiring_backing_url = (
-        (w_rec.get("source_url") or website_url if has_valid_site_ev else None)
-        or (j_rec.get("source_url") if j_rec.get("status") == "available" else None)
-        or (reg_live_rec.get("source_url") if reg_live_rec.get("status") == "available" else None)
-        or (reg_bulk_rec.get("source_url") if reg_bulk_rec.get("status") == "available" else None)
-        or f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
-    )
-
-    hiring_ev_id = f"ev-hiring-{org}"
-    appears_hiring = bool((hiring or {}).get("appears_to_be_hiring", False))
-    if not is_publishable and (hiring or {}).get("status") == "website_recruitment_open":
-        appears_hiring = False
-    if hiring and hiring_backing_sha:
-        hiring_ev_ids = [site_ev_id, hiring_ev_id] if has_valid_site_ev else [hiring_ev_id]
-        claims.append({
-            "field": "hiring_status",
-            "value": {
-                "appears_to_be_hiring": appears_hiring,
-                "status": hiring.get("status"),
-                "active_job_postings_count": hiring.get("active_job_postings_count", 0),
-                "careers_url": careers_url,
-                "url": careers_url,
-            },
-            "availability": "available",
-            "confidence": 0.95 if hiring.get("confidence") == "high" else 0.80,
-            "evidence_ids": hiring_ev_ids,
-        })
-        if careers_url and str(careers_url).startswith(("http://", "https://")):
-            career_ev_id = f"ev-careers-page-{org}"
-            evidence_items.append({"id": career_ev_id, "source_url": careers_url, "source_class": "company_site",
-                                   "retrieved_at": w_rec.get("retrieved_at") or completed_at,
-                                   "content_sha256": career_page["content_sha256"], "claim_span": career_page["claim_span"]})
-            claims.append({
-                "field": "careers_page",
-                "value": careers_url,
-                "availability": "available",
-                "confidence": 0.95,
-                "evidence_ids": [site_ev_id, career_ev_id],
-            })
-        if not any(item["id"] == hiring_ev_id for item in evidence_items):
-            evidence_items.append({
-                "id": hiring_ev_id,
-                "source_url": str(hiring_backing_url),
-                "source_class": "company_site" if has_valid_site_ev else "official",
-                "retrieved_at": completed_at,
-                "content_sha256": str(hiring_backing_sha),
-                "claim_span": f"Hiring assessment: {hiring.get('assessment') or hiring.get('status')}",
-            })
-    else:
-        claims.append({
-            "field": "hiring_status",
-            "value": None,
-            "availability": "not_available",
-            "confidence": 0.0,
-            "evidence_ids": [],
-        })
+    if careers_url:
+        evidence_items.append({"id": career_ev_id, "source_url": careers_url, "source_class": "company_site",
+                               "retrieved_at": w_rec.get("retrieved_at") or completed_at,
+                               "content_sha256": career_page["content_sha256"], "claim_span": career_page["claim_span"]})
+        claims.append({"field": "careers_page", "value": careers_url, "availability": "available",
+                       "confidence": 0.95, "evidence_ids": [site_ev_id, career_ev_id]})
 
     # 8. Accounting Obligation Claim
     a_status = a_rec.get("status")
@@ -1206,6 +1173,7 @@ def build_contract_claims_and_evidence(
         })
 
     # 10. Scored Job Postings Claim
+    j_rec = ev.get("jobs") or {}
     j_status = j_rec.get("status")
     j_val = j_rec.get("value") or {}
     raw_job_candidates: list[dict[str, Any]] = []
@@ -1316,25 +1284,32 @@ def build_contract_claims_and_evidence(
         j_val.update(items=clean_job_items, count=len(clean_job_items))
         if not clean_job_items:
             j_rec["status"] = "not_available"
-    if hiring or clean_job_items:
-        hiring.update(active_job_postings_count=len(clean_job_items), appears_to_be_hiring=bool(clean_job_items))
-        if clean_job_items:
-            hiring.update(status="actively_recruiting", confidence="high")
-        elif hiring.get("status") in {"actively_recruiting", "website_recruitment_open"}:
-            hiring.update(status="recruitment_page_present" if careers_url else "unknown", confidence="limited")
-        profile["hiring"] = hiring
-        for claim in claims:
-            if claim["field"] != "hiring_status":
-                continue
-            if clean_job_items:
-                claim.update(availability="available", confidence=0.95, evidence_ids=[f"ev-jobs-{org}"])
-            if claim["availability"] == "available":
-                claim["value"] = {
-                    "active_job_postings_count": len(clean_job_items), "appears_to_be_hiring": bool(clean_job_items),
-                    "status": hiring.get("status"), "careers_url": careers_url, "url": careers_url,
-                }
-
     jobs_ev_id = f"ev-jobs-{org}"
+    if clean_job_items:
+        hiring_state = "actively_recruiting"
+        hiring_sources = [jobs_ev_id]
+        assessment = "At least one current individual vacancy was verified."
+    elif profile["recruitment_notice"]:
+        hiring_state = "recruitment_notice_without_verified_expiry"
+        hiring_sources = [site_ev_id, notice_id]
+        assessment = "A first-party recruitment notice was found. Vacancy freshness is unconfirmed."
+    elif careers_url:
+        hiring_state = "recruitment_page_present"
+        hiring_sources = [site_ev_id, career_ev_id]
+        assessment = "A company careers page was found. No current individual vacancy was verified."
+    else:
+        hiring_state = "unknown"
+        hiring_sources = []
+        assessment = "The checked sources did not establish current hiring status."
+    hiring_value = {"active_job_postings_count": len(clean_job_items),
+                    "appears_to_be_hiring": True if clean_job_items else None,
+                    "status": hiring_state, "careers_url": careers_url, "url": careers_url}
+    profile["hiring"] = {**hiring, **hiring_value, "assessment": assessment,
+                         "confidence": "high" if clean_job_items else "limited"}
+    claims.append({"field": "hiring_status", "value": hiring_value if hiring_sources else None,
+                   "availability": "available" if hiring_sources else "not_available",
+                   "confidence": 0.95 if hiring_sources else 0.0, "evidence_ids": hiring_sources})
+
     if clean_job_items:
         primary_job = clean_job_items[0]
         j_url = str(primary_job.get("url") or website_url or "")
@@ -1543,7 +1518,8 @@ def terminal_envelope(
         require_legal_operator=require_legal_operator,
     )
     website_fields = {"official_website": "exact_operator", "registry_declared_website": "registry_declared",
-                      "norwegian_website_presence": "norwegian_company_presence", "registry_website_redirect": "legacy_redirect"}
+                      "norwegian_website_presence": "norwegian_company_presence", "registry_website_redirect": "legacy_redirect",
+                      "group_website_company_page": "legal_entity_on_group_domain"}
     profile["website_relationships"] = [
         {"scope": website_fields[claim["field"]], "value": claim["value"], "evidence_ids": claim["evidence_ids"]}
         for claim in claims if claim["field"] in website_fields and claim["availability"] == "available"

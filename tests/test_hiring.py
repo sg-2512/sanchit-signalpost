@@ -48,7 +48,7 @@ class TestHiringModules(unittest.TestCase):
         hiring_block, obs = evaluate_company_hiring(profile)
         self.assertEqual(hiring_block["registered_employees"], 12)
         self.assertEqual(hiring_block["status"], "unknown")
-        self.assertFalse(hiring_block["appears_to_be_hiring"])
+        self.assertIsNone(hiring_block["appears_to_be_hiring"])
 
     def test_evaluate_company_hiring_with_zero_employees(self):
         profile = {
@@ -58,7 +58,7 @@ class TestHiringModules(unittest.TestCase):
             "evidence": {},
         }
         hiring_block, obs = evaluate_company_hiring(profile)
-        self.assertFalse(hiring_block["appears_to_be_hiring"])
+        self.assertIsNone(hiring_block["appears_to_be_hiring"])
         self.assertEqual(hiring_block["status"], "unknown")
 
     @patch("urllib.request.urlopen")

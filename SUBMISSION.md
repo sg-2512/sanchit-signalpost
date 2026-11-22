@@ -18,9 +18,9 @@ The official score uses 50 points for recall and coverage, 30 for precision and 
 
 ## Reproducible commands
 
-The [100-company smoke report](https://github.com/sg-2512/sanchit-signalpost/blob/890827b41c6754502cd47b8e977879daff66def5/submission/smoke-report.json) covers the commit published on 22 November 2026 IST. That run returned 100 valid envelopes, with evidence links for all 1,426 available claims. It used 1,687 requests in 1,161.8 seconds and incurred $0 in API cost. The [smoke-test input](submission/smoke-input.jsonl) contains the organisation numbers used for this run.
+The [100-company smoke report](submission/smoke-report.json) records this revision replaying the saved source responses from a live 100-company run. The replay returned one valid envelope per input, with evidence links for all 1,421 available claims. The report also records the live collection's request count, runtime and estimated API cost under its earlier commit. The [smoke-test input](submission/smoke-input.jsonl) contains the organisation numbers used in both checks.
 
-The [revision validation](submission/revision-validation.json) records a 100-company replay with the current default budget. It also links the earlier live test of all three optional APIs to the commit tested.
+The [earlier connector validation](submission/revision-validation.json) records a separate live test that exercised all three optional APIs and identifies the commit tested.
 
 The evaluator supplies `INPUT_JSONL`, `FROZEN_BRREG_CSV`, `REQUEST_LIMIT`, and `WALL_SECONDS`. Substitute the assigned values in this command. Google Places, YouTube, and Patentstyret are available to eligible companies when the evaluator sets the API keys in its environment. The shared API spending ceiling is $10 per 100 companies, scaled to the input size. The evaluator can use `--max-cost` to apply a lower limit.
 
@@ -63,7 +63,7 @@ uv run --locked python scripts/validate_submission_ready.py \
 
 The smoke report proves only local output-contract completeness and traceability. Builderr independently determines score and qualification.
 
-The official command uses deterministic synthesis. The expected API spend without paid discovery is $0. Any optional credentials come from the evaluator's environment. Google Places can propose candidate websites within the supplied budget. Its responses stay transient, and only independently fetched, verified company pages can support a website claim. NAV vacancies need registered access. See the [source declaration](config/source-rights.json) and [execution notes](docs/submission-execution.md) for the licences, access requirements, and cache policy.
+The official command uses deterministic synthesis. The credentialed 100-company live smoke collection incurred an estimated $3.508 in API charges. That is about $35 per 1,000 companies at the observed request mix, with actual cost varying by API availability, eligible inputs and the supplied budget. Any optional credentials come from the evaluator's environment. Google Places proposes candidate websites within the supplied budget. Its responses stay transient, and only independently fetched, verified company pages can support a website claim. NAV vacancies need registered access. See the [source declaration](config/source-rights.json) and [execution notes](docs/submission-execution.md) for the licences, access requirements, and cache policy.
 
 ## Independent local audit
 

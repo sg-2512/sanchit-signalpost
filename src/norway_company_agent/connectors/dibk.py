@@ -57,10 +57,13 @@ def fetch_construction_approval(org: str, *, budget=None) -> dict | None:
     metrics = {"authority": "Direktoratet for byggkvalitet (DiBK)", "license_type": "Sentral godkjenning",
                "status": "approved", "valid_from": valid_from or None, "valid_through": valid_through, "approval_areas": areas,
                "as_of": result.retrieved_at, "data_license": "CC BY 4.0"}
+    terms = body.get("additional_terms")
+    if isinstance(terms, dict) and isinstance(terms.get("educational_enterprise_approved"), bool):
+        metrics["approved_training_company"] = terms["educational_enterprise_approved"]
     prefix = "/dibk-sgdata" if body is not result.body else ""
     source_fields = capture_source_fields(result.body, tuple(prefix + key for key in (
         "/enterprise/organizational_number", "/status/approved", "/status/approval_period_from",
-        "/status/approval_period_to", "/valid_approval_areas",
+        "/status/approval_period_to", "/valid_approval_areas", "/additional_terms/educational_enterprise_approved",
     )))
     return {"id": f"approval-dibk-{org}", "organisation_number": org, "platform": "dibk",
             "signal_type": "regulatory_license_record", "source_url": result.url,

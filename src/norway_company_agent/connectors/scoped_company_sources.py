@@ -6,8 +6,8 @@ import unicodedata
 from urllib.parse import urlsplit
 
 from ..evidence import utc_now
-from ..verified_items import cision_release_channel, name_in_text, validate_news_item
-from ..website import fetch_source_page, norwegian_presence_path
+from ..verified_items import cision_release_channel, name_in_text, registered_domain, validate_news_item
+from ..website import fetch_source_page, normalize_homepage, norwegian_presence_path
 
 
 def _company_name_match(name: str, text: str) -> re.Match | None:
@@ -52,6 +52,33 @@ def assess_norwegian_presence(page: dict, *, org: str, company: str) -> dict | N
                     "newsroom_links": page.get("newsroom_links") or [],
                     "value": {"url": scope, "relationship": "norwegian_company_presence", "organisation_number": org}}
     return {"status": "ambiguous", "source_url": page["url"], "note": "Exact local legal name and number not captured together"}
+
+
+def assess_group_site_presence(page: dict, *, declared_url: str, org: str, company: str) -> dict | None:
+    """Recognize an entity listed on its registry-declared group's site."""
+    url = str(page.get("url") or "")
+    digest = str(page.get("content_sha256") or "")
+    try:
+        declared_domain = registered_domain(normalize_homepage(declared_url))
+    except (ValueError, TypeError):
+        return None
+    if (not declared_domain or not url.startswith("https://") or registered_domain(url) != declared_domain
+            or not re.fullmatch(r"[0-9]{9}", org) or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+        return None
+    text = unicodedata.normalize("NFKC", str(page.get("visible_text_excerpt") or page.get("main_text_excerpt") or ""))
+    for heading in re.finditer(r"\b(?:our group companies|group companies|våre konsernselskaper|konsernets selskaper)\b", text, re.I):
+        entry = text[heading.end():heading.end() + 700]
+        name = _company_name_match(company, entry)
+        if not name:
+            continue
+        digits = r"[\s.\-]*".join(org)
+        number = re.match(rf"\s*(?:registration(?:\s+number)?|organisasjonsnummer|org\.?\s*nr\.?)\s*[:.]?\s*{digits}(?!\d)", entry[name.end():], re.I)
+        if number:
+            return {"status": "available", "source_url": url, "content_sha256": digest,
+                    "source_class": "company_site", "retrieved_at": page.get("retrieved_at"),
+                    "literal_excerpt": entry[name.start():name.end() + number.end()],
+                    "value": {"url": url, "relationship": "legal_entity_on_group_domain", "organisation_number": org}}
+    return None
 
 
 def fetch_scoped_newsroom(url: str, *, scope: str, org: str, company: str, budget) -> list[dict]:

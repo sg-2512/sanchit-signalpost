@@ -234,12 +234,12 @@ def evaluate_company_hiring(
         titles = [s.get("title") for s in signals if s.get("title")][:3]
         summary_note = f"Actively hiring: {active_postings_count} open vacancy posting(s) confirmed on NAV/company website ({', '.join(filter(None, titles))})."
     elif has_career_page:
-        appears_to_be_hiring = False
+        appears_to_be_hiring = None
         status_code = "recruitment_page_present"
         urls_str = ", ".join(web_signals["career_urls"]) if web_signals["career_urls"] else "website"
         summary_note = f"Career or recruitment page found at {urls_str}; no currently open vacancy verified."
     else:
-        appears_to_be_hiring = False
+        appears_to_be_hiring = None
         status_code = "unknown"
         summary_note = "Current hiring status is unknown; the bounded checks did not verify an open advert and cannot exclude other sources."
 

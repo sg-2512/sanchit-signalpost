@@ -124,9 +124,9 @@ Supply optional credentials as process environment variables to enable the corre
 
 | Environment Variable | Connector | Description | Default / Fallback |
 | :--- | :--- | :--- | :--- |
-| `GOOGLE_PLACES_API_KEY` | Google Places API | Transient website candidates using evaluator-authorized access | Off ($0.00) / Registry and company-site discovery |
-| `YOUTUBE_API_KEY` | YouTube Data API v3 | Official video channel metrics & engagement | Off ($0.00) / Website-linked channels |
-| `PATENTSTYRET_API_KEY`| Patentstyret API | Norwegian patents & registered trademarks | Off ($0.00) / Bulk NIPO records |
+| `GOOGLE_PLACES_API_KEY` | Google Places API | Transient website candidates using evaluator-authorized access | Registry and company-site discovery |
+| `YOUTUBE_API_KEY` | YouTube Data API v3 | Public metrics for channels linked by verified company sites | Website-linked channel URLs |
+| `PATENTSTYRET_API_KEY` | Patentstyret API | Patent, trademark and design case records matched by company number | Skip Patentstyret lookup |
 | `SIGNALPOST_NAV_FEED_TOKEN` | NAV Job Vacancy Feed | Registered access for active job verification | Off / Verified company career pages |
 
 ## Submission contract

@@ -64,11 +64,14 @@ def test_dibk_uses_exact_approval_row(monkeypatch):
     org = "994223402"
     result = FetchResult(f"{dibk.ENDPOINT}/{org}", 200, 1, 100,
                          body={"enterprise": {"organizational_number": org, "name": "EXAMPLE AS"},
-                               "status": {"approved": True, "approval_period_to": "2099-01-01"}},
+                               "status": {"approved": True, "approval_period_to": "2099-01-01"},
+                               "additional_terms": {"educational_enterprise_approved": True}},
                          retrieved_at="2026-11-21T10:00:00Z", content_sha256="a" * 64)
     monkeypatch.setattr(dibk, "fetch_json", lambda *args, **kwargs: result)
     approval = dibk.fetch_construction_approval(org)
     assert approval["metrics"]["status"] == "approved"
+    assert approval["metrics"]["approved_training_company"] is True
+    assert {"source_pointer": "/additional_terms/educational_enterprise_approved", "source_value": True} in approval["source_fields"]
     assert publishable_observation(approval)
     result.body["enterprise"]["organizational_number"] = "923609016"
     assert dibk.fetch_construction_approval(org) is None
@@ -447,6 +450,51 @@ def test_registry_declared_url_does_not_verify_blocked_website():
     assert record["evidence_kind"] == "structured_pointer"
     assert record["source_fields"] == [{"source_pointer": "/hjemmeside", "source_value": "www.example.no"}]
     assert "claim_span" not in record
+
+
+def test_forced_dissolution_starts_public_summary_and_cites_status_fields():
+    from norway_company_agent.synthesis import synthesize_published_claims
+
+    org = "926867407"
+    registry = {"organisasjonsnummer": org, "navn": "VOSS ASFALT AS", "konkurs": False,
+                "underAvvikling": False, "underTvangsavviklingEllerTvangsopplosning": True,
+                "tvangsopplostPgaManglendeRevisorDato": "2026-09-28"}
+    profile = {"organisation_number": org, "evidence": {"registry_live": {
+        "status": "available", "source_url": f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+        "content_sha256": "a" * 64, "value": registry,
+    }}}
+    claims, evidence = build_contract_claims_and_evidence(profile, "2026-11-22T00:00:00Z")
+    fact = synthesize_published_claims(claims, evidence)["sentence_citations"][0]
+    assert fact["id"] == "company_status"
+    assert "forced dissolution" in fact["sentence"]
+    assert "2026-09-28" in fact["sentence"]
+    source = next(row for row in evidence if row["id"] in fact["evidence_ids"])
+    assert {item["source_pointer"] for item in source["source_fields"]} == {
+        "/underTvangsavviklingEllerTvangsopplosning", "/tvangsopplostPgaManglendeRevisorDato",
+    }
+
+
+def test_group_listing_publishes_scoped_relationship_only():
+    org = "943098557"
+    url = "https://mintra.com/about-us"
+    page = {"url": url, "content_sha256": "b" * 64,
+            "visible_text_excerpt": "Our group companies Mintra AS Registration: 943098557 Bergen"}
+    profile = {"organisation_number": org, "name": "MINTRA AS", "evidence": {
+        "registry_live": {"status": "available", "source_url": f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}",
+                          "content_sha256": "a" * 64, "value": {"organisasjonsnummer": org, "navn": "MINTRA AS",
+                                                                   "hjemmeside": "www.mintra.com"}},
+        "website": {"status": "available", "source_url": "https://mintra.com/", "content_sha256": "c" * 64,
+                    "value": {"final_url": "https://mintra.com/", "pages": [page]}},
+    }}
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-22T00:00:00Z", require_legal_operator=True)
+    by_field = {claim["field"]: claim for claim in claims}
+    assert by_field["group_website_company_page"]["value"]["url"] == url
+    assert by_field["official_website"]["availability"] != "available"
+    assert by_field["hiring_status"]["availability"] != "available"
+    assert profile["hiring"]["appears_to_be_hiring"] is None
+    page["visible_text_excerpt"] = "Our group companies Mintra AS Other Company AS Registration: 943098557"
+    claims, _ = build_contract_claims_and_evidence(profile, "2026-11-22T00:00:00Z", require_legal_operator=True)
+    assert all(claim["field"] != "group_website_company_page" for claim in claims)
 
 
 def test_group_404_preserves_status_without_empty_response_evidence():
